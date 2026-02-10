@@ -50,6 +50,12 @@
 
   "optionsTitle": { "message": "Crypto Wallet SignGuard Options" },
   "optionsSubtitle": { "message": "Tune what gets blocked/warned. Defaults are safe for an MVP." },
+  "intelTitle": { "message": "Threat intel" },
+  "intelSubtitle": { "message": "Seed trusted domains + phishing blocklist (auto-updated daily)." },
+  "intelTrustedCountLabel": { "message": "Trusted seed domains" },
+  "intelBlockedCountLabel": { "message": "Blocked (phishing) domains" },
+  "intelUpdatedAtLabel": { "message": "Last update" },
+  "intelUpdateNow": { "message": "Update now" },
   "riskWarningsLabel": { "message": "Risk warnings" },
   "riskWarningsDesc": { "message": "Show overlays for risky requests." },
   "connectOverlayLabel": { "message": "Connect overlay" },

@@ -39,6 +39,39 @@ async function save(s: Settings) {
   });
 }
 
+function runtimeSendMessage<T = any>(msg: any): Promise<T | null> {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome?.runtime?.sendMessage) return resolve(null);
+      chrome.runtime.sendMessage(msg, (resp) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve(null);
+        resolve(resp as T);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function fmtDate(ts: number | null | undefined) {
+  if (!ts || !Number.isFinite(ts)) return "—";
+  try { return new Date(ts).toLocaleString(); } catch { return String(ts); }
+}
+
+async function refreshIntelSummary() {
+  const resp: any = await runtimeSendMessage({ type: "SG_INTEL_SUMMARY" });
+  if (!resp?.ok) {
+    $("intelTrustedCount").textContent = "—";
+    $("intelBlockedCount").textContent = "—";
+    $("intelUpdatedAt").textContent = "—";
+    return;
+  }
+  $("intelTrustedCount").textContent = String(resp.trustedCount ?? "—");
+  $("intelBlockedCount").textContent = String(resp.blockedCount ?? "—");
+  $("intelUpdatedAt").textContent = fmtDate(resp.intelUpdatedAt);
+}
+
 function linesToList(v: string) {
   return v
     .split("\n")
@@ -94,5 +127,17 @@ function listToLines(v: string[]) {
     const st = $("status");
     st.style.opacity = "1";
     setTimeout(() => (st.style.opacity = "0"), 1200);
+  });
+
+  await refreshIntelSummary();
+  $("intelUpdateNow")?.addEventListener("click", async () => {
+    const resp: any = await runtimeSendMessage({ type: "SG_INTEL_UPDATE_NOW" });
+    if (resp?.ok) {
+      $("intelTrustedCount").textContent = String(resp.trustedCount ?? "—");
+      $("intelBlockedCount").textContent = String(resp.blockedCount ?? "—");
+      $("intelUpdatedAt").textContent = fmtDate(resp.intelUpdatedAt);
+    } else {
+      await refreshIntelSummary();
+    }
   });
 })();

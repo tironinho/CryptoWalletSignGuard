@@ -1,4 +1,4 @@
-import type { AnalyzeRequest, Analysis, Settings } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings, ThreatIntel, TxSummary } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import { decodeErc20Approve, decodeSetApprovalForAll } from "./shared/decode";
 import { hostFromUrl, isAllowlisted, hexSelector, isHexString } from "./shared/utils";
@@ -6,8 +6,74 @@ import { t } from "./i18n";
 import { computeTrustVerdict } from "./shared/trust";
 import { buildHumanLists, explainMethod } from "./shared/explain";
 import { SUGGESTED_TRUSTED_DOMAINS as SUGGESTED_TRUSTED_DOMAINS_SHARED } from "./shared/constants";
+import { fetchThreatIntel, hostMatchesDomain, normalizeHost, TRUSTED_DOMAINS_SEED } from "./intel";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
+
+const INTEL_KEY = "sg_threat_intel";
+const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function loadIntel(): Promise<ThreatIntel | null> {
+  return await new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([INTEL_KEY], (r) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve(null);
+        resolve((r as any)?.[INTEL_KEY] ?? null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function saveIntel(intel: ThreatIntel) {
+  await new Promise<void>((resolve) => {
+    try {
+      chrome.storage.local.set({ [INTEL_KEY]: intel }, () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function getIntelFresh(): Promise<ThreatIntel> {
+  try {
+    const cached = await loadIntel();
+    if (cached && Date.now() - cached.updatedAt < INTEL_TTL_MS) return cached;
+    const fresh = await fetchThreatIntel();
+    await saveIntel(fresh);
+    return fresh;
+  } catch {
+    const now = Date.now();
+    return {
+      updatedAt: now,
+      sources: [{ id: "fallback", url: "", ok: false, fetchedAt: now, error: "intel_unavailable" }],
+      trustedDomains: TRUSTED_DOMAINS_SEED.map((x) => normalizeHost(x.domain)),
+      blockedDomains: [],
+    };
+  }
+}
+
+async function updateIntelNow(): Promise<ThreatIntel> {
+  const fresh = await fetchThreatIntel();
+  await saveIntel(fresh);
+  return fresh;
+}
+
+try {
+  chrome.runtime.onInstalled.addListener(async () => {
+    try { await updateIntelNow(); } catch {}
+    try { chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 }); } catch {}
+  });
+} catch {}
+
+try {
+  chrome.alarms.onAlarm.addListener(async (a) => {
+    if (a.name !== "sg_intel_daily") return;
+    try { await updateIntelNow(); } catch {}
+  });
+} catch {}
 
 let __ethUsdCache: { usdPerEth: number; fetchedAt: number } | null = null;
 
@@ -65,7 +131,80 @@ function domainHeuristicsLocalized(host: string): { level: "LOW" | "WARN"; reaso
   return { level: reasons.length ? "WARN" : "LOW", reasons };
 }
 
-function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
+function hexToBigInt(hex?: string): bigint | null {
+  if (!hex) return null;
+  try {
+    const h = String(hex).startsWith("0x") ? String(hex) : "0x" + String(hex);
+    return BigInt(h);
+  } catch { return null; }
+}
+
+function weiToEthString(wei: bigint, decimals = 6): string {
+  // 1 ETH = 1e18 wei
+  const base = 10n ** 18n;
+  const whole = wei / base;
+  const frac = wei % base;
+  const fracStr = frac.toString().padStart(18, "0").slice(0, decimals);
+  return `${whole.toString()}.${fracStr}`.replace(/\.?0+$/, (m) => (m.startsWith(".") ? "" : m));
+}
+
+function buildTxSummary(method: string, params: any[] | undefined): TxSummary | undefined {
+  if (method !== "eth_sendtransaction") return undefined;
+  const tx = params?.[0];
+  if (!tx || typeof tx !== "object") return undefined;
+
+  const to = typeof (tx as any).to === "string" ? (tx as any).to : undefined;
+
+  const valueWeiBI = hexToBigInt((tx as any).value);
+  const gasLimitBI = hexToBigInt((tx as any).gas ?? (tx as any).gasLimit);
+  const maxFeePerGasBI = hexToBigInt((tx as any).maxFeePerGas);
+
+  const valueWei = valueWeiBI ? valueWeiBI.toString(10) : undefined;
+  const valueEth = valueWeiBI ? weiToEthString(valueWeiBI) : undefined;
+
+  const selector =
+    typeof (tx as any).data === "string" && (tx as any).data.startsWith("0x") && (tx as any).data.length >= 10
+      ? (tx as any).data.slice(0, 10)
+      : undefined;
+
+  let maxGasFeeEth: string | undefined;
+  if (gasLimitBI && maxFeePerGasBI) {
+    const maxGasFeeWei = gasLimitBI * maxFeePerGasBI;
+    maxGasFeeEth = weiToEthString(maxGasFeeWei);
+  }
+
+  let maxTotalEth: string | undefined;
+  if (valueWeiBI && gasLimitBI && maxFeePerGasBI) {
+    const maxGasFeeWei = gasLimitBI * maxFeePerGasBI;
+    maxTotalEth = weiToEthString(valueWeiBI + maxGasFeeWei);
+  }
+
+  return {
+    to,
+    valueWei,
+    valueEth,
+    selector,
+    gasLimit: gasLimitBI ? gasLimitBI.toString(10) : undefined,
+    maxFeePerGasWei: maxFeePerGasBI ? maxFeePerGasBI.toString(10) : undefined,
+    maxGasFeeEth,
+    maxTotalEth,
+  };
+}
+
+function chainName(chainIdHex: string): string | undefined {
+  const id = String(chainIdHex || "").toLowerCase();
+  const map: Record<string, string> = {
+    "0x1": "Ethereum Mainnet",
+    "0x89": "Polygon",
+    "0xa4b1": "Arbitrum One",
+    "0xa": "Optimism",
+    "0x38": "BNB Chain (BSC)",
+    "0xa86a": "Avalanche C-Chain",
+  };
+  return map[id];
+}
+
+function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | null): Analysis {
   const host = hostFromUrl(req.url);
   const reasons: string[] = [];
   let level: Analysis["level"] = "LOW";
@@ -88,6 +227,23 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
   }
 
   const method = (req.request?.method || "").toLowerCase();
+
+  // Threat intel (blocked/trusted seed)
+  try {
+    const h = normalizeHost(host || "");
+    const isBlocked = !!intel?.blockedDomains?.some((d) => hostMatchesDomain(h, d));
+    const isTrustedSeed = !!intel?.trustedDomains?.some((d) => hostMatchesDomain(h, d));
+
+    if (isBlocked) {
+      reasons.push("Domínio está em blacklist de phishing.");
+      level = "HIGH";
+      score = Math.max(score, 95);
+      title = t("suspiciousWebsitePatterns");
+    } else if (isTrustedSeed) {
+      reasons.push("Domínio está na lista seed de sites oficiais conhecidos.");
+      score = Math.max(0, score - 15);
+    }
+  } catch {}
 
   // Connect / permissions
   if (method === "eth_requestaccounts" || method === "wallet_requestpermissions") {
@@ -227,6 +383,14 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
       recommend: "WARN",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      chainTarget: (() => {
+        try {
+          const p0 = (req.request.params as any)?.[0];
+          const chainIdHex = String(p0?.chainId || "");
+          if (!chainIdHex) return undefined;
+          return { chainIdHex, chainName: chainName(chainIdHex) };
+        } catch { return undefined; }
+      })(),
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -273,6 +437,7 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
     const to = (tx.to ?? "").toLowerCase();
     const data = typeof tx.data === "string" ? tx.data : "";
     const value = tx.value ?? "0x0";
+    const txSummary = buildTxSummary(method, (req.request.params || []) as any);
 
     if (isHexString(data) && data.startsWith("0x")) {
       const ap = decodeErc20Approve(data.toLowerCase());
@@ -297,6 +462,7 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
             ,
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+            tx: txSummary,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -329,6 +495,7 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
             ,
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+            tx: txSummary,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -364,6 +531,7 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
           ,
           trust,
           suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+          tx: txSummary,
           human: {
             methodTitle: explain.title,
             methodShort: explain.short,
@@ -385,6 +553,9 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
       score = 20;
       reasons.push(t("txWarnReason"));
     }
+    if (txSummary?.valueEth) reasons.push(`Transação envia ~${txSummary.valueEth} ETH (valor).`);
+    if (!txSummary?.maxGasFeeEth) reasons.push("Taxa de rede (gas) será estimada pela carteira.");
+    if (txSummary?.maxTotalEth) reasons.push(`Custo máximo (valor + gas): ~${txSummary.maxTotalEth} ETH.`);
     return {
       level,
       score,
@@ -395,6 +566,7 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
       ,
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      tx: txSummary,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -443,10 +615,38 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: true, usdPerEth });
       return;
     }
+    if (msg?.type === "SG_INTEL_SUMMARY") {
+      const intel = await getIntelFresh();
+      sendResponse({
+        ok: true,
+        intelUpdatedAt: intel.updatedAt,
+        trustedCount: intel.trustedDomains?.length || 0,
+        blockedCount: intel.blockedDomains?.length || 0,
+        sources: intel.sources || [],
+      });
+      return;
+    }
+    if (msg?.type === "SG_INTEL_UPDATE_NOW") {
+      let intel: ThreatIntel;
+      try {
+        intel = await updateIntelNow();
+      } catch {
+        intel = await getIntelFresh();
+      }
+      sendResponse({
+        ok: true,
+        intelUpdatedAt: intel.updatedAt,
+        trustedCount: intel.trustedDomains?.length || 0,
+        blockedCount: intel.blockedDomains?.length || 0,
+        sources: intel.sources || [],
+      });
+      return;
+    }
     if (!msg || msg.type !== "ANALYZE") return;
     const settings = await getSettings();
+    const intel = await getIntelFresh();
     const req = msg.payload as AnalyzeRequest;
-    const analysis = analyze(req, settings);
+    const analysis = analyze(req, settings, intel);
 
     // If warnings disabled, don't block or warn — just allow
     if (!settings.riskWarnings) {

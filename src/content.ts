@@ -373,6 +373,20 @@ function renderOverlay(state: OverlayState) {
   const valueProvided = (() => {
     try { return !!(stepTx?.tx && typeof stepTx.tx.value === "string" && stepTx.tx.value.length > 0); } catch { return false; }
   })();
+  const txTo = (() => {
+    try { return typeof stepTx?.tx?.to === "string" ? String(stepTx.tx.to) : undefined; } catch { return undefined; }
+  })();
+  const txSelector = (() => {
+    try {
+      const d = stepTx?.tx?.data;
+      return (typeof d === "string" && d.startsWith("0x") && d.length >= 10) ? d.slice(0, 10) : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const maxGasFeeEth = analysis?.tx?.maxGasFeeEth;
+  const maxTotalEth = analysis?.tx?.maxTotalEth;
+  const chainTarget = analysis?.chainTarget;
 
   state.app.innerHTML = `
     <div class="sg-backdrop">
@@ -427,6 +441,14 @@ function renderOverlay(state: OverlayState) {
                     <div style="margin-top:2px"><b>${escapeHtml("Você envia")}</b>: <code>${escapeHtml(`${valueEth} ETH${valueProvided ? "" : " (apenas taxa)"}`)}</code></div>
                     <div style="margin-top:6px"><b>${escapeHtml(t("cost_fee"))}</b>: <code>${escapeHtml(gasEth ? `${gasEth} ETH` : t("gas_calculating"))}</code> <span class="sg-sub" id="sg-usd-gas" style="margin-left:6px"></span></div>
                     <div style="margin-top:6px"><b>${escapeHtml(t("cost_total"))}</b>: <code>${escapeHtml(totalEth ? `${totalEth} ETH` : t("gas_calculating"))}</code> <span class="sg-sub" id="sg-usd-total" style="margin-left:6px"></span></div>
+                    ${txTo ? `<div style="margin-top:10px"><b>Destino</b>: <code>${escapeHtml(shortenHex(txTo))}</code></div>` : ""}
+                    ${txSelector ? `<div style="margin-top:6px"><b>Contrato/método</b>: <code>${escapeHtml(txSelector)}</code></div>` : ""}
+                    ${
+                      maxGasFeeEth
+                        ? `<div style="margin-top:10px"><b>Gas máx (ETH)</b>: <code>${escapeHtml(String(maxGasFeeEth))} ETH</code></div>`
+                        : `<div style="margin-top:10px" class="sg-sub">A taxa será estimada pela carteira (MetaMask) na próxima etapa.</div>`
+                    }
+                    ${maxTotalEth ? `<div style="margin-top:6px"><b>Total máx (ETH)</b>: <code>${escapeHtml(String(maxTotalEth))} ETH</code></div>` : ""}
                   </div>
                 </div>`
               : (displayAction === "SWITCH_CHAIN" && !hasTxInFlow && hasRecentSwitch(__sgFlow))
@@ -437,6 +459,17 @@ function renderOverlay(state: OverlayState) {
                     </div>
                   </div>`
                 : ""
+          }
+
+          ${
+            (displayAction === "SWITCH_CHAIN" || displayAction === "ADD_CHAIN") && chainTarget?.chainIdHex
+              ? `<div class="sg-kv">
+                  <div class="sg-k">${escapeHtml("Rede alvo")}</div>
+                  <div class="sg-v">
+                    <div class="sg-sub">${escapeHtml(chainTarget.chainName ? `${chainTarget.chainName} (${chainTarget.chainIdHex})` : chainTarget.chainIdHex)}</div>
+                  </div>
+                </div>`
+              : ""
           }
 
           ${

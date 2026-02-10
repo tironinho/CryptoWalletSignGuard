@@ -71,6 +71,24 @@ export type HumanExplanation = {
   links?: Array<{ text: string; href: string }>;
 };
 
+export type ThreatIntel = {
+  updatedAt: number;
+  sources: Array<{ id: string; url: string; ok: boolean; fetchedAt: number; error?: string }>;
+  trustedDomains: string[];
+  blockedDomains: string[];
+};
+
+export type TxSummary = {
+  to?: string;
+  valueWei?: string;        // decimal
+  valueEth?: string;        // formatted
+  selector?: string;        // 0x + 8 hex
+  gasLimit?: string;        // decimal
+  maxFeePerGasWei?: string; // decimal
+  maxGasFeeEth?: string;    // ETH
+  maxTotalEth?: string;     // ETH (value + maxGasFee)
+};
+
 export type Analysis = {
   level: RiskLevel;
   score: number; // 0-100
@@ -81,6 +99,8 @@ export type Analysis = {
   trust?: TrustAnalysis;
   human?: HumanExplanation;
   suggestedTrustedDomains?: string[];
+  tx?: TxSummary;
+  chainTarget?: { chainIdHex: string; chainName?: string };
 };
 
 export type Settings = {

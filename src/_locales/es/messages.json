@@ -50,6 +50,12 @@
 
   "optionsTitle": { "message": "Opciones de Crypto Wallet SignGuard" },
   "optionsSubtitle": { "message": "Ajusta qué se bloquea/avisa. Los valores por defecto son seguros para un MVP." },
+  "intelTitle": { "message": "Threat intel" },
+  "intelSubtitle": { "message": "Seed de dominios confiables + lista de phishing (actualiza diariamente)." },
+  "intelTrustedCountLabel": { "message": "Dominios seed confiables" },
+  "intelBlockedCountLabel": { "message": "Dominios bloqueados (phishing)" },
+  "intelUpdatedAtLabel": { "message": "Última actualización" },
+  "intelUpdateNow": { "message": "Actualizar ahora" },
   "riskWarningsLabel": { "message": "Avisos de riesgo" },
   "riskWarningsDesc": { "message": "Mostrar overlay para solicitudes de riesgo." },
   "connectOverlayLabel": { "message": "Overlay de conexión" },
