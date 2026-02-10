@@ -11,6 +11,20 @@ export type AnalyzeRequest = {
   url: string;
   origin: string;
   request: EthRequest;
+  meta?: {
+    chainId?: string;
+    chainIdRequested?: string;
+    preflight?: {
+      tx?: any;
+      valueWei?: string; // decimal
+      valueEth?: string; // decimal
+      gasEstimate?: string; // hex
+      gasPrice?: string; // hex
+      feeWeiEstimated?: string; // decimal
+      feeEthEstimated?: string; // decimal
+      totalEthEstimated?: string; // decimal
+    }
+  };
 };
 
 export type RiskLevel = "LOW" | "WARN" | "HIGH";
@@ -75,6 +89,7 @@ export type Settings = {
   blockHighRisk: boolean;
   domainChecks: boolean;
   allowlist: string[];
+  trustedDomains?: string[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -82,6 +97,27 @@ export const DEFAULT_SETTINGS: Settings = {
   showConnectOverlay: true,
   blockHighRisk: true,
   domainChecks: true,
-  allowlist: ["app.uniswap.org", "uniswap.org", "opensea.io", "blur.io"],
+  trustedDomains: [
+    "opensea.io",
+    "blur.io",
+    "app.uniswap.org",
+    "uniswap.org",
+    "looksrare.org",
+    "x2y2.io",
+    "etherscan.io",
+    "arbitrum.io",
+    "polygon.technology",
+  ],
+  allowlist: [
+    "opensea.io",
+    "blur.io",
+    "app.uniswap.org",
+    "uniswap.org",
+    "looksrare.org",
+    "x2y2.io",
+    "etherscan.io",
+    "arbitrum.io",
+    "polygon.technology",
+  ],
 };
 

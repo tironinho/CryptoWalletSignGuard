@@ -59,7 +59,8 @@ function listToLines(v: string[]) {
   $("showConnectOverlay").checked = s.showConnectOverlay;
   $("blockHighRisk").checked = s.blockHighRisk;
   $("domainChecks").checked = s.domainChecks;
-  $("allowlist").value = listToLines(s.allowlist);
+  const domains = (s.trustedDomains && Array.isArray(s.trustedDomains) && s.trustedDomains.length) ? s.trustedDomains : s.allowlist;
+  $("allowlist").value = listToLines(domains);
 
   $("save").addEventListener("click", async () => {
     const next: Settings = {
@@ -67,7 +68,8 @@ function listToLines(v: string[]) {
       showConnectOverlay: $("showConnectOverlay").checked,
       blockHighRisk: $("blockHighRisk").checked,
       domainChecks: $("domainChecks").checked,
-      allowlist: linesToList($("allowlist").value)
+      allowlist: linesToList($("allowlist").value),
+      trustedDomains: linesToList($("allowlist").value)
     };
     await save(next);
     const st = $("status");
@@ -85,7 +87,8 @@ function listToLines(v: string[]) {
       showConnectOverlay: $("showConnectOverlay").checked,
       blockHighRisk: $("blockHighRisk").checked,
       domainChecks: $("domainChecks").checked,
-      allowlist: merged
+      allowlist: merged,
+      trustedDomains: merged
     };
     await save(next);
     const st = $("status");

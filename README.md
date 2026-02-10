@@ -26,6 +26,12 @@ Output: `dist/` (load this folder in Chrome/Brave).
   - Expected: SignGuard overlay appears **before** MetaMask
   - MetaMask must **NOT** open until you click **Continue**
 
+- **OpenSea 2-step flow (switch chain -> tx)**
+  - Trigger a flow that asks to switch chain first, then submits a transaction
+  - Expected:
+    - Step 1 (`wallet_switchEthereumChain`): overlay shows **Switch network** and the note that switching typically has **no gas**
+    - Step 2 (`eth_sendTransaction`): overlay updates in-place to **Send transaction** and shows **value + estimated gas + total** (ETH), with USD optional if available
+
 - **Trust verdict**
   - `opensea.io` should show **"Seems official"** (when allowlisted)
   - Test a fake like `opensea-login.xyz` should show **"Suspicious"** and recommend cancel/verify URL

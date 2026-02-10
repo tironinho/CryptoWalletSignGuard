@@ -9,6 +9,28 @@ import { SUGGESTED_TRUSTED_DOMAINS as SUGGESTED_TRUSTED_DOMAINS_SHARED } from ".
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
+let __ethUsdCache: { usdPerEth: number; fetchedAt: number } | null = null;
+
+async function getEthUsdPriceCached(): Promise<number | null> {
+  const now = Date.now();
+  if (__ethUsdCache && (now - __ethUsdCache.fetchedAt) < 60_000) return __ethUsdCache.usdPerEth;
+
+  try {
+    const resp = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", {
+      method: "GET",
+      headers: { "accept": "application/json" },
+    });
+    if (!resp.ok) return null;
+    const j: any = await resp.json();
+    const usd = Number(j?.ethereum?.usd);
+    if (!Number.isFinite(usd) || usd <= 0) return null;
+    __ethUsdCache = { usdPerEth: usd, fetchedAt: now };
+    return usd;
+  } catch {
+    return null;
+  }
+}
+
 async function getSettings(): Promise<Settings> {
   return await new Promise((resolve) => {
     try {
@@ -414,6 +436,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     if (msg?.type === "PING") {
       sendResponse({ ok: true });
+      return;
+    }
+    if (msg?.type === "GET_ETH_USD") {
+      const usdPerEth = await getEthUsdPriceCached();
+      sendResponse({ ok: true, usdPerEth });
       return;
     }
     if (!msg || msg.type !== "ANALYZE") return;
