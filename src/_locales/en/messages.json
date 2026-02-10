@@ -1,6 +1,7 @@
 {
-  "extName": { "message": "SignGuard MVP" },
-  "extDescription": { "message": "Pre-wallet risk preview for Web3 transactions (MVP)." },
+  "extName": { "message": "Crypto Wallet SignGuard" },
+  "extShortName": { "message": "SignGuard" },
+  "extDescription": { "message": "Security prompts that explain wallet connection/signature/transaction risks in plain language before you confirm in your wallet." },
   "mvpPill": { "message": "MVP" },
 
   "risk_LOW": { "message": "LOW" },
@@ -47,7 +48,7 @@
   "analyzerUnavailableReason": { "message": "Analyzer unavailable." },
   "noReasonsProvided": { "message": "No reasons provided." },
 
-  "optionsTitle": { "message": "SignGuard Options" },
+  "optionsTitle": { "message": "Crypto Wallet SignGuard Options" },
   "optionsSubtitle": { "message": "Tune what gets blocked/warned. Defaults are safe for an MVP." },
   "riskWarningsLabel": { "message": "Risk warnings" },
   "riskWarningsDesc": { "message": "Show overlays for risky requests." },

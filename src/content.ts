@@ -198,6 +198,40 @@ type SGPageRpcMsg =
 
 let __sgFlow: FlowState = newFlowState();
 
+let __sgTrustedDomains: string[] = [];
+let __sgTrustedDomainsLoaded = false;
+let __sgTrustedDomainsLoading: Promise<void> | null = null;
+
+function normalizeDomainList(v: any): string[] {
+  const arr = Array.isArray(v) ? v : [];
+  const out: string[] = [];
+  for (const x of arr) {
+    const s = String(x || "").trim().toLowerCase();
+    if (!s) continue;
+    out.push(s);
+  }
+  return Array.from(new Set(out)).slice(0, 50);
+}
+
+async function ensureTrustedDomainsLoaded() {
+  if (__sgTrustedDomainsLoaded) return;
+  if (__sgTrustedDomainsLoading) return __sgTrustedDomainsLoading;
+  __sgTrustedDomainsLoading = (async () => {
+    const r = await safeStorageGet<{ trustedDomains?: string[]; allowlist?: string[] }>({ trustedDomains: [], allowlist: [] });
+    if (r.ok) {
+      const td = normalizeDomainList((r.data as any)?.trustedDomains);
+      const al = normalizeDomainList((r.data as any)?.allowlist);
+      __sgTrustedDomains = td.length ? td : al;
+    } else {
+      __sgTrustedDomains = [];
+    }
+    __sgTrustedDomainsLoaded = true;
+    __sgTrustedDomainsLoading = null;
+    if (__sgOverlay) updateOverlay(__sgOverlay);
+  })();
+  return __sgTrustedDomainsLoading;
+}
+
 function lastSendTxStep() {
   for (let i = __sgFlow.steps.length - 1; i >= 0; i--) {
     const s = __sgFlow.steps[i] as any;
@@ -326,7 +360,7 @@ function renderOverlay(state: OverlayState) {
     }
   })();
 
-  const suggested = (analysis.suggestedTrustedDomains || []).slice(0, 10);
+  const trustedDomains = (__sgTrustedDomains || []).slice(0, 10);
 
   const moreWhat = (human?.whatItDoes || []).slice(0, 4);
   const moreRisks = (human?.risks || []).slice(0, 4);
@@ -347,7 +381,7 @@ function renderOverlay(state: OverlayState) {
           <div class="sg-brand">
             <span style="display:inline-flex; align-items:center; gap:8px;">
               <span style="width:10px; height:10px; border-radius:999px; background:#f97316;"></span>
-              <span>SignGuard</span>
+              <span>${escapeHtml(t("extName"))}</span>
             </span>
             <span class="sg-pill">${escapeHtml(t("mvpPill"))}</span>
           </div>
@@ -447,12 +481,16 @@ function renderOverlay(state: OverlayState) {
           </details>
 
           <details id="sgDetailsTrusted" class="sg-details">
-            <summary>Domínios confiáveis (referência)</summary>
+            <summary>${escapeHtml(t("trusted_domain_ref_title"))}</summary>
             <div class="sg-sub">
               <div class="sg-domain-cols">
-                ${suggested
-                  .map((d) => `<div class="sg-domain-item ${(host === d || host.endsWith("." + d)) ? "current" : ""}">${escapeHtml(d)}</div>`)
-                  .join("")}
+                ${
+                  trustedDomains.length
+                    ? trustedDomains
+                        .map((d) => `<div class="sg-domain-item ${(host === d || host.endsWith("." + d)) ? "current" : ""}">${escapeHtml(d)}</div>`)
+                        .join("")
+                    : `<div class="sg-sub" style="opacity:.9">${escapeHtml("—")}</div>`
+                }
               </div>
             </div>
           </details>
@@ -548,6 +586,7 @@ function showOverlay(
   analysis: Analysis,
   meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any }
 ) {
+  void ensureTrustedDomainsLoaded();
   // If an overlay is already open, update it in place (no close/reopen).
   if (__sgOverlay) {
     // Avoid being stuck on a previous pending request
