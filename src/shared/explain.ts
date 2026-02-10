@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import type { HumanExplanation, TrustVerdict } from "./types";
+import type { SGAction } from "./classify";
 
 export function explainMethod(method: string): { title: string; short: string; why: string } {
   const m = (method || "").toLowerCase();
@@ -65,6 +66,27 @@ export function explainMethod(method: string): { title: string; short: string; w
     short: t("explain_generic_short"),
     why: t("explain_generic_why"),
   };
+}
+
+export function actionTitle(action: SGAction): string {
+  if (action === "CONNECT") return "Conectar carteira";
+  if (action === "SWITCH_CHAIN") return "Trocar rede";
+  if (action === "ADD_CHAIN") return "Adicionar rede";
+  if (action === "REQUEST_PERMISSIONS") return "Conceder permissões";
+  if (action === "SIGN_MESSAGE") return "Assinar mensagem";
+  if (action === "SIGN_TYPED_DATA") return "Assinar mensagem (Typed Data)";
+  if (action === "SEND_TX") return "Enviar transação";
+  if (action === "WATCH_ASSET") return "Adicionar token à carteira";
+  return "Ação desconhecida";
+}
+
+export function walletExpectation(action: SGAction): string {
+  if (action === "SEND_TX") return "Você deve ver um pedido de transação (Transaction request) com valor, taxa e contrato.";
+  if (action === "SWITCH_CHAIN") return "Você deve ver um pedido de troca de rede.";
+  if (action === "CONNECT" || action === "REQUEST_PERMISSIONS") return "Você deve ver um pedido de conexão/seleção de conta.";
+  if (action === "SIGN_MESSAGE" || action === "SIGN_TYPED_DATA") return "Você deve ver um pedido de assinatura.";
+  if (action === "WATCH_ASSET") return "Você deve ver um pedido para adicionar token à carteira.";
+  return "Você deve ver um pedido na carteira compatível com a ação solicitada.";
 }
 
 // Reduced default arrays (to avoid UI bloat):

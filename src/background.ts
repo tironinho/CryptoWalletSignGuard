@@ -10,8 +10,17 @@ import { SUGGESTED_TRUSTED_DOMAINS as SUGGESTED_TRUSTED_DOMAINS_SHARED } from ".
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
 async function getSettings(): Promise<Settings> {
-  const got = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  return got as Settings;
+  return await new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(DEFAULT_SETTINGS, (got) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve(DEFAULT_SETTINGS);
+        resolve(got as Settings);
+      });
+    } catch {
+      resolve(DEFAULT_SETTINGS);
+    }
+  });
 }
 
 function domainHeuristicsLocalized(host: string): { level: "LOW" | "WARN"; reasons: string[] } {
@@ -403,6 +412,10 @@ function analyze(req: AnalyzeRequest, settings: Settings): Analysis {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
+    if (msg?.type === "PING") {
+      sendResponse({ ok: true });
+      return;
+    }
     if (!msg || msg.type !== "ANALYZE") return;
     const settings = await getSettings();
     const req = msg.payload as AnalyzeRequest;

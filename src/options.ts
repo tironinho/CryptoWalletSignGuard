@@ -16,12 +16,27 @@ function applyI18n(root: ParentNode = document) {
 }
 
 async function load(): Promise<Settings> {
-  const got = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  return got as Settings;
+  return await new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(DEFAULT_SETTINGS, (got) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve(DEFAULT_SETTINGS);
+        resolve(got as Settings);
+      });
+    } catch {
+      resolve(DEFAULT_SETTINGS);
+    }
+  });
 }
 
 async function save(s: Settings) {
-  await chrome.storage.sync.set(s);
+  await new Promise<void>((resolve) => {
+    try {
+      chrome.storage.sync.set(s, () => resolve());
+    } catch {
+      resolve();
+    }
+  });
 }
 
 function linesToList(v: string) {

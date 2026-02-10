@@ -52,27 +52,26 @@ const common = {
   sourcemap: true,
   platform: "browser",
   target: ["chrome120"],
-  format: "esm",
   define: {
     "process.env.NODE_ENV": JSON.stringify(watch ? "development" : "production"),
   },
 };
 
+// Required entryPoints (exact)
 const entryPoints = {
-  background: path.join(SRC, "background.ts"),
   content: path.join(SRC, "content.ts"),
-  main: path.join(SRC, "mainWorld.ts"),
+  mainWorld: path.join(SRC, "mainWorld.ts"),
+};
+
+const extraEntryPoints = {
+  background: path.join(SRC, "background.ts"),
   options: path.join(SRC, "options.ts"),
 };
 
 const contexts = [];
 
-for (const [name, entry] of Object.entries(entryPoints)) {
-  const opts = {
-    ...common,
-    entryPoints: [entry],
-    outfile: path.join(DIST, `${name}.js`),
-  };
+async function runBuild(name, entry, format) {
+  const opts = { ...common, entryPoints: [entry], outfile: path.join(DIST, `${name}.js`), format };
 
   if (watch) {
     const ctx = await context(opts);
@@ -81,6 +80,16 @@ for (const [name, entry] of Object.entries(entryPoints)) {
   } else {
     await build(opts);
   }
+}
+
+// Content script + injected mainWorld: classic scripts
+for (const [name, entry] of Object.entries(entryPoints)) {
+  await runBuild(name, entry, "iife");
+}
+
+// Background/options: ESM (background is service_worker module; options loaded as module)
+for (const [name, entry] of Object.entries(extraEntryPoints)) {
+  await runBuild(name, entry, "esm");
 }
 
 console.log("Build complete:", DIST);

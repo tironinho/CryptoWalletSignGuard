@@ -1,55 +1,137 @@
 import type { AnalyzeRequest, Analysis } from "./shared/types";
 import { t } from "./i18n";
 import { clamp, escapeHtml } from "./shared/utils";
+import { normMethod, normMethodLower } from "./shared/normalize";
+import { classifyFinalAction } from "./shared/classify";
+import { actionTitle, walletExpectation } from "./shared/explain";
 
-async function safeSendMessage<T = any>(msg: any): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+(function injectMainWorld() {
   try {
-    // Se o contexto já foi invalidado, chrome.runtime.id pode falhar/estar vazio
-    if (!chrome?.runtime?.id) return { ok: false, error: "runtime_unavailable" };
-    const resp = await new Promise<any>((resolve) => {
-      chrome.runtime.sendMessage(msg, (r) => {
+    const id = "sg-mainworld-injected";
+    if (document.getElementById(id)) return;
+
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = chrome.runtime.getURL("mainWorld.js");
+    s.type = "text/javascript";
+    (document.documentElement || document.head).appendChild(s);
+    s.onload = () => { try { s.remove(); } catch {} };
+  } catch {}
+})();
+
+type SGResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+function isContextInvalidated(msg: string) {
+  const s = (msg || "").toLowerCase();
+  return s.includes("extension context invalidated") ||
+         s.includes("context invalidated") ||
+         s.includes("the message port closed") ||
+         s.includes("runtime.lastError") ||
+         s.includes("receiving end does not exist") ||
+         s.includes("message port closed");
+}
+
+function canUseRuntime() {
+  return typeof chrome !== "undefined" && !!chrome.runtime && typeof chrome.runtime.sendMessage === "function";
+}
+
+async function safeSendMessage(msg:any): Promise<{ok:true;data:any}|{ok:false;error:string}> {
+  return new Promise((resolve) => {
+    try {
+      if (!canUseRuntime()) return resolve({ ok:false, error:"runtime_unavailable" });
+      chrome.runtime.sendMessage(msg, (resp) => {
         const err = chrome.runtime.lastError;
-        if (err) return resolve({ __sg_error: err.message || String(err) });
-        resolve(r);
+        if (err) return resolve({ ok:false, error: err.message || String(err) });
+        resolve({ ok:true, data: resp });
       });
-    });
-    if (resp && resp.__sg_error) return { ok: false, error: String(resp.__sg_error) };
-    return { ok: true, data: resp as T };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ? String(e.message) : String(e) };
-  }
+    } catch (e:any) {
+      resolve({ ok:false, error: e?.message ? String(e.message) : String(e) });
+    }
+  });
+}
+
+function safeStorageGet<T = any>(keys: any): Promise<SGResult<T>> {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome?.storage?.sync) return resolve({ ok: false, error: "storage_unavailable" });
+      chrome.storage.sync.get(keys, (items) => {
+        const err = chrome.runtime?.lastError;
+        if (err) return resolve({ ok: false, error: err.message || String(err) });
+        resolve({ ok: true, data: items as T });
+      });
+    } catch (e: any) {
+      resolve({ ok: false, error: e?.message ? String(e.message) : String(e) });
+    }
+  });
+}
+
+function safeStorageSet(obj: any): Promise<SGResult<true>> {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome?.storage?.sync) return resolve({ ok: false, error: "storage_unavailable" });
+      chrome.storage.sync.set(obj, () => {
+        const err = chrome.runtime?.lastError;
+        if (err) return resolve({ ok: false, error: err.message || String(err) });
+        resolve({ ok: true, data: true });
+      });
+    } catch (e: any) {
+      resolve({ ok: false, error: e?.message ? String(e.message) : String(e) });
+    }
+  });
 }
 
 function showToast(text: string) {
-  const el = document.createElement("div");
-  el.className = "sg-toast";
-  el.textContent = text;
-  document.documentElement.appendChild(el);
-  setTimeout(() => el.remove(), 2500);
+  try {
+    const el = document.createElement("div");
+    el.className = "sg-toast";
+    el.textContent = text;
+    document.documentElement.appendChild(el);
+    setTimeout(() => el.remove(), 2500);
+  } catch {}
 }
 
+window.addEventListener("unhandledrejection", (ev) => {
+  const msg = String((ev as any).reason?.message || (ev as any).reason || "");
+  if (isContextInvalidated(msg)) {
+    ev.preventDefault();
+  }
+});
+
+window.addEventListener("error", (ev) => {
+  const msg = String((ev as any).error?.message || (ev as any).message || "");
+  if (isContextInvalidated(msg)) {
+    ev.preventDefault?.();
+  }
+});
+
 type MainWorldRequestMsg = {
-  source: "signguard-main";
+  source: "signguard";
   type: "SG_REQUEST";
   requestId: string;
-  url: string;
-  origin: string;
-  request: { method: string; params?: any[]; rawShape?: string; raw?: any };
+  payload: {
+    url: string;
+    host: string;
+    method: string;
+    params: any[] | null;
+    chainId: string | null;
+    providerHint: "metamask" | "coinbase" | "unknown";
+  };
 };
 
-// Signal readiness to MAIN world (prevents early message loss).
-window.postMessage({ source: "signguard-content", type: "SG_READY" }, "*");
+function sendDecision(requestId: string, allow: boolean) {
+  window.postMessage({ source: "signguard", type: "SG_DECISION", requestId, allow }, "*");
+}
 
-type ContentDecisionMsg = {
-  source: "signguard-content";
-  type: "SG_DECISION";
-  requestId: string;
-  allow: boolean;
-};
+function emitDecisionSync(requestId: string, allow: boolean) {
+  try {
+    window.dispatchEvent(new CustomEvent("sg:decision", {
+      detail: { requestId, allow }
+    }));
+  } catch {}
+}
 
-function postDecision(requestId: string, allow: boolean) {
-  const msg: ContentDecisionMsg = { source: "signguard-content", type: "SG_DECISION", requestId, allow };
-  window.postMessage(msg, "*");
+function emitDecisionAsync(requestId: string, allow: boolean) {
+  window.postMessage({ source: "signguard", type: "SG_DECISION", requestId, allow }, "*");
 }
 
 function riskDotClass(level: string) {
@@ -82,47 +164,23 @@ function trustDotClass(verdict: string | undefined) {
   return "warn";
 }
 
-async function analyze(req: AnalyzeRequest): Promise<Analysis> {
-  const r = await safeSendMessage<any>({ type: "ANALYZE", payload: req });
-  if (!r.ok) {
-    const err = r.error || "";
-    if (err.includes("Extension context invalidated") || err.includes("runtime_unavailable")) {
-      showToast("Extensão atualizada — recarregue a aba.");
-    } else {
-      showToast("Não foi possível analisar. Recarregue a aba.");
-    }
-    return {
-      level: "LOW",
-      score: 0,
-      title: t("analyzerUnavailableTitle"),
-      reasons: [t("analyzerUnavailableReason")],
-      recommend: "ALLOW"
-    };
-  }
-  const res = r.data;
-  if (!res?.ok) {
-    return {
-      level: "LOW",
-      score: 0,
-      title: t("analyzerUnavailableTitle"),
-      reasons: [t("analyzerUnavailableReason")],
-      recommend: "ALLOW"
-    };
-  }
-  return res.analysis as Analysis;
-}
+// NOTE: intentionally no chrome.* Promise usage in this file.
 
 function ensureOverlayCss(shadow: ShadowRoot) {
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = chrome.runtime.getURL("overlay.css");
-  shadow.appendChild(link);
+  try {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = chrome.runtime.getURL("overlay.css");
+    shadow.appendChild(link);
+  } catch {}
 }
 
-function createOverlay(analysis: Analysis, meta: { host: string; method: string; rawShape?: string; }): Promise<boolean> {
-  return new Promise((resolve) => {
+function showOverlay(requestId: string, analysis: Analysis, meta: { host: string; method: string; params?: any; rawShape?: string; }) {
     const host = meta.host;
     const method = meta.method;
+    const methodNorm = normMethod(method);
+    const methodLower = normMethodLower(method);
+    const finalAction = classifyFinalAction(methodLower, meta.params);
 
     const container = document.createElement("div");
     container.className = "sg-root";
@@ -187,8 +245,8 @@ function createOverlay(analysis: Analysis, meta: { host: string; method: string;
               <div class="sg-kv">
                 <div class="sg-k">${escapeHtml("O que está sendo solicitado")}</div>
                 <div class="sg-v">
-                  <div style="font-weight:800">${escapeHtml(human?.methodTitle || "")}</div>
-                  <div class="sg-sub">${escapeHtml(human?.methodShort || "")}</div>
+                  <div style="font-weight:800">${escapeHtml(actionTitle(finalAction))}</div>
+                  <div class="sg-sub">${escapeHtml(human?.methodShort || methodNorm)}</div>
                 </div>
               </div>
 
@@ -207,6 +265,13 @@ function createOverlay(analysis: Analysis, meta: { host: string; method: string;
                       : ""
                   }
                 </div>
+              </div>
+            </div>
+
+            <div class="sg-kv">
+              <div class="sg-k">${escapeHtml("O que a carteira deve mostrar")}</div>
+              <div class="sg-v">
+                <div class="sg-sub">${escapeHtml(walletExpectation(finalAction))}</div>
               </div>
             </div>
 
@@ -290,73 +355,107 @@ function createOverlay(analysis: Analysis, meta: { host: string; method: string;
 
     document.documentElement.appendChild(container);
 
-    const cleanup = () => container.remove();
+    const cleanupOverlay = () => {
+      try { container.remove(); } catch {}
+    };
 
-    shadow.getElementById("sg-cancel")?.addEventListener("click", () => { cleanup(); resolve(false); });
-    shadow.getElementById("sg-continue")?.addEventListener("click", () => { cleanup(); resolve(true); });
+    const continueBtn = shadow.getElementById("sg-continue") as HTMLElement | null;
+    const cancelBtn = shadow.getElementById("sg-cancel") as HTMLElement | null;
+
+    const currentRequestId = requestId;
+
+    continueBtn && (continueBtn.onclick = () => {
+      cleanupOverlay();                 // remove overlay antes
+      emitDecisionSync(currentRequestId, true);   // SÍNCRONO (mantém user gesture)
+      emitDecisionAsync(currentRequestId, true);  // fallback
+    });
+
+    cancelBtn && (cancelBtn.onclick = () => {
+      cleanupOverlay();
+      emitDecisionSync(currentRequestId, false);
+      emitDecisionAsync(currentRequestId, false);
+    });
 
     // ESC closes -> cancel
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         document.removeEventListener("keydown", onKey);
-        cleanup();
-        resolve(false);
+        cleanupOverlay();
+        emitDecisionSync(requestId, false);
+        emitDecisionAsync(requestId, false);
       }
     };
     document.addEventListener("keydown", onKey);
-  });
 }
 
-window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
-  const data = event.data as MainWorldRequestMsg;
-  if (!data || data.source !== "signguard-main" || data.type !== "SG_REQUEST") return;
+let __sgPinged = false;
 
-  (async () => {
-    try {
-      const host = (() => { try { return new URL(data.url).hostname.toLowerCase(); } catch { return ""; } })();
-      const req: AnalyzeRequest = {
-        requestId: data.requestId,
-        url: data.url,
-        origin: data.origin,
-        request: data.request
-      };
+async function handleSGRequest(ev: MessageEvent) {
+  try {
+    // ... validação do ev.data ...
+    if (ev.source !== window) return;
+    const data = ev.data as MainWorldRequestMsg;
+    if (!data || data.source !== "signguard" || data.type !== "SG_REQUEST") return;
 
-      const r = await safeSendMessage<any>({ type: "ANALYZE", payload: req });
-      if (!r.ok) {
-        const err = r.error || "";
-        if (err.includes("Extension context invalidated") || err.includes("runtime_unavailable")) {
-          postDecision(data.requestId, true);
+    const requestId = String(data.requestId || "");
+    const url = String(data.payload?.url || "");
+    const method = String(data.payload?.method || "");
+    const params = Array.isArray(data.payload?.params) ? data.payload.params : undefined;
+
+    const host = (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return String(data.payload?.host || ""); } })();
+    const origin = (() => { try { return new URL(url).origin; } catch { return ""; } })();
+
+    const payload: AnalyzeRequest = {
+      requestId,
+      url,
+      origin,
+      request: { method, params }
+    };
+
+    // Optional sanity ping (do it once per session)
+    if (!__sgPinged) {
+      __sgPinged = true;
+      const p = await safeSendMessage({ type: "PING" });
+      if (!p.ok) {
+        if (isContextInvalidated(p.error) || p.error === "runtime_unavailable") {
           showToast("Extensão atualizada — recarregue a aba.");
-          return;
+        } else {
+          showToast("Não foi possível analisar. Recarregue a aba.");
         }
-        postDecision(data.requestId, true);
-        showToast("Não foi possível analisar. Recarregue a aba.");
+        sendDecision(requestId, true);
         return;
       }
-
-      const res = r.data;
-      if (!res?.ok) {
-        postDecision(data.requestId, true);
-        showToast("Não foi possível analisar. Recarregue a aba.");
-        return;
-      }
-
-      const analysis = res.analysis as Analysis;
-      if (analysis.recommend === "ALLOW") {
-        postDecision(data.requestId, true);
-        return;
-      }
-
-      const allow = await createOverlay(analysis, {
-        host,
-        method: data.request?.method || "unknown",
-        rawShape: data.request?.rawShape
-      });
-      postDecision(data.requestId, allow);
-    } catch (_e) {
-      postDecision(data.requestId, true);
-      showToast("Não foi possível analisar. Recarregue a aba.");
     }
-  })();
-});
+
+    const r = await safeSendMessage({ type: "ANALYZE", payload });
+    if (!r.ok) {
+      if (isContextInvalidated(r.error) || r.error === "runtime_unavailable") {
+        showToast("Extensão atualizada — recarregue a aba.");
+      } else {
+        showToast("Não foi possível analisar. Recarregue a aba.");
+      }
+      sendDecision(requestId, true);
+      return;
+    }
+
+    const res = r.data;
+    if (!res?.ok) {
+      showToast("Não foi possível analisar. Recarregue a aba.");
+      sendDecision(requestId, true);
+      return;
+    }
+
+    const analysis = res.analysis as Analysis;
+    if (analysis.recommend === "ALLOW") {
+      sendDecision(requestId, true);
+      return;
+    }
+
+    // Show overlay; buttons will cleanup overlay and sendDecision.
+    void showOverlay(requestId, analysis, { host, method, params });
+  } catch (e: any) {
+    try { sendDecision((ev as any).data?.requestId, true); } catch {}
+  }
+}
+
+window.addEventListener("message", (ev) => { void handleSGRequest(ev); });
