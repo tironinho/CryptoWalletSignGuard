@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SignGuard</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0b1220; color: #e5e7eb; }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 22px; }
+      .card { background: #0f172a; border: 1px solid rgba(148,163,184,.16); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+      h1 { margin: 0 0 6px 0; font-size: 20px; }
+      .muted { color: #94a3b8; font-size: 13px; line-height: 1.4; }
+      label { display: flex; gap: 10px; align-items: center; padding: 10px 0; }
+      input[type="checkbox"] { width: 18px; height: 18px; }
+      textarea { width: 100%; min-height: 120px; background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 12px; color: #e5e7eb; padding: 10px; }
+      button { background: #f97316; border: none; border-radius: 12px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+      button:active { transform: translateY(1px); }
+      .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      .ok { color: #22c55e; font-weight: 700; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 data-i18n="optionsTitle"></h1>
+      <p class="muted" data-i18n="optionsSubtitle"></p>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="riskWarningsLabel"></div>
+            <div class="muted" data-i18n="riskWarningsDesc"></div>
+          </div>
+          <label><input id="riskWarnings" type="checkbox" /></label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="connectOverlayLabel"></div>
+            <div class="muted" data-i18n="connectOverlayDesc"></div>
+          </div>
+          <label><input id="showConnectOverlay" type="checkbox" /></label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="blockHighRiskLabel"></div>
+            <div class="muted" data-i18n="blockHighRiskDesc"></div>
+          </div>
+          <label><input id="blockHighRisk" type="checkbox" /></label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="domainChecksLabel"></div>
+            <div class="muted" data-i18n="domainChecksDesc"></div>
+          </div>
+          <label><input id="domainChecks" type="checkbox" /></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:6px;" data-i18n="allowlistLabel"></div>
+        <div class="muted" style="margin-bottom:10px;" data-i18n="allowlistDesc"></div>
+        <textarea id="allowlist"></textarea>
+        <div class="row" style="margin-top:10px;">
+          <button id="addSuggested" style="background: rgba(30,41,59,0.85); color:#e5e7eb; border: 1px solid rgba(148,163,184,.22);" data-i18n="addSuggested"></button>
+          <button id="save" data-i18n="save"></button>
+          <span id="status" class="ok" style="opacity:0;" data-i18n="saved"></span>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>
