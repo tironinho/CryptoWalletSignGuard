@@ -62,6 +62,8 @@
   "connectOverlayDesc": { "message": "Mostrar overlay antes dos popups de conexão da carteira." },
   "blockHighRiskLabel": { "message": "Bloquear risco ALTO por padrão" },
   "blockHighRiskDesc": { "message": "Se desligado, risco ALTO ainda alerta, mas não bloqueia automaticamente." },
+  "requireTypedOverrideLabel": { "message": "Exigir confirmação extra para typed-data arriscado" },
+  "requireTypedOverrideDesc": { "message": "Adiciona fricção para assinaturas EIP-712 de alto risco (padrões Permit/Seaport)." },
   "domainChecksLabel": { "message": "Checagens de domínio" },
   "domainChecksDesc": { "message": "Alertar sobre padrões suspeitos no host (punycode, parecidos, etc.)." },
   "allowlistLabel": { "message": "Allowlist de domínios (um por linha)" },

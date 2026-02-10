@@ -67,9 +67,9 @@ async function refreshIntelSummary() {
     $("intelUpdatedAt").textContent = "—";
     return;
   }
-  $("intelTrustedCount").textContent = String(resp.trustedCount ?? "—");
+  $("intelTrustedCount").textContent = String(resp.trustedSeedCount ?? "—");
   $("intelBlockedCount").textContent = String(resp.blockedCount ?? "—");
-  $("intelUpdatedAt").textContent = fmtDate(resp.intelUpdatedAt);
+  $("intelUpdatedAt").textContent = fmtDate(resp.updatedAt);
 }
 
 function linesToList(v: string) {
@@ -91,6 +91,7 @@ function listToLines(v: string[]) {
   $("riskWarnings").checked = s.riskWarnings;
   $("showConnectOverlay").checked = s.showConnectOverlay;
   $("blockHighRisk").checked = s.blockHighRisk;
+  ($("requireTypedOverride") as HTMLInputElement).checked = (s.requireTypedOverride ?? true);
   $("domainChecks").checked = s.domainChecks;
   const domains = (s.trustedDomains && Array.isArray(s.trustedDomains) && s.trustedDomains.length) ? s.trustedDomains : s.allowlist;
   $("allowlist").value = listToLines(domains);
@@ -100,6 +101,7 @@ function listToLines(v: string[]) {
       riskWarnings: $("riskWarnings").checked,
       showConnectOverlay: $("showConnectOverlay").checked,
       blockHighRisk: $("blockHighRisk").checked,
+      requireTypedOverride: ($("requireTypedOverride") as HTMLInputElement).checked,
       domainChecks: $("domainChecks").checked,
       allowlist: linesToList($("allowlist").value),
       trustedDomains: linesToList($("allowlist").value)
@@ -119,6 +121,7 @@ function listToLines(v: string[]) {
       riskWarnings: $("riskWarnings").checked,
       showConnectOverlay: $("showConnectOverlay").checked,
       blockHighRisk: $("blockHighRisk").checked,
+      requireTypedOverride: ($("requireTypedOverride") as HTMLInputElement).checked,
       domainChecks: $("domainChecks").checked,
       allowlist: merged,
       trustedDomains: merged
@@ -133,9 +136,9 @@ function listToLines(v: string[]) {
   $("intelUpdateNow")?.addEventListener("click", async () => {
     const resp: any = await runtimeSendMessage({ type: "SG_INTEL_UPDATE_NOW" });
     if (resp?.ok) {
-      $("intelTrustedCount").textContent = String(resp.trustedCount ?? "—");
+      $("intelTrustedCount").textContent = String(resp.trustedSeedCount ?? "—");
       $("intelBlockedCount").textContent = String(resp.blockedCount ?? "—");
-      $("intelUpdatedAt").textContent = fmtDate(resp.intelUpdatedAt);
+      $("intelUpdatedAt").textContent = fmtDate(resp.updatedAt);
     } else {
       await refreshIntelSummary();
     }

@@ -1,4 +1,5 @@
-import type { AnalyzeRequest, Analysis } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings } from "./shared/types";
+import { DEFAULT_SETTINGS } from "./shared/types";
 import { t } from "./i18n";
 import { clamp, escapeHtml } from "./shared/utils";
 import { normMethod } from "./shared/normalize";
@@ -198,6 +199,21 @@ type SGPageRpcMsg =
 
 let __sgFlow: FlowState = newFlowState();
 
+let __sgSettings: Settings | null = null;
+let __sgSettingsLoading: Promise<void> | null = null;
+
+async function ensureSettingsLoaded() {
+  if (__sgSettings) return;
+  if (__sgSettingsLoading) return __sgSettingsLoading;
+  __sgSettingsLoading = (async () => {
+    const r = await safeStorageGet<Settings>(DEFAULT_SETTINGS);
+    __sgSettings = r.ok ? (r.data as any as Settings) : DEFAULT_SETTINGS;
+    __sgSettingsLoading = null;
+    if (__sgOverlay) updateOverlay(__sgOverlay);
+  })();
+  return __sgSettingsLoading;
+}
+
 let __sgTrustedDomains: string[] = [];
 let __sgTrustedDomainsLoaded = false;
 let __sgTrustedDomainsLoading: Promise<void> | null = null;
@@ -304,6 +320,7 @@ type OverlayState = {
   shadow: ShadowRoot;
   app: HTMLDivElement;
   onKey: (e: KeyboardEvent) => void;
+  countdownTimer?: number | null;
 };
 
 let __sgOverlay: OverlayState | null = null;
@@ -387,6 +404,12 @@ function renderOverlay(state: OverlayState) {
   const maxGasFeeEth = analysis?.tx?.maxGasFeeEth;
   const maxTotalEth = analysis?.tx?.maxTotalEth;
   const chainTarget = analysis?.chainTarget;
+
+  const settings = (__sgSettings || DEFAULT_SETTINGS);
+  const needsFriction =
+    analysis.recommend === "BLOCK" ||
+    (analysis.level === "HIGH" && settings.blockHighRisk) ||
+    (analysis.level === "HIGH" && displayAction === "SIGN_TYPED_DATA" && (settings.requireTypedOverride ?? true));
 
   state.app.innerHTML = `
     <div class="sg-backdrop">
@@ -560,8 +583,24 @@ function renderOverlay(state: OverlayState) {
         </div>
 
         <div class="sg-footer">
-          <button class="sg-btn sg-btn-secondary" id="sg-cancel">${escapeHtml(t("btn_cancel"))}</button>
-          <button class="sg-btn sg-btn-primary" id="sg-continue">${escapeHtml(t("btn_continue"))}</button>
+          ${
+            needsFriction
+              ? `
+                <div style="flex:1; display:flex; align-items:center; gap:10px; justify-content:flex-start;">
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#cbd5e1;">
+                    <input id="sg-override" type="checkbox" style="width:16px; height:16px;" />
+                    <span>Eu entendo o risco e quero prosseguir</span>
+                  </label>
+                  <span id="sg-countdown" class="sg-sub" style="opacity:.9"></span>
+                </div>
+                <button class="sg-btn sg-btn-secondary" id="sg-cancel">${escapeHtml("Fechar")}</button>
+                <button class="sg-btn sg-btn-primary" id="sg-proceed" disabled style="opacity:.6; pointer-events:none;">${escapeHtml("Prosseguir mesmo assim")}</button>
+              `
+              : `
+                <button class="sg-btn sg-btn-secondary" id="sg-cancel">${escapeHtml(t("btn_cancel"))}</button>
+                <button class="sg-btn sg-btn-primary" id="sg-continue">${escapeHtml(t("btn_continue"))}</button>
+              `
+          }
         </div>
       </div>
     </div>
@@ -569,9 +608,16 @@ function renderOverlay(state: OverlayState) {
 
   // Bind buttons (requestId may change on update)
   const continueBtn = state.shadow.getElementById("sg-continue") as HTMLElement | null;
+  const proceedBtn = state.shadow.getElementById("sg-proceed") as HTMLButtonElement | null;
+  const overrideCb = state.shadow.getElementById("sg-override") as HTMLInputElement | null;
+  const countdownEl = state.shadow.getElementById("sg-countdown") as HTMLElement | null;
   const cancelBtn = state.shadow.getElementById("sg-cancel") as HTMLElement | null;
 
   continueBtn && (continueBtn.onclick = () => {
+    cleanupOverlay();
+    dispatchDecision(state.requestId, true);
+  });
+  proceedBtn && (proceedBtn.onclick = () => {
     cleanupOverlay();
     dispatchDecision(state.requestId, true);
   });
@@ -579,6 +625,48 @@ function renderOverlay(state: OverlayState) {
     cleanupOverlay();
     dispatchDecision(state.requestId, false);
   });
+
+  // 3s delay after explicit override
+  if (needsFriction && overrideCb && proceedBtn) {
+    if (state.countdownTimer) {
+      try { clearInterval(state.countdownTimer as any); } catch {}
+      state.countdownTimer = null;
+    }
+    proceedBtn.disabled = true;
+    proceedBtn.style.opacity = ".6";
+    proceedBtn.style.pointerEvents = "none";
+    countdownEl && (countdownEl.textContent = "");
+
+    overrideCb.onchange = () => {
+      if (!overrideCb.checked) {
+        proceedBtn.disabled = true;
+        proceedBtn.style.opacity = ".6";
+        proceedBtn.style.pointerEvents = "none";
+        countdownEl && (countdownEl.textContent = "");
+        if (state.countdownTimer) {
+          try { clearInterval(state.countdownTimer as any); } catch {}
+          state.countdownTimer = null;
+        }
+        return;
+      }
+
+      let left = 3;
+      countdownEl && (countdownEl.textContent = `(${left}s)`);
+      state.countdownTimer = setInterval(() => {
+        left--;
+        if (left <= 0) {
+          try { clearInterval(state.countdownTimer as any); } catch {}
+          state.countdownTimer = null;
+          countdownEl && (countdownEl.textContent = "");
+          proceedBtn.disabled = false;
+          proceedBtn.style.opacity = "1";
+          proceedBtn.style.pointerEvents = "auto";
+          return;
+        }
+        countdownEl && (countdownEl.textContent = `(${left}s)`);
+      }, 1000) as any;
+    };
+  }
 
   // Optional USD display (best-effort, hides if price unavailable)
   if (displayAction === "SEND_TX" && gasEth && totalEth) {
@@ -607,6 +695,9 @@ function cleanupOverlay() {
   try {
     if (__sgOverlay?.onKey) document.removeEventListener("keydown", __sgOverlay.onKey);
   } catch {}
+  try {
+    if (__sgOverlay?.countdownTimer) clearInterval(__sgOverlay.countdownTimer as any);
+  } catch {}
   __sgOverlay = null;
 }
 
@@ -620,6 +711,7 @@ function showOverlay(
   meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any }
 ) {
   void ensureTrustedDomainsLoaded();
+  void ensureSettingsLoaded();
   // If an overlay is already open, update it in place (no close/reopen).
   if (__sgOverlay) {
     // Avoid being stuck on a previous pending request
@@ -651,6 +743,15 @@ function showOverlay(
 
   __sgOverlay = { requestId, analysis, meta, container, shadow, app, onKey };
   document.documentElement.appendChild(container);
+
+  // Mark that UI was shown (affects MAIN-world timeout behavior)
+  try {
+    window.dispatchEvent(new CustomEvent("signguard:uiShown", { detail: { requestId } }));
+  } catch {}
+  try {
+    window.postMessage({ source: "signguard-content", type: "SG_UI_SHOWN", requestId }, "*");
+  } catch {}
+
   updateOverlay(__sgOverlay);
 }
 

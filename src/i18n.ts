@@ -1,14 +1,14 @@
-export type Locale = "pt-BR" | "en";
+export type Locale = "pt" | "en";
 
 export function detectLocale(): Locale {
   const raw = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
-  if (raw.startsWith("pt")) return "pt-BR";
+  if (raw.startsWith("pt")) return "pt";
   return "en";
 }
 
 const dict: Record<Locale, Record<string, string>> = {
-  "pt-BR": {
-    title_brand: "SignGuard",
+  pt: {
+    title_brand: "Crypto Wallet SignGuard",
     btn_cancel: "Cancelar",
     btn_continue: "Continuar",
     tip_revoke: "Revogar permissões depois: revoke.cash",
@@ -26,7 +26,7 @@ const dict: Record<Locale, Record<string, string>> = {
     gas_calculating: "calculando…",
   },
   en: {
-    title_brand: "SignGuard",
+    title_brand: "Crypto Wallet SignGuard",
     btn_cancel: "Cancel",
     btn_continue: "Continue",
     tip_revoke: "Revoke permissions later: revoke.cash",

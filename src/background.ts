@@ -1,4 +1,5 @@
-import type { AnalyzeRequest, Analysis, Settings, ThreatIntel, TxSummary } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings } from "./shared/types";
+import type { TxSummary } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import { decodeErc20Approve, decodeSetApprovalForAll } from "./shared/decode";
 import { hostFromUrl, isAllowlisted, hexSelector, isHexString } from "./shared/utils";
@@ -6,7 +7,9 @@ import { t } from "./i18n";
 import { computeTrustVerdict } from "./shared/trust";
 import { buildHumanLists, explainMethod } from "./shared/explain";
 import { SUGGESTED_TRUSTED_DOMAINS as SUGGESTED_TRUSTED_DOMAINS_SHARED } from "./shared/constants";
-import { fetchThreatIntel, hostMatchesDomain, normalizeHost, TRUSTED_DOMAINS_SEED } from "./intel";
+import { fetchThreatIntel, hostMatches, normalizeHost } from "./intel";
+import type { ThreatIntel } from "./intel";
+import { hexToBigInt, weiToEth } from "./txMath";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
@@ -14,45 +17,26 @@ const INTEL_KEY = "sg_threat_intel";
 const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
 
 async function loadIntel(): Promise<ThreatIntel | null> {
-  return await new Promise((resolve) => {
-    try {
-      chrome.storage.local.get([INTEL_KEY], (r) => {
-        const err = chrome.runtime.lastError;
-        if (err) return resolve(null);
-        resolve((r as any)?.[INTEL_KEY] ?? null);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+  try {
+    const r = await (chrome.storage.local.get as any)(INTEL_KEY);
+    return (r?.[INTEL_KEY] as ThreatIntel) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function saveIntel(intel: ThreatIntel) {
-  await new Promise<void>((resolve) => {
-    try {
-      chrome.storage.local.set({ [INTEL_KEY]: intel }, () => resolve());
-    } catch {
-      resolve();
-    }
-  });
+  try {
+    await (chrome.storage.local.set as any)({ [INTEL_KEY]: intel });
+  } catch {}
 }
 
 async function getIntelFresh(): Promise<ThreatIntel> {
-  try {
-    const cached = await loadIntel();
-    if (cached && Date.now() - cached.updatedAt < INTEL_TTL_MS) return cached;
-    const fresh = await fetchThreatIntel();
-    await saveIntel(fresh);
-    return fresh;
-  } catch {
-    const now = Date.now();
-    return {
-      updatedAt: now,
-      sources: [{ id: "fallback", url: "", ok: false, fetchedAt: now, error: "intel_unavailable" }],
-      trustedDomains: TRUSTED_DOMAINS_SEED.map((x) => normalizeHost(x.domain)),
-      blockedDomains: [],
-    };
-  }
+  const cached = await loadIntel();
+  if (cached && Date.now() - cached.updatedAt < INTEL_TTL_MS) return cached;
+  const fresh = await fetchThreatIntel();
+  await saveIntel(fresh);
+  return fresh;
 }
 
 async function updateIntelNow(): Promise<ThreatIntel> {
@@ -61,19 +45,15 @@ async function updateIntelNow(): Promise<ThreatIntel> {
   return fresh;
 }
 
-try {
-  chrome.runtime.onInstalled.addListener(async () => {
-    try { await updateIntelNow(); } catch {}
-    try { chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 }); } catch {}
-  });
-} catch {}
+chrome.runtime.onInstalled.addListener(async () => {
+  try { await updateIntelNow(); } catch {}
+  chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 });
+});
 
-try {
-  chrome.alarms.onAlarm.addListener(async (a) => {
-    if (a.name !== "sg_intel_daily") return;
-    try { await updateIntelNow(); } catch {}
-  });
-} catch {}
+chrome.alarms.onAlarm.addListener(async (a) => {
+  if (a.name !== "sg_intel_daily") return;
+  try { await updateIntelNow(); } catch {}
+});
 
 let __ethUsdCache: { usdPerEth: number; fetchedAt: number } | null = null;
 
@@ -131,77 +111,49 @@ function domainHeuristicsLocalized(host: string): { level: "LOW" | "WARN"; reaso
   return { level: reasons.length ? "WARN" : "LOW", reasons };
 }
 
-function hexToBigInt(hex?: string): bigint | null {
-  if (!hex) return null;
-  try {
-    const h = String(hex).startsWith("0x") ? String(hex) : "0x" + String(hex);
-    return BigInt(h);
-  } catch { return null; }
-}
-
-function weiToEthString(wei: bigint, decimals = 6): string {
-  // 1 ETH = 1e18 wei
-  const base = 10n ** 18n;
-  const whole = wei / base;
-  const frac = wei % base;
-  const fracStr = frac.toString().padStart(18, "0").slice(0, decimals);
-  return `${whole.toString()}.${fracStr}`.replace(/\.?0+$/, (m) => (m.startsWith(".") ? "" : m));
-}
-
-function buildTxSummary(method: string, params: any[] | undefined): TxSummary | undefined {
-  if (method !== "eth_sendtransaction") return undefined;
+function summarizeTx(method: string, params: any[]): any | null {
+  const m = String(method || "").toLowerCase();
+  if (m !== "eth_sendtransaction" && m !== "wallet_sendtransaction") return null;
   const tx = params?.[0];
-  if (!tx || typeof tx !== "object") return undefined;
+  if (!tx || typeof tx !== "object") return null;
 
-  const to = typeof (tx as any).to === "string" ? (tx as any).to : undefined;
+  const to = typeof (tx as any).to === "string" ? (tx as any).to : "";
+  const valueWei = hexToBigInt((tx as any).value || "0x0");
+  const valueEth = weiToEth(valueWei);
 
-  const valueWeiBI = hexToBigInt((tx as any).value);
-  const gasLimitBI = hexToBigInt((tx as any).gas ?? (tx as any).gasLimit);
-  const maxFeePerGasBI = hexToBigInt((tx as any).maxFeePerGas);
+  const gasLimit = hexToBigInt((tx as any).gas || (tx as any).gasLimit || "0x0");
+  const maxFeePerGas = hexToBigInt((tx as any).maxFeePerGas || "0x0");
+  const gasPrice = hexToBigInt((tx as any).gasPrice || "0x0");
 
-  const valueWei = valueWeiBI ? valueWeiBI.toString(10) : undefined;
-  const valueEth = valueWeiBI ? weiToEthString(valueWeiBI) : undefined;
+  // prefer EIP-1559 maxFeePerGas; fallback gasPrice
+  const feePerGas = maxFeePerGas > 0n ? maxFeePerGas : gasPrice;
+  let maxGasFeeEth = "";
+  let maxTotalEth = "";
+  if (gasLimit > 0n && feePerGas > 0n) {
+    const gasFeeWei = gasLimit * feePerGas;
+    maxGasFeeEth = weiToEth(gasFeeWei);
+    maxTotalEth = weiToEth(valueWei + gasFeeWei);
+  }
 
   const selector =
     typeof (tx as any).data === "string" && (tx as any).data.startsWith("0x") && (tx as any).data.length >= 10
       ? (tx as any).data.slice(0, 10)
-      : undefined;
+      : "";
 
-  let maxGasFeeEth: string | undefined;
-  if (gasLimitBI && maxFeePerGasBI) {
-    const maxGasFeeWei = gasLimitBI * maxFeePerGasBI;
-    maxGasFeeEth = weiToEthString(maxGasFeeWei);
-  }
-
-  let maxTotalEth: string | undefined;
-  if (valueWeiBI && gasLimitBI && maxFeePerGasBI) {
-    const maxGasFeeWei = gasLimitBI * maxFeePerGasBI;
-    maxTotalEth = weiToEthString(valueWeiBI + maxGasFeeWei);
-  }
-
-  return {
-    to,
-    valueWei,
-    valueEth,
-    selector,
-    gasLimit: gasLimitBI ? gasLimitBI.toString(10) : undefined,
-    maxFeePerGasWei: maxFeePerGasBI ? maxFeePerGasBI.toString(10) : undefined,
-    maxGasFeeEth,
-    maxTotalEth,
-  };
+  return { to, valueEth, maxGasFeeEth, maxTotalEth, selector };
 }
 
-function chainName(chainIdHex: string): string | undefined {
+function chainName(chainIdHex: string): string {
   const id = String(chainIdHex || "").toLowerCase();
-  const map: Record<string, string> = {
-    "0x1": "Ethereum Mainnet",
-    "0x89": "Polygon",
-    "0xa4b1": "Arbitrum One",
-    "0xa": "Optimism",
-    "0x38": "BNB Chain (BSC)",
-    "0xa86a": "Avalanche C-Chain",
+  const map: Record<string,string> = {
+    "0x1":"Ethereum",
+    "0x89":"Polygon",
+    "0xa4b1":"Arbitrum",
+    "0xa":"Optimism",
+    "0x38":"BNB Chain",
+    "0xa86a":"Avalanche"
   };
-  return map[id];
+  return map[id] || chainIdHex;
 }
 
 function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | null): Analysis {
@@ -229,21 +181,39 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
   const method = (req.request?.method || "").toLowerCase();
 
   // Threat intel (blocked/trusted seed)
-  try {
-    const h = normalizeHost(host || "");
-    const isBlocked = !!intel?.blockedDomains?.some((d) => hostMatchesDomain(h, d));
-    const isTrustedSeed = !!intel?.trustedDomains?.some((d) => hostMatchesDomain(h, d));
+  const intelHost = normalizeHost(host || "");
+  const isBlocked = !!intel?.blockedDomains?.some((d) => hostMatches(intelHost, d));
+  const isTrustedSeed = !!intel?.trustedDomainsSeed?.some((d) => hostMatches(intelHost, d));
+  const safeDomain = isTrustedSeed && !isBlocked;
 
-    if (isBlocked) {
-      reasons.push("Domínio está em blacklist de phishing.");
-      level = "HIGH";
-      score = Math.max(score, 95);
-      title = t("suspiciousWebsitePatterns");
-    } else if (isTrustedSeed) {
-      reasons.push("Domínio está na lista seed de sites oficiais conhecidos.");
-      score = Math.max(0, score - 15);
-    }
-  } catch {}
+  if (isBlocked) {
+    return {
+      level: "HIGH",
+      score: 100,
+      title: t("suspiciousWebsitePatterns"),
+      reasons: ["Domínio está em blacklist de phishing (fonte: MetaMask).", ...reasons],
+      decoded: { kind: "TX", raw: { host } },
+      recommend: "BLOCK",
+      trust,
+      suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain,
+      human: {
+        methodTitle: explain.title,
+        methodShort: explain.short,
+        methodWhy: explain.why,
+        whatItDoes: lists.whatItDoes,
+        risks: lists.risks,
+        safeNotes: lists.safeNotes,
+        nextSteps: lists.nextSteps,
+        recommendation: t("human_generic_reco"),
+      }
+    };
+  }
+
+  if (isTrustedSeed) {
+    reasons.push("Domínio conhecido/oficial (seed).");
+    score = Math.max(0, score - 15);
+  }
 
   // Connect / permissions
   if (method === "eth_requestaccounts" || method === "wallet_requestpermissions") {
@@ -262,6 +232,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
         recommend: "WARN",
         trust,
         suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+        safeDomain,
         human: {
           methodTitle: explain.title,
           methodShort: explain.short,
@@ -289,6 +260,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       recommend: level === "WARN" ? "WARN" : "ALLOW",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -314,6 +286,38 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
     level = "WARN";
     score = Math.max(score, 60);
     title = t("signatureRequest");
+
+    // Minimal typed-data risk detection (safe parse)
+    try {
+      const params = req.request.params as any;
+      const raw =
+        Array.isArray(params) && typeof params[1] === "string"
+          ? params[1]
+          : (Array.isArray(params) && typeof params[0] === "string" ? params[0] : "");
+      if (raw) {
+        const j: any = JSON.parse(raw);
+        const domainName = String(j?.domain?.name || "");
+        const msg: any = j?.message || {};
+
+        const looksPermit2 = domainName.toLowerCase().includes("permit2") || (!!msg?.permitted && !!msg?.spender);
+        const looksApproveLike = !!msg?.spender && (("value" in msg) || ("amount" in msg));
+        const looksSeaport = domainName.toLowerCase().includes("seaport") || (!!msg?.offer && !!msg?.consideration);
+
+        if (looksPermit2 || looksApproveLike) {
+          reasons.push("Assinatura pode permitir que um endereço gaste seus tokens.");
+          if (String(msg?.spender || "").trim()) {
+            reasons.push("Verifique o spender.");
+            level = "HIGH";
+            score = Math.max(score, 90);
+          }
+        }
+        if (looksSeaport) {
+          reasons.push("Assinatura é uma ordem de marketplace (pode listar/comprar).");
+          score = Math.max(score, 70);
+        }
+      }
+    } catch {}
+
     return {
       level,
       score,
@@ -323,6 +327,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       recommend: "WARN",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -383,6 +388,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       recommend: "WARN",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain,
       chainTarget: (() => {
         try {
           const p0 = (req.request.params as any)?.[0];
@@ -432,12 +438,12 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
   }
 
   // Transactions
-  if (method === "eth_sendtransaction") {
+  if (method === "eth_sendtransaction" || method === "wallet_sendtransaction") {
     const tx = (req.request.params?.[0] ?? {}) as any;
     const to = (tx.to ?? "").toLowerCase();
     const data = typeof tx.data === "string" ? tx.data : "";
     const value = tx.value ?? "0x0";
-    const txSummary = buildTxSummary(method, (req.request.params || []) as any);
+    const txSummary = summarizeTx(method, (req.request.params || []) as any) as (TxSummary | null);
 
     if (isHexString(data) && data.startsWith("0x")) {
       const ap = decodeErc20Approve(data.toLowerCase());
@@ -553,9 +559,10 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       score = 20;
       reasons.push(t("txWarnReason"));
     }
-    if (txSummary?.valueEth) reasons.push(`Transação envia ~${txSummary.valueEth} ETH (valor).`);
-    if (!txSummary?.maxGasFeeEth) reasons.push("Taxa de rede (gas) será estimada pela carteira.");
-    if (txSummary?.maxTotalEth) reasons.push(`Custo máximo (valor + gas): ~${txSummary.maxTotalEth} ETH.`);
+    if (txSummary?.valueEth) reasons.push(`Transação: envia ${txSummary.valueEth} ETH.`);
+    if (txSummary?.maxGasFeeEth) reasons.push(`Taxa máxima estimada: ${txSummary.maxGasFeeEth} ETH.`);
+    else reasons.push("A taxa será estimada pela carteira.");
+    if (txSummary?.maxTotalEth) reasons.push(`Total máximo: ${txSummary.maxTotalEth} ETH.`);
     return {
       level,
       score,
@@ -566,7 +573,8 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       ,
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
-      tx: txSummary,
+      tx: txSummary || undefined,
+      safeDomain,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -619,8 +627,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const intel = await getIntelFresh();
       sendResponse({
         ok: true,
-        intelUpdatedAt: intel.updatedAt,
-        trustedCount: intel.trustedDomains?.length || 0,
+        updatedAt: intel.updatedAt,
+        trustedSeedCount: intel.trustedDomainsSeed.length,
         blockedCount: intel.blockedDomains?.length || 0,
         sources: intel.sources || [],
       });
@@ -635,8 +643,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       sendResponse({
         ok: true,
-        intelUpdatedAt: intel.updatedAt,
-        trustedCount: intel.trustedDomains?.length || 0,
+        updatedAt: intel.updatedAt,
+        trustedSeedCount: intel.trustedDomainsSeed.length,
         blockedCount: intel.blockedDomains?.length || 0,
         sources: intel.sources || [],
       });

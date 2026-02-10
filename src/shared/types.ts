@@ -101,12 +101,14 @@ export type Analysis = {
   suggestedTrustedDomains?: string[];
   tx?: TxSummary;
   chainTarget?: { chainIdHex: string; chainName?: string };
+  safeDomain?: boolean;
 };
 
 export type Settings = {
   riskWarnings: boolean;
   showConnectOverlay: boolean;
   blockHighRisk: boolean;
+  requireTypedOverride?: boolean;
   domainChecks: boolean;
   allowlist: string[];
   trustedDomains?: string[];
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   riskWarnings: true,
   showConnectOverlay: true,
   blockHighRisk: true,
+  requireTypedOverride: true,
   domainChecks: true,
   trustedDomains: [
     "opensea.io",

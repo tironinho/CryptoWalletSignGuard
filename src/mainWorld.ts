@@ -10,6 +10,7 @@ type PendingReq = {
   reject: (e: any) => void;
   createdAt: number;
   method: string;
+  uiShown?: boolean;
 };
 
 const SG_PENDING = new Map<string, PendingReq>();
@@ -184,7 +185,8 @@ function wrapProvider(provider: any) {
         resolve,
         reject,
         createdAt: Date.now(),
-        method
+        method,
+        uiShown: false
       });
 
       // Post request immediately (overlay can show "calculando..." and update when enrich arrives)
@@ -250,6 +252,7 @@ function wrapProvider(provider: any) {
           reject,
           createdAt: Date.now(),
           method,
+          uiShown: false,
         });
 
         window.postMessage({
@@ -317,6 +320,7 @@ function wrapProvider(provider: any) {
           reject: (e) => { try { doneCb(e); } catch {} reject(e); },
           createdAt: Date.now(),
           method,
+          uiShown: false,
         });
 
         window.postMessage({
@@ -364,6 +368,33 @@ async function resumeDecisionInner(requestId: string, allow: boolean) {
   } catch {}
 }
 
+function markUiShown(requestId: string) {
+  try {
+    const p = SG_PENDING.get(requestId);
+    if (p) p.uiShown = true;
+  } catch {}
+}
+
+// Content can mark that an overlay was shown (affects timeout behavior)
+window.addEventListener("signguard:uiShown", (ev: any) => {
+  try {
+    const detail = ev?.detail || {};
+    const requestId = String(detail.requestId || "");
+    if (!requestId) return;
+    markUiShown(requestId);
+  } catch {}
+}, { passive: true } as any);
+
+window.addEventListener("message", (ev) => {
+  try {
+    if (ev.source !== window) return;
+    const d = (ev as any)?.data;
+    if (!d || d.source !== "signguard-content") return;
+    if (d.type !== "SG_UI_SHOWN") return;
+    markUiShown(String(d.requestId || ""));
+  } catch {}
+});
+
 // Primary path: synchronous CustomEvent (preserves user gesture)
 window.addEventListener("signguard:decision", async (ev: any) => {
   try {
@@ -398,13 +429,15 @@ window.addEventListener("message", (ev) => {
 setInterval(() => {
   const now = Date.now();
   for (const [id, p] of SG_PENDING.entries()) {
-    if (now - p.createdAt > 60000) {
+    if (now - p.createdAt > 12000) {
       SG_PENDING.delete(id);
-      // fail-open: tenta executar
-      Promise.resolve()
-        .then(() => p.invoke())
-        .then(p.resolve)
-        .catch(p.reject);
+      // If UI was shown and user didn't decide, reject (don't execute silently).
+      if (p.uiShown) {
+        p.reject(rejectEIP1193UserRejected(p.method));
+        continue;
+      }
+      // Technical failure: fail-open (don't break dapp UX).
+      Promise.resolve().then(() => p.invoke()).then(p.resolve).catch(p.reject);
     }
   }
 }, 5000);
