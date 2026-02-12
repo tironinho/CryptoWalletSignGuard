@@ -20,14 +20,18 @@ function copyFile(src, dst) {
   fs.copyFileSync(src, dst);
 }
 
+function ensureDir(p) {
+  fs.mkdirSync(p, { recursive: true });
+}
+
 function copyDir(srcDir, dstDir) {
   if (!fs.existsSync(srcDir)) return;
-  fs.mkdirSync(dstDir, { recursive: true });
+  ensureDir(dstDir);
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
     const s = path.join(srcDir, entry.name);
     const d = path.join(dstDir, entry.name);
     if (entry.isDirectory()) copyDir(s, d);
-    else copyFile(s, d);
+    else fs.copyFileSync(s, d);
   }
 }
 
@@ -43,9 +47,13 @@ fs.mkdirSync(DIST, { recursive: true });
 // Copy static assets
 copyFile(path.join(ROOT, "manifest.json"), path.join(DIST, "manifest.json"));
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
+copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
+copyFile(path.join(SRC, "dashboard", "dashboard.html"), path.join(DIST, "dashboard", "dashboard.html"));
 copyFile(path.join(SRC, "overlay.css"), path.join(DIST, "overlay.css"));
 copyDir(path.join(SRC, "icons"), path.join(DIST, "icons"));
-copyDir(path.join(SRC, "_locales"), path.join(DIST, "_locales"));
+const LOCALES_SRC = path.join(ROOT, "_locales");
+const LOCALES_DST = path.join(DIST, "_locales");
+if (fs.existsSync(LOCALES_SRC)) copyDir(LOCALES_SRC, LOCALES_DST);
 
 const common = {
   bundle: true,
@@ -66,6 +74,8 @@ const entryPoints = {
 const extraEntryPoints = {
   background: path.join(SRC, "background.ts"),
   options: path.join(SRC, "options.ts"),
+  popup: path.join(SRC, "popup.ts"),
+  "dashboard/dashboard": path.join(SRC, "dashboard", "dashboard.ts"),
 };
 
 const contexts = [];

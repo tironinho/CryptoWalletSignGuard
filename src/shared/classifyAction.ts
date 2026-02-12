@@ -7,6 +7,7 @@ export type SGAction =
   | "SIGN_TYPED_DATA"
   | "SEND_TX"
   | "WATCH_ASSET"
+  | "SOLANA"
   | "UNKNOWN";
 
 export function classifyByMethod(method: string): SGAction {
@@ -17,6 +18,7 @@ export function classifyByMethod(method: string): SGAction {
   if (m === "wallet_switchethereumchain") return "SWITCH_CHAIN";
   if (m === "wallet_addethereumchain") return "ADD_CHAIN";
   if (m === "wallet_watchasset") return "WATCH_ASSET";
+  if (m.startsWith("solana:")) return "SOLANA";
 
   if (m === "personal_sign" || m === "eth_sign") return "SIGN_MESSAGE";
   if (m === "eth_signtypeddata" || m === "eth_signtypeddata_v3" || m === "eth_signtypeddata_v4") return "SIGN_TYPED_DATA";

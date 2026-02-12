@@ -13,18 +13,64 @@
       label { display: flex; gap: 10px; align-items: center; padding: 10px 0; }
       input[type="checkbox"] { width: 18px; height: 18px; }
       textarea { width: 100%; min-height: 120px; background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 12px; color: #e5e7eb; padding: 10px; }
+      select { background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 8px; color: #e5e7eb; padding: 8px 12px; min-width: 140px; }
       button { background: #f97316; border: none; border-radius: 12px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
       button:active { transform: translateY(1px); }
       .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
       .ok { color: #22c55e; font-weight: 700; font-size: 13px; }
+      .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(148,163,184,.2); }
+      .tab-btn { background: none; border: none; color: #94a3b8; padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+      .tab-btn:hover { color: #e5e7eb; }
+      .tab-btn.active { color: #f97316; border-bottom-color: #f97316; font-weight: 700; }
+      section.tab-panel { display: none; }
+      section.tab-panel.active { display: block; }
+      .history-card { background: rgba(30,41,59,.5); border-radius: 10px; padding: 12px; margin-bottom: 10px; font-size: 13px; }
+      .history-card .meta { color: #94a3b8; margin-bottom: 4px; }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1 data-i18n="optionsTitle"></h1>
-      <p class="muted" data-i18n="optionsSubtitle"></p>
+      <div class="tabs">
+        <button type="button" class="tab-btn active" data-tab="settings" data-i18n="tabSettings">Configurações</button>
+        <button type="button" class="tab-btn" data-tab="history" data-i18n="tabHistory">Histórico</button>
+        <button type="button" class="tab-btn" data-tab="plan" data-i18n="tabPlan">Plano</button>
+      </div>
+
+      <section id="tab-settings" class="tab-panel active">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <div>
+          <h1 data-i18n="optionsTitle"></h1>
+          <p class="muted" data-i18n="optionsSubtitle"></p>
+        </div>
+        <a href="dashboard/dashboard.html" style="color:#f97316; font-weight:700; text-decoration:underline;" data-i18n="dashboardLink">Dashboard</a>
+      </div>
+
+      <details class="card" style="margin-bottom:14px;">
+        <summary style="cursor:pointer; font-weight:800; padding:4px 0;" data-i18n="onboardingTitle"></summary>
+        <div style="margin-top:12px;">
+          <div class="muted" data-i18n="onboardingHowTo"></div>
+          <div class="muted" style="margin-top:10px;" data-i18n="onboardingWhatItDoes"></div>
+          <div class="muted" style="margin-top:10px;" data-i18n="onboardingWhatItDoesNot"></div>
+          <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;">
+            <a href="https://revoke.cash" target="_blank" rel="noreferrer" style="color:#60a5fa; text-decoration:underline;" data-i18n="onboardingLinkRevoke"></a>
+            <a href="https://etherscan.io" target="_blank" rel="noreferrer" style="color:#60a5fa; text-decoration:underline;" data-i18n="onboardingLinkEtherscan"></a>
+          </div>
+        </div>
+      </details>
 
       <div class="card">
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="securityModeLabel"></div>
+            <div class="muted" data-i18n="securityModeDesc"></div>
+          </div>
+          <select id="mode">
+            <option value="STRICT" data-i18n="modeStrict"></option>
+            <option value="BALANCED" data-i18n="modeBalanced"></option>
+            <option value="RELAXED" data-i18n="modeRelaxed"></option>
+            <option value="OFF" data-i18n="modeOff"></option>
+          </select>
+        </div>
         <div class="row">
           <div>
             <div style="font-weight:800;" data-i18n="riskWarningsLabel"></div>
@@ -59,6 +105,64 @@
 
         <div class="row">
           <div>
+            <div style="font-weight:800;" data-i18n="allowOverrideOnPhishingLabel"></div>
+            <div class="muted" data-i18n="allowOverrideOnPhishingDesc"></div>
+          </div>
+          <label><input id="allowOverrideOnPhishing" type="checkbox" /></label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="strictBlockApprovalsUnlimitedLabel"></div>
+            <div class="muted" data-i18n="strictBlockApprovalsUnlimitedDesc"></div>
+          </div>
+          <label><input id="strictBlockApprovalsUnlimited" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="strictBlockSetApprovalForAllLabel"></div>
+            <div class="muted" data-i18n="strictBlockSetApprovalForAllDesc"></div>
+          </div>
+          <label><input id="strictBlockSetApprovalForAll" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="strictBlockPermitLikeLabel"></div>
+            <div class="muted" data-i18n="strictBlockPermitLikeDesc"></div>
+          </div>
+          <label><input id="strictBlockPermitLike" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="assetEnrichmentEnabledLabel"></div>
+            <div class="muted" data-i18n="assetEnrichmentEnabledDesc"></div>
+          </div>
+          <label><input id="assetEnrichmentEnabled" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="addressIntelEnabledLabel"></div>
+            <div class="muted" data-i18n="addressIntelEnabledDesc"></div>
+          </div>
+          <label><input id="addressIntelEnabled" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="showUsdLabel"></div>
+            <div class="muted" data-i18n="showUsdDesc"></div>
+          </div>
+          <label><input id="showUsd" type="checkbox" /></label>
+        </div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="debugModeLabel"></div>
+            <div class="muted" data-i18n="debugModeDesc"></div>
+          </div>
+          <label><input id="debugMode" type="checkbox" /></label>
+        </div>
+
+        <div class="row">
+          <div>
             <div style="font-weight:800;" data-i18n="domainChecksLabel"></div>
             <div class="muted" data-i18n="domainChecksDesc"></div>
           </div>
@@ -78,15 +182,109 @@
       </div>
 
       <div class="card">
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="vaultTitle"></div>
+            <div class="muted" data-i18n="vaultDesc"></div>
+          </div>
+          <label><input id="vaultEnabled" type="checkbox" /></label>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-weight:700; margin-bottom:6px;" data-i18n="vaultAddLabel"></div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="vaultContractInput" placeholder="0x..." style="flex:1; min-width:200px; background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 8px; color: #e5e7eb; padding: 8px 12px;" />
+            <button type="button" id="vaultAdd" data-i18n="vaultAddButton">Adicionar ao Cofre</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-weight:700; margin-bottom:6px;" data-i18n="vaultListLabel"></div>
+          <ul id="vaultList" class="history-card" style="list-style:none; padding:0; margin:0;"></ul>
+          <p id="vaultListEmpty" class="muted" style="margin-top:6px; display:none;" data-i18n="vaultListEmpty"></p>
+        </div>
+      </div>
+
+      <div class="card">
         <div style="font-weight:800; margin-bottom:6px;" data-i18n="intelTitle"></div>
         <div class="muted" style="margin-bottom:10px;" data-i18n="intelSubtitle"></div>
+        <div class="row">
+          <div>
+            <div style="font-weight:800;" data-i18n="enableIntelLabel"></div>
+            <div class="muted" data-i18n="enableIntelDesc"></div>
+          </div>
+          <label><input id="enableIntel" type="checkbox" /></label>
+        </div>
         <div class="muted"><span data-i18n="intelTrustedCountLabel"></span>: <b id="intelTrustedCount">—</b></div>
         <div class="muted"><span data-i18n="intelBlockedCountLabel"></span>: <b id="intelBlockedCount">—</b></div>
+        <div class="muted"><span data-i18n="intelBlockedAddressCountLabel"></span>: <b id="intelBlockedAddressCount">—</b></div>
         <div class="muted"><span data-i18n="intelUpdatedAtLabel"></span>: <b id="intelUpdatedAt">—</b></div>
         <div class="row" style="margin-top:10px;">
           <button id="intelUpdateNow" style="background: rgba(30,41,59,0.85); color:#e5e7eb; border: 1px solid rgba(148,163,184,.22);" data-i18n="intelUpdateNow"></button>
         </div>
+        <div style="margin-top:14px;">
+          <div style="font-weight:800; margin-bottom:6px;" data-i18n="customTrustedDomainsLabel"></div>
+          <div class="muted" style="margin-bottom:6px;" data-i18n="customTrustedDomainsDesc"></div>
+          <textarea id="customTrustedDomains" style="min-height:80px"></textarea>
+        </div>
+        <div style="margin-top:14px;">
+          <div style="font-weight:800; margin-bottom:6px;" data-i18n="customBlockedDomainsLabel"></div>
+          <div class="muted" style="margin-bottom:6px;" data-i18n="customBlockedDomainsDesc"></div>
+          <textarea id="customBlockedDomains" style="min-height:80px"></textarea>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="exportLists" style="background: rgba(30,41,59,0.85); color:#e5e7eb; border: 1px solid rgba(148,163,184,.22);" data-i18n="exportListsLabel"></button>
+        </div>
       </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:6px;" data-i18n="privacyLimitsTitle"></div>
+        <div class="muted" style="margin-bottom:8px;" data-i18n="privacyLimitsLine1"></div>
+        <div class="muted" style="margin-bottom:8px;" data-i18n="privacyLimitsLine2"></div>
+        <div class="muted" style="margin-bottom:10px;" data-i18n="privacyLimitsLine3"></div>
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <div style="font-weight:800;" data-i18n="cloudIntelOptInLabel"></div>
+            <div class="muted" data-i18n="cloudIntelOptInDesc"></div>
+          </div>
+          <label><input id="cloudIntelOptIn" type="checkbox" /></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:6px;" data-i18n="safetyNotesTitle"></div>
+        <div class="muted" style="margin-bottom:10px;" data-i18n="safetyNotesLine1"></div>
+        <div class="muted" style="margin-bottom:10px;" data-i18n="safetyNotesLine2"></div>
+        <div class="muted" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a href="https://revoke.cash" target="_blank" rel="noreferrer" style="color:#60a5fa; text-decoration:underline;" data-i18n="safetyNotesLinkRevoke"></a>
+          <a href="https://etherscan.io" target="_blank" rel="noreferrer" style="color:#60a5fa; text-decoration:underline;" data-i18n="safetyNotesLinkEtherscan"></a>
+          <button id="exportDebug" style="background: rgba(30,41,59,0.85); color:#e5e7eb; border: 1px solid rgba(148,163,184,.22);" data-i18n="exportDebug"></button>
+        </div>
+      </div>
+      </section>
+
+      <section id="tab-history" class="tab-panel">
+        <h1 data-i18n="tabHistory"></h1>
+        <p class="muted" data-i18n="historySubtitle"></p>
+        <div id="historyList"></div>
+        <div class="row" style="margin-top:12px;">
+          <button id="historyExport" style="background: rgba(30,41,59,0.85); color:#e5e7eb; border: 1px solid rgba(148,163,184,.22);" data-i18n="historyExport"></button>
+          <button id="historyClear" style="background: rgba(239,68,68,.2); color:#f87171; border: 1px solid rgba(239,68,68,.3);" data-i18n="historyClear"></button>
+        </div>
+      </section>
+
+      <section id="tab-plan" class="tab-panel">
+        <h1 data-i18n="tabPlan"></h1>
+        <p class="muted" data-i18n="planSubtitle"></p>
+        <div class="card">
+          <div class="muted"><span data-i18n="planCurrent"></span>: <b id="planTierDisplay">FREE</b></div>
+          <div class="row" style="margin-top:12px;">
+            <label style="flex:1;"><span data-i18n="planLicenseKey"></span></label>
+            <input type="text" id="licenseKey" placeholder="" style="flex:2; background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 8px; color: #e5e7eb; padding: 8px 12px;" />
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button id="goPro" style="background: #f97316;" data-i18n="planGoPro">Assinar PRO</button>
+          </div>
+        </div>
+      </section>
     </div>
     <script type="module" src="./options.js"></script>
   </body>

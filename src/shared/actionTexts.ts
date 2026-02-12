@@ -8,6 +8,7 @@ export function actionTitle(action: string): string {
     case "SIGN_TYPED_DATA": return "Assinar mensagem (Typed Data)";
     case "SEND_TX": return "Enviar transação";
     case "WATCH_ASSET": return "Adicionar token à carteira";
+    case "SOLANA": return "Assinatura/Transação Solana";
     default: return "Ação desconhecida";
   }
 }

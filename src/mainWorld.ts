@@ -1,14 +1,22 @@
 // Runs in the MAIN world (MV3 content script with content_scripts[].world = "MAIN").
+(window as any).__signguard_mainworld = true;
 // Implements a correct "defer + resume" pipeline:
+import { estimateFee } from "./feeEstimate";
+import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalletBrand, listEvmProviders } from "./walletDetect";
 // - intercept sensitive provider.request calls and DEFER (no wallet popup yet)
 // - Content script shows overlay and posts decision
 // - MAIN world RESUMES by reexecuting the ORIGINAL request with bypass (no recursion)
+
+const TIMEOUT_MS_UI = 480000;     // 8 min when UI shown; keepalive resets
+const TIMEOUT_MS_FAILOPEN = 5000; // 5s when no UI yet (fail-open)
+const KEEPALIVE_CAP_MS = 900000;  // 15 min max lifetime from creation when UI shown
 
 type PendingReq = {
   invoke: () => Promise<any>;
   resolve: (v: any) => void;
   reject: (e: any) => void;
   createdAt: number;
+  lastKeepaliveAt?: number; // reset on SG_KEEPALIVE
   method: string;
   uiShown?: boolean;
 };
@@ -18,13 +26,6 @@ const SG_BYPASS = Symbol.for("SG_BYPASS"); // evita recursão
 
 function sgId() {
   return (crypto?.randomUUID?.() || (Date.now() + "-" + Math.random().toString(16).slice(2)));
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("timeout")), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-  });
 }
 
 function toBigIntHex(v: any): bigint {
@@ -82,54 +83,28 @@ function buildRpcMeta(methodLower: string, params: any, provider: any) {
   }
 }
 
-async function enrichTxFees(rawRequest: Function, tx: any) {
-  try {
-    const gasLimitHex = await withTimeout(
-      Promise.resolve(rawRequest({ method: "eth_estimateGas", params: [tx] })),
-      2500
-    ) as any;
+type EIP6963Provider = { uuid: string; name: string; icon?: string; rdns?: string; providerRef: any };
 
-    let maxFeePerGas: bigint | null = null;
-    try {
-      const [prioHex, feeHistory] = await Promise.all([
-        withTimeout(Promise.resolve(rawRequest({ method: "eth_maxPriorityFeePerGas", params: [] })), 2500),
-        withTimeout(Promise.resolve(rawRequest({ method: "eth_feeHistory", params: ["0x1", "latest", [10]] })), 2500),
-      ]) as any;
-      const baseHex = (feeHistory as any)?.baseFeePerGas?.[0];
-      const base = toBigIntHex(baseHex);
-      const prio = toBigIntHex(prioHex);
-      maxFeePerGas = (base * 2n) + prio;
-    } catch {
-      const gasPriceHex = await withTimeout(
-        Promise.resolve(rawRequest({ method: "eth_gasPrice", params: [] })),
-        2500
-      ) as any;
-      maxFeePerGas = toBigIntHex(gasPriceHex);
-    }
+const SG_ANNOUNCED_PROVIDERS: EIP6963Provider[] = [];
+let SG_ACTIVE_PROVIDER: any = null;
 
-    const gasLimit = toBigIntHex(gasLimitHex);
-    const gasFeeWei = gasLimit * (maxFeePerGas || 0n);
-    const gasFeeWeiHex = "0x" + gasFeeWei.toString(16);
-    const maxFeePerGasHex = "0x" + (maxFeePerGas || 0n).toString(16);
-
-    postMessageSG("SG_RPC_ENRICH_TX", {
-      gasLimit: String(gasLimitHex),
-      maxFeePerGas: maxFeePerGasHex,
-      gasFeeWeiHex,
-      forHref: location.href
-    });
-  } catch {}
+function selectActiveProvider(): any {
+  const w = typeof window !== "undefined" ? (window as any) : null;
+  const eth = w?.ethereum;
+  if (eth) return eth;
+  const first = SG_ANNOUNCED_PROVIDERS[0]?.providerRef;
+  return first || null;
 }
 
-function detectProviderHint(p: any): string {
-  try {
-    if (p?.isMetaMask) return "metamask";
-    if (p?.isCoinbaseWallet) return "coinbase";
-    return "unknown";
-  } catch { return "unknown"; }
+function applyActiveProvider() {
+  const next = selectActiveProvider();
+  if (next && next !== SG_ACTIVE_PROVIDER) {
+    SG_ACTIVE_PROVIDER = next;
+    wrapProvider(next, undefined, "window.ethereum");
+  }
 }
 
-function wrapProvider(provider: any) {
+function wrapProvider(provider: any, providerTag?: string, providerSource?: "window.ethereum" | "ethereum.providers[i]" | "eip6963", providerIndex?: number | string, eip6963DisplayName?: string) {
   if (!provider || typeof provider.request !== "function") return;
   if ((provider.request as any).__sg_wrapped) return;
 
@@ -154,9 +129,26 @@ function wrapProvider(provider: any) {
     // Non-blocking telemetry for flow tracking (content script)
     postMessageSG("SG_RPC", { method, params });
 
-    // Async enrich for TX fees (no wallet popup)
+    // For send tx: estimate fees BEFORE opening overlay (read-only, no wallet popup)
+    let txCostPreview: any = undefined;
     if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-      void enrichTxFees(rawRequest, params[0]);
+      const tx = params[0];
+      const providerRequest = (a: any) => rawRequest(a);
+      const fee = await estimateFee(providerRequest, tx);
+      const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
+      txCostPreview = {
+        valueWei: valueWei.toString(10),
+        feeEstimated: fee.ok,
+      };
+      if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
+        if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
+        txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
+        txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
+        txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
+        txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
+      } else {
+        txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
+      }
     }
 
     const sensitive = [
@@ -168,6 +160,7 @@ function wrapProvider(provider: any) {
       "eth_signtypeddata_v4",
       "eth_signtypeddata_v3",
       "eth_signtypeddata",
+      "eth_signtransaction",
       "eth_sendtransaction",
       "wallet_sendtransaction",
       "wallet_switchethereumchain",
@@ -189,21 +182,34 @@ function wrapProvider(provider: any) {
         uiShown: false
       });
 
-      // Post request immediately (overlay can show "calculando..." and update when enrich arrives)
-      window.postMessage({
-        source: "signguard",
-        type: "SG_REQUEST",
-        requestId,
-        payload: {
-          url: location.href,
-          host: location.host,
-          method,
-          params: Array.isArray(params) ? params : (params ?? null),
-          chainId: provider?.chainId ?? null,
-          providerHint: detectProviderHint(provider),
-          meta: buildRpcMeta(method, params, provider),
-        }
-      }, "*");
+      const walletMeta = detectWalletFromProvider(provider);
+      const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
+      const walletBrand = detectWalletBrand(provider, eip6963DisplayName);
+      const providerKey = [providerSource || "window.ethereum", walletMeta.id, providerIndex ?? ""].filter(Boolean).join(":");
+      try {
+        window.postMessage({
+          source: "signguard-inpage",
+          type: "SG_REQUEST",
+          requestId,
+          payload: {
+            id: requestId,
+            url: location.href,
+            origin: location.origin,
+            host: location.host,
+            method,
+            params: Array.isArray(params) ? params : (params ?? null),
+            chainId: provider?.chainId ?? null,
+            wallet: { ...walletInfo, id: walletMeta.id, walletBrand, walletName: walletInfo.walletName || walletBrand },
+            providerKey,
+            providerSource: providerSource || "window.ethereum",
+            request: { method, params: Array.isArray(params) ? params : undefined },
+            providerTag,
+            providerHint: { kind: walletInfo.name, name: walletInfo.name },
+            meta: buildRpcMeta(method, params, provider),
+            txCostPreview,
+          }
+        }, "*");
+      } catch {}
     });
   }
 
@@ -222,10 +228,6 @@ function wrapProvider(provider: any) {
       const params = payload?.params;
       postMessageSG("SG_RPC", { method, params });
 
-      if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-        void enrichTxFees(rawRequest, params[0]);
-      }
-
       const sensitive = [
         "eth_requestaccounts",
         "wallet_requestpermissions",
@@ -235,6 +237,7 @@ function wrapProvider(provider: any) {
         "eth_signtypeddata_v4",
         "eth_signtypeddata_v3",
         "eth_signtypeddata",
+        "eth_signtransaction",
         "eth_sendtransaction",
         "wallet_sendtransaction",
         "wallet_switchethereumchain",
@@ -245,6 +248,52 @@ function wrapProvider(provider: any) {
       if (!sensitive) return rawSend(methodOrPayload, paramsOrCb);
 
       const requestId = sgId();
+      (async () => {
+        let txCostPreview: any = undefined;
+        if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
+          const tx = params[0];
+          const fee = await estimateFee((a: any) => rawRequest(a), tx);
+          const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
+          txCostPreview = { valueWei: valueWei.toString(10), feeEstimated: fee.ok };
+          if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
+            if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
+            txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
+            txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
+            txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
+            txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
+          } else {
+            txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
+          }
+        }
+        const walletMetaInner = detectWalletFromProvider(provider);
+        const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
+        const walletBrandInner = detectWalletBrand(provider, eip6963DisplayName);
+        const providerKey = [providerSource || "window.ethereum", walletMetaInner.id, providerIndex ?? ""].filter(Boolean).join(":");
+        try {
+          window.postMessage({
+            source: "signguard-inpage",
+            type: "SG_REQUEST",
+            requestId,
+            payload: {
+              id: requestId,
+              url: location.href,
+              origin: location.origin,
+              host: location.host,
+              method,
+              params: Array.isArray(params) ? params : (params ?? null),
+              chainId: provider?.chainId ?? null,
+              wallet: { ...walletInfo, id: walletMetaInner.id, walletBrand: walletBrandInner, walletName: walletInfo.walletName || walletBrandInner },
+              providerKey,
+              providerSource: providerSource || "window.ethereum",
+              request: { method, params: Array.isArray(params) ? params : undefined },
+              providerTag,
+              providerHint: { kind: walletInfo.name, name: walletInfo.name },
+              meta: buildRpcMeta(method, params, provider),
+              txCostPreview,
+            }
+          }, "*");
+        } catch {}
+      })();
       return new Promise((resolve, reject) => {
         SG_PENDING.set(requestId, {
           invoke: () => Promise.resolve(rawSend(methodOrPayload, paramsOrCb)),
@@ -254,21 +303,6 @@ function wrapProvider(provider: any) {
           method,
           uiShown: false,
         });
-
-        window.postMessage({
-          source: "signguard",
-          type: "SG_REQUEST",
-          requestId,
-          payload: {
-            url: location.href,
-            host: location.host,
-            method,
-            params: Array.isArray(params) ? params : (params ?? null),
-            chainId: provider?.chainId ?? null,
-            providerHint: detectProviderHint(provider),
-            meta: buildRpcMeta(method, params, provider),
-          }
-        }, "*");
       });
     } as any;
   }
@@ -280,10 +314,6 @@ function wrapProvider(provider: any) {
       const params = payload?.params;
       postMessageSG("SG_RPC", { method, params });
 
-      if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-        void enrichTxFees(rawRequest, params[0]);
-      }
-
       const sensitive = [
         "eth_requestaccounts",
         "wallet_requestpermissions",
@@ -293,6 +323,7 @@ function wrapProvider(provider: any) {
         "eth_signtypeddata_v4",
         "eth_signtypeddata_v3",
         "eth_signtypeddata",
+        "eth_signtransaction",
         "eth_sendtransaction",
         "wallet_sendtransaction",
         "wallet_switchethereumchain",
@@ -305,6 +336,52 @@ function wrapProvider(provider: any) {
       const requestId = sgId();
       const doneCb = (typeof cb === "function") ? cb : (() => {});
 
+      (async () => {
+        let txCostPreview: any = undefined;
+        if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
+          const tx = params[0];
+          const fee = await estimateFee((a: any) => rawRequest(a), tx);
+          const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
+          txCostPreview = { valueWei: valueWei.toString(10), feeEstimated: fee.ok };
+          if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
+            if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
+            txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
+            txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
+            txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
+            txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
+          } else {
+            txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
+          }
+        }
+        const walletMetaAsync = detectWalletFromProvider(provider);
+        const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
+        const walletBrandAsync = detectWalletBrand(provider, eip6963DisplayName);
+        const providerKey = [providerSource || "window.ethereum", walletMetaAsync.id, providerIndex ?? ""].filter(Boolean).join(":");
+        try {
+          window.postMessage({
+            source: "signguard-inpage",
+            type: "SG_REQUEST",
+            requestId,
+            payload: {
+              id: requestId,
+              url: location.href,
+              origin: location.origin,
+              host: location.host,
+              method,
+              params: Array.isArray(params) ? params : (params ?? null),
+              chainId: provider?.chainId ?? null,
+              wallet: { ...walletInfo, id: walletMetaAsync.id, walletBrand: walletBrandAsync, walletName: walletInfo.walletName || walletBrandAsync },
+              providerKey,
+              providerSource: providerSource || "window.ethereum",
+              request: { method, params: Array.isArray(params) ? params : undefined },
+              providerTag,
+              providerHint: { kind: walletInfo.name, name: walletInfo.name },
+              meta: buildRpcMeta(method, params, provider),
+              txCostPreview,
+            }
+          }, "*");
+        } catch {}
+      })();
       return new Promise((resolve, reject) => {
         SG_PENDING.set(requestId, {
           invoke: () =>
@@ -322,21 +399,6 @@ function wrapProvider(provider: any) {
           method,
           uiShown: false,
         });
-
-        window.postMessage({
-          source: "signguard",
-          type: "SG_REQUEST",
-          requestId,
-          payload: {
-            url: location.href,
-            host: location.host,
-            method,
-            params: Array.isArray(params) ? params : (params ?? null),
-            chainId: provider?.chainId ?? null,
-            providerHint: detectProviderHint(provider),
-            meta: buildRpcMeta(method, params, provider),
-          }
-        }, "*");
       });
     } as any;
   }
@@ -346,7 +408,7 @@ function rejectEIP1193UserRejected(method: string) {
   return { code: 4001, message: "User rejected the request", data: { method } };
 }
 
-async function resumeDecisionInner(requestId: string, allow: boolean) {
+function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: string) {
   try {
     const pending = SG_PENDING.get(requestId);
     if (!pending) return;
@@ -354,16 +416,25 @@ async function resumeDecisionInner(requestId: string, allow: boolean) {
     SG_PENDING.delete(requestId);
 
     if (!allow) {
-      pending.reject({ code: 4001, message: "User rejected the request", data: { method: pending.method } });
+      const msg = typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : "User rejected the request";
+      pending.reject({ code: 4001, message: msg, data: { method: pending.method } });
+      try {
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+      } catch {}
       return;
     }
 
-    // RESUME IMEDIATO (precisa ocorrer dentro do user gesture)
     try {
-      const res = await pending.invoke();
-      pending.resolve(res);
+      const promise = pending.invoke();
+      pending.resolve(promise);
+      try {
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+      } catch {}
     } catch (e) {
       pending.reject(e);
+      try {
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+      } catch {}
     }
   } catch {}
 }
@@ -371,11 +442,21 @@ async function resumeDecisionInner(requestId: string, allow: boolean) {
 function markUiShown(requestId: string) {
   try {
     const p = SG_PENDING.get(requestId);
-    if (p) p.uiShown = true;
+    if (p) {
+      p.uiShown = true;
+      p.lastKeepaliveAt = Date.now();
+    }
   } catch {}
 }
 
-// Content can mark that an overlay was shown (affects timeout behavior)
+function handleKeepalive(requestId: string) {
+  try {
+    const p = SG_PENDING.get(requestId);
+    if (p) p.lastKeepaliveAt = Date.now();
+  } catch {}
+}
+
+// Content marks overlay shown (affects timeout: uiShown => reject on timeout, else fail-open)
 window.addEventListener("signguard:uiShown", (ev: any) => {
   try {
     const detail = ev?.detail || {};
@@ -383,37 +464,39 @@ window.addEventListener("signguard:uiShown", (ev: any) => {
     if (!requestId) return;
     markUiShown(requestId);
   } catch {}
-}, { passive: true } as any);
+}, true);
 
 window.addEventListener("message", (ev) => {
   try {
     if (ev.source !== window) return;
     const d = (ev as any)?.data;
-    if (!d || d.source !== "signguard-content") return;
-    if (d.type !== "SG_UI_SHOWN") return;
-    markUiShown(String(d.requestId || ""));
+    if (!d || (d.source !== "signguard" && d.source !== "signguard-content")) return;
+    if (d.type === "SG_UI_SHOWN") markUiShown(String(d.requestId || ""));
+    if (d.type === "SG_KEEPALIVE") handleKeepalive(String(d.requestId || ""));
   } catch {}
 });
 
-// Primary path: synchronous CustomEvent (preserves user gesture)
-window.addEventListener("signguard:decision", async (ev: any) => {
+// Primary path: SYNCHRONOUS CustomEvent (preserves user gesture — CRITICAL for wallet popup)
+window.addEventListener("signguard:decision", (ev: any) => {
   try {
     const detail = ev?.detail || {};
     const requestId = String(detail.requestId || "");
     const allow = !!detail.allow;
-    await resumeDecisionInner(requestId, allow);
+    const errorMessage = detail.errorMessage;
+    resumeDecisionInner(requestId, allow, errorMessage);
   } catch {}
-}, { passive: true });
+}, true);
 
 // Back-compat: previous event name
-window.addEventListener("sg:decision", async (ev: any) => {
+window.addEventListener("sg:decision", (ev: any) => {
   try {
     const detail = ev?.detail || {};
     const requestId = String(detail.requestId || "");
     const allow = !!detail.allow;
-    await resumeDecisionInner(requestId, allow);
+    const errorMessage = detail.errorMessage;
+    resumeDecisionInner(requestId, allow, errorMessage);
   } catch {}
-}, { passive: true });
+}, true);
 
 // Fallback: SG_DECISION via postMessage funnels into same logic
 window.addEventListener("message", (ev) => {
@@ -422,34 +505,88 @@ window.addEventListener("message", (ev) => {
     const d = (ev as any)?.data;
     if (!d || (d.source !== "signguard" && d.source !== "signguard-content")) return;
     if (d.type !== "SG_DECISION") return;
-    void resumeDecisionInner(String(d.requestId || ""), !!d.allow);
+    void resumeDecisionInner(String(d.requestId || ""), !!d.allow, d.errorMessage);
   } catch {}
 });
 
 setInterval(() => {
   const now = Date.now();
   for (const [id, p] of SG_PENDING.entries()) {
-    if (now - p.createdAt > 12000) {
+    const base = p.lastKeepaliveAt ?? p.createdAt;
+    const timeout = p.uiShown ? TIMEOUT_MS_UI : TIMEOUT_MS_FAILOPEN;
+    const expiresAt = p.uiShown
+      ? Math.min(base + timeout, p.createdAt + KEEPALIVE_CAP_MS)
+      : base + timeout;
+    if (now > expiresAt) {
       SG_PENDING.delete(id);
-      // If UI was shown and user didn't decide, reject (don't execute silently).
       if (p.uiShown) {
-        p.reject(rejectEIP1193UserRejected(p.method));
+        p.reject({ code: 4001, message: "SignGuard: timeout" });
         continue;
       }
-      // Technical failure: fail-open (don't break dapp UX).
-      Promise.resolve().then(() => p.invoke()).then(p.resolve).catch(p.reject);
+      // Technical failure (no UI): fail-open
+      try {
+        const promise = p.invoke();
+        p.resolve(promise);
+      } catch (e) {
+        p.reject(e);
+      }
     }
   }
 }, 5000);
 
 function tryWrapAll() {
-  const eth: any = (window as any).ethereum;
-  if (eth) {
-    wrapProvider(eth);
-    if (Array.isArray(eth.providers)) {
-      for (const p of eth.providers) wrapProvider(p);
-    }
+  const providers = listEvmProviders();
+  const eth = (window as any)?.ethereum;
+  for (let i = 0; i < providers.length; i++) {
+    const p = providers[i];
+    const src: "window.ethereum" | "ethereum.providers[i]" = (i === 0 && p === eth) ? "window.ethereum" : "ethereum.providers[i]";
+    wrapProvider(p, i > 0 ? `provider-${i}` : undefined, src, String(i));
   }
+  if (providers.length === 0) applyActiveProvider();
+  tryWrapSolana();
+}
+
+function tryWrapSolana() {
+  const sol: any = (window as any).solana;
+  if (!sol || (sol as any).__sg_wrapped) return;
+  const methods = ["connect", "signMessage", "signTransaction", "signAllTransactions", "signAndSendTransaction"];
+  for (const m of methods) {
+    if (typeof sol[m] !== "function") continue;
+    const raw = sol[m].bind(sol);
+    (sol as any)[m] = function (...args: any[]) {
+      const wallet = detectSolWallet(sol);
+      const requestId = sgId();
+      return new Promise((resolve, reject) => {
+        SG_PENDING.set(requestId, {
+          invoke: () => Promise.resolve(raw(...args)),
+          resolve,
+          reject,
+          createdAt: Date.now(),
+          method: `solana:${m}`,
+          uiShown: false,
+        });
+        try {
+          window.postMessage({
+            source: "signguard-inpage",
+            type: "SG_REQUEST",
+            requestId,
+            payload: {
+              id: requestId,
+              url: location.href,
+              origin: location.origin,
+              host: location.host,
+              method: `solana:${m}`,
+              params: args?.length ? [{ method: m, argsCount: args.length }] : null,
+              wallet,
+              request: { method: `solana:${m}`, params: args },
+              meta: { chainId: null },
+            }
+          }, "*");
+        } catch {}
+      });
+    };
+  }
+  (sol as any).__sg_wrapped = true;
 }
 
 function startWrapRetry() {
@@ -457,8 +594,22 @@ function startWrapRetry() {
 
   window.addEventListener("eip6963:announceProvider", (event: any) => {
     try {
+      const info = event?.detail?.info;
       const provider = event?.detail?.provider;
-      wrapProvider(provider);
+      if (info && provider) {
+        const existing = SG_ANNOUNCED_PROVIDERS.find((p) => p.uuid === info.uuid);
+        if (!existing) {
+          SG_ANNOUNCED_PROVIDERS.push({
+            uuid: info.uuid || "",
+            name: info.name || "Unknown",
+            icon: info.icon,
+            rdns: info.rdns,
+            providerRef: provider,
+          });
+          wrapProvider(provider, info.rdns || info.name, "eip6963", info.uuid, info.name);
+        }
+        applyActiveProvider();
+      }
     } catch {}
   });
   try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch {}
@@ -476,7 +627,66 @@ function startWrapRetry() {
   } catch {}
 }
 
+// REWRAP guard: window.ethereum and window.solana can change after load
+function startProviderGuardRewrap() {
+  let lastEth: any = null;
+  let lastReqFn: any = null;
+  let lastSolana: any = null;
+  let tries = 0;
+  const maxTries = 10;
+  const timer = setInterval(() => {
+    tries++;
+    try {
+      const eth: any = (window as any).ethereum;
+      const reqFn = eth?.request;
+      const sol: any = (window as any).solana;
+
+      const ethChanged = !!eth && eth !== lastEth;
+      const reqChanged = !!eth && typeof reqFn === "function" && reqFn !== lastReqFn;
+      const notWrapped = !!eth && typeof reqFn === "function" && !(reqFn as any).__sg_wrapped;
+      const solChanged = !!sol && sol !== lastSolana;
+      const solNotWrapped = !!sol && !(sol as any).__sg_wrapped;
+
+      if (ethChanged || reqChanged || notWrapped || solChanged || solNotWrapped) {
+        tryWrapAll();
+        lastEth = eth || null;
+        lastReqFn = eth?.request || null;
+        lastSolana = sol || null;
+      }
+    } catch {}
+
+    if (tries >= maxTries) {
+      try { clearInterval(timer); } catch {}
+    }
+  }, 500);
+}
+
+// RPC bridge: readonly eth_call / eth_chainId for asset lookup
+const ALLOWED_RPC_METHODS = new Set(["eth_call", "eth_chainid", "eth_getCode"]);
+window.addEventListener("message", (ev: MessageEvent) => {
+  try {
+    if (ev.source !== window) return;
+    const d = (ev as any)?.data;
+    if (!d || d.source !== "signguard-content" || d.type !== "SG_RPC_CALL_REQUEST") return;
+    const { id, method, params } = d;
+    const methodNorm = String(method || "").toLowerCase();
+    if (!ALLOWED_RPC_METHODS.has(methodNorm)) {
+      window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: "method_not_allowed" }, "*");
+      return;
+    }
+    const eth = (window as any).ethereum || SG_ACTIVE_PROVIDER;
+    if (!eth?.request) {
+      window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: "no_provider" }, "*");
+      return;
+    }
+    Promise.resolve(eth.request({ method: methodNorm, params: params || [] }))
+      .then((result: any) => window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, result }, "*"))
+      .catch((err: any) => window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: String(err?.message || err) }, "*"));
+  } catch {}
+});
+
 // document_start
 tryWrapAll();
 startWrapRetry();
+startProviderGuardRewrap();
 

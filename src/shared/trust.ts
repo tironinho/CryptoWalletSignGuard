@@ -106,7 +106,7 @@ export function computeTrustVerdict(host: string, allowlist: string[]): {
   });
   if (matched) {
     trustScore = 92;
-    reasons.push(t("trustReasonAllowlisted", matched));
+    reasons.push(t("trustReasonAllowlistedMatched", { matched }));
     return { verdict: "LIKELY_OFFICIAL", trustScore, reasons, matchedAllowlistDomain: matched };
   }
 

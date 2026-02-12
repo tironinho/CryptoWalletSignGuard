@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "clean": "node scripts/build.mjs --clean"
+    "clean": "node scripts/build.mjs --clean",
+    "pack": "node scripts/build.mjs && node scripts/pack.mjs"
   },
   "dependencies": {},
   "devDependencies": {

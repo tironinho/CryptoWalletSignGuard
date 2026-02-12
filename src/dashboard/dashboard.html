@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SignGuard — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            sg: {
+              bg: '#0b1220',
+              panel: '#0f172a',
+              border: 'rgba(148, 163, 184, 0.18)',
+              muted: '#94a3b8',
+              primary: '#f97316',
+              danger: '#ef4444',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #0b1220; color: #e5e7eb; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .sg-panel { background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 16px; }
+    .sg-muted { color: #94a3b8; }
+    .sg-badge-active { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .sg-badge-paused { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .sg-btn-revoke { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .sg-btn-revoke:hover { background: rgba(239, 68, 68, 0.35); }
+    .sg-btn-revoke:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-6">
+  <div class="max-w-3xl mx-auto space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold text-white">SignGuard</h1>
+      <a href="options.html" class="text-sm sg-muted hover:text-sg-primary transition">Configurações</a>
+    </header>
+
+    <!-- Health Check -->
+    <section class="sg-panel p-5">
+      <h2 class="text-lg font-semibold text-white mb-4">Estado da proteção</h2>
+      <div class="grid gap-3 text-sm">
+        <div class="flex justify-between items-center">
+          <span class="sg-muted">Última verificação</span>
+          <span id="lastVerification" class="font-medium">—</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="sg-muted">Nível de proteção</span>
+          <span id="protectionLevel" class="font-semibold rounded-full px-3 py-1 sg-badge-active">Ativo</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Token Allowances -->
+    <section class="sg-panel p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-white">Token Allowances</h2>
+        <button id="refreshAllowances" type="button" class="text-sm text-sg-primary hover:underline">Atualizar</button>
+      </div>
+      <p class="sg-muted text-sm mb-4">Aprovações de tokens ERC-20 (dados de teste até integração com API).</p>
+      <div id="allowancesWrap" class="space-y-3">
+        <div id="allowancesList"></div>
+        <p id="allowancesEmpty" class="sg-muted text-sm hidden">Introduza um endereço e clique em Atualizar.</p>
+        <p id="allowancesError" class="text-red-400 text-sm hidden"></p>
+      </div>
+      <div class="mt-4 flex gap-2 flex-wrap">
+        <input type="text" id="walletAddress" placeholder="0x..." class="flex-1 min-w-[200px] bg-slate-900/80 border border-sg-border rounded-lg px-3 py-2 text-sm text-white placeholder-sg-muted focus:outline-none focus:ring-1 focus:ring-sg-primary" />
+        <button id="loadAllowances" type="button" class="px-4 py-2 rounded-lg font-semibold text-sm bg-sg-primary text-white hover:opacity-90 transition">Carregar aprovações</button>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="./dashboard.js"></script>
+</body>
+</html>

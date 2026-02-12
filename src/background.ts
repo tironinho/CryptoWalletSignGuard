@@ -1,20 +1,102 @@
-import type { AnalyzeRequest, Analysis, Settings } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings, AssetInfo, DecodedAction, SecurityMode, ThreatIntelAddress, CheckResult, CheckKey } from "./shared/types";
 import type { TxSummary } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
-import { decodeErc20Approve, decodeSetApprovalForAll } from "./shared/decode";
+import type { Intent, TxExtras } from "./shared/types";
+import { decodeErc20Approve, decodeSetApprovalForAll, decodeTx } from "./shared/decode";
 import { hostFromUrl, isAllowlisted, hexSelector, isHexString } from "./shared/utils";
+import { shortAddr } from "./txMath";
 import { t } from "./i18n";
 import { computeTrustVerdict } from "./shared/trust";
 import { buildHumanLists, explainMethod } from "./shared/explain";
 import { SUGGESTED_TRUSTED_DOMAINS as SUGGESTED_TRUSTED_DOMAINS_SHARED } from "./shared/constants";
-import { fetchThreatIntel, hostMatches, normalizeHost } from "./intel";
+import { fetchThreatIntel, hostMatches, normalizeHost, hostInBlocked, TRUSTED_SEED } from "./intel";
 import type { ThreatIntel } from "./intel";
+import { loadAddressIntelCachedFast, refreshAddressIntel, saveAddressIntel, normalizeAddr } from "./addressIntel";
+import type { AddressIntel, AddressLabel } from "./addressIntel";
+import { decodeEvmTx } from "./txHumanize";
+import { extractTypedDataPermitExtras } from "./txHumanize";
 import { hexToBigInt, weiToEth } from "./txMath";
+import { assessDomainRisk } from "./domainRisk";
+import { runSimulation } from "./services/simulationService";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
-const INTEL_KEY = "sg_threat_intel";
+const INTEL_KEY = "sg_threat_intel_v2";
 const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
+
+const HISTORY_KEY = "sg_history";
+const HISTORY_MAX = 200;
+
+type HistoryEvent = {
+  ts: number;
+  requestId: string;
+  host?: string;
+  url?: string;
+  wallet?: string;
+  chainId?: string;
+  action?: string;
+  method?: string;
+  to?: string;
+  valueEth?: string;
+  feeLikelyEth?: string;
+  feeMaxEth?: string;
+  totalLikelyEth?: string;
+  totalMaxEth?: string;
+  usdPerEth?: number;
+  decision: "ALLOW" | "BLOCK";
+  score?: number;
+  level?: string;
+};
+
+function pushHistoryEvent(evt: HistoryEvent) {
+  try {
+    chrome.storage.local.get(HISTORY_KEY, (r) => {
+      const err = chrome.runtime.lastError;
+      if (err) return;
+      const arr = Array.isArray((r as any)?.[HISTORY_KEY]) ? (r as any)[HISTORY_KEY] : [];
+      arr.push(evt);
+      const trimmed = arr.slice(-HISTORY_MAX);
+      chrome.storage.local.set({ [HISTORY_KEY]: trimmed }, () => void 0);
+    });
+  } catch {}
+}
+
+/** Minimal intel from local seed only (no network). Used when cache is missing. */
+function getMinimalSeedIntel(): ThreatIntel {
+  return {
+    updatedAt: 0,
+    sources: [{ name: "local_seed", ok: true, count: 0, url: "" }],
+    blockedDomains: {},
+    allowedDomains: {},
+    blockedAddresses: {},
+    trustedSeed: [...TRUSTED_SEED],
+    blockedDomainsList: [],
+    blockedAddressesList: [],
+  };
+}
+const ASSET_CACHE_KEY = "sg_asset_cache";
+const ASSET_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+const getCodeCache = new Map<string, boolean>();
+
+async function getToIsContract(address: string | undefined, tabId: number | undefined): Promise<boolean | undefined> {
+  const addr = (address || "").toLowerCase();
+  if (!addr || addr.length < 40) return undefined;
+  const cacheKey = addr;
+  const hit = getCodeCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  try {
+    const code = await Promise.race([
+      rpcCall(tabId, "eth_getCode", [addr, "latest"]),
+      new Promise<null>((_, rej) => setTimeout(() => rej(new Error("timeout")), 1500)),
+    ]);
+    const isContract = !!(code && code !== "0x" && code !== "0x0" && (code as string).length > 2);
+    getCodeCache.set(cacheKey, isContract);
+    return isContract;
+  } catch {
+    return undefined;
+  }
+}
 
 async function loadIntel(): Promise<ThreatIntel | null> {
   try {
@@ -39,21 +121,153 @@ async function getIntelFresh(): Promise<ThreatIntel> {
   return fresh;
 }
 
-async function updateIntelNow(): Promise<ThreatIntel> {
+/** Returns cached intel only (no network). Never blocks on fetch. */
+async function getIntelCachedFast(): Promise<ThreatIntel> {
+  const cached = await loadIntel();
+  if (cached) return cached;
+  return getMinimalSeedIntel();
+}
+
+let _intelRefreshInProgress = false;
+
+/** Schedules an async intel refresh without blocking. Concurrency-safe. */
+function ensureIntelRefreshSoon(reason: string): void {
+  if (_intelRefreshInProgress) return;
+  _intelRefreshInProgress = true;
+  Promise.resolve()
+    .then(() => updateIntelNow())
+    .catch(() => {})
+    .finally(() => {
+      _intelRefreshInProgress = false;
+    });
+}
+
+async function updateIntelNow(_opts?: { reason?: string }): Promise<ThreatIntel> {
   const fresh = await fetchThreatIntel();
   await saveIntel(fresh);
   return fresh;
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
-  try { await updateIntelNow(); } catch {}
+let _addrIntelRefreshInProgress = false;
+
+function ensureAddressIntelRefreshSoon(reason: string): void {
+  if (_addrIntelRefreshInProgress) return;
+  _addrIntelRefreshInProgress = true;
+  Promise.resolve()
+    .then(async () => {
+      try {
+        const fresh = await refreshAddressIntel();
+        await saveAddressIntel(fresh);
+      } finally {
+        _addrIntelRefreshInProgress = false;
+      }
+    })
+    .catch(() => { _addrIntelRefreshInProgress = false; });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureIntelRefreshSoon("startup");
+  ensureAddressIntelRefreshSoon("startup");
   chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 });
 });
 
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name !== "sg_intel_daily") return;
   try { await updateIntelNow(); } catch {}
+  try { ensureAddressIntelRefreshSoon("alarm_daily"); } catch {}
 });
+
+async function rpcCall(tabId: number | undefined, method: string, params: any[]): Promise<any> {
+  if (!tabId || typeof chrome.tabs.sendMessage !== "function") return null;
+  const allowed = new Set(["eth_call", "eth_chainid", "eth_getCode"]);
+  if (!allowed.has(String(method).toLowerCase())) return null;
+  try {
+    const resp = await chrome.tabs.sendMessage(tabId, { type: "SG_RPC_CALL_REQUEST", id: crypto.randomUUID(), method, params });
+    return (resp as any)?.ok ? (resp as any).result : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getAssetInfo(chainId: string, address: string, tabId: number | undefined): Promise<AssetInfo | null> {
+  const key = `${(chainId || "").toLowerCase()}:${(address || "").toLowerCase()}`;
+  if (!key || key === ":") return null;
+  try {
+    const cached: Record<string, AssetInfo> = (await (chrome.storage.local.get as any)(ASSET_CACHE_KEY))?.[ASSET_CACHE_KEY] || {};
+    const hit = cached[key];
+    if (hit && Date.now() - (hit.fetchedAt || 0) < ASSET_CACHE_TTL_MS) return hit;
+
+    const call = (to: string, data: string) => rpcCall(tabId, "eth_call", [{ to, data, gas: "0x7530" }]);
+    const nameHex = await call(address, "0x06fdde03");
+    const symbolHex = await call(address, "0x95d89b41");
+    const decimalsHex = await call(address, "0x313ce567");
+
+    let name = "";
+    let symbol = "";
+    let decimals: number | undefined;
+    const decodeBytes = (h: string) => {
+      if (!h || typeof h !== "string" || !h.startsWith("0x")) return "";
+      const hex = h.slice(2);
+      const len = parseInt(hex.slice(64, 128), 16) || 0;
+      const data = hex.slice(128, 128 + len * 2);
+      let s = "";
+      for (let i = 0; i < data.length; i += 2) {
+        const c = parseInt(data.slice(i, i + 2), 16);
+        if (c > 0) s += String.fromCharCode(c);
+      }
+      return s;
+    };
+    if (nameHex) name = decodeBytes(nameHex);
+    if (symbolHex) symbol = decodeBytes(symbolHex);
+    if (decimalsHex && typeof decimalsHex === "string" && decimalsHex.startsWith("0x")) {
+      try { decimals = parseInt(decimalsHex, 16); } catch {}
+    }
+
+    let kind: AssetInfo["kind"] = "UNKNOWN";
+    if (decimals != null && (symbol || name)) {
+      kind = "ERC20";
+    } else {
+      const pad32 = (h: string) => h.replace(/^0x/, "").padStart(64, "0").slice(0, 64);
+      const sup721 = await call(address, "0x01ffc9a7" + pad32("0x80ac58cd"));
+      const sup1155 = await call(address, "0x01ffc9a7" + pad32("0xd9b67a26"));
+      const isTrue = (r: any) => r && /[1-9a-f]/.test(String(r).replace(/^0x/, ""));
+      if (isTrue(sup721)) kind = "ERC721";
+      else if (isTrue(sup1155)) kind = "ERC1155";
+    }
+
+    const info: AssetInfo = { chainId, address: address.toLowerCase(), kind, name: name || undefined, symbol: symbol || undefined, decimals, fetchedAt: Date.now() };
+    cached[key] = info;
+    await (chrome.storage.local.set as any)({ [ASSET_CACHE_KEY]: cached });
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+const DEBUG_KEY = "sg_debug_events";
+
+function clamp01(n: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function truncateStr(s: any, max = 1200) {
+  const str = typeof s === "string" ? s : String(s ?? "");
+  if (str.length <= max) return str;
+  return str.slice(0, max) + "…";
+}
+
+function pushDebugEvent(evt: any) {
+  try {
+    chrome.storage.local.get(DEBUG_KEY, (r) => {
+      const err = chrome.runtime.lastError;
+      if (err) return;
+      const arr = Array.isArray((r as any)?.[DEBUG_KEY]) ? (r as any)[DEBUG_KEY] : [];
+      arr.push(evt);
+      const trimmed = arr.slice(-20);
+      chrome.storage.local.set({ [DEBUG_KEY]: trimmed }, () => void 0);
+    });
+  } catch {}
+}
 
 let __ethUsdCache: { usdPerEth: number; fetchedAt: number } | null = null;
 
@@ -91,6 +305,27 @@ async function getSettings(): Promise<Settings> {
   });
 }
 
+/** Returns true if this request is a sendTransaction targeting a contract in the vault (Cofre). */
+function isVaultLockedContract(settings: Settings, req: AnalyzeRequest): boolean {
+  const vault = settings.vault;
+  if (!vault?.enabled || !Array.isArray(vault.lockedContracts) || vault.lockedContracts.length === 0) return false;
+  const method = String(req?.request?.method ?? "").toLowerCase();
+  if (method !== "eth_sendtransaction" && method !== "wallet_sendtransaction") return false;
+  const params = req?.request?.params;
+  const tx = Array.isArray(params) && params[0] && typeof params[0] === "object" ? params[0] : null;
+  if (!tx) return false;
+  const to = typeof (tx as any).to === "string" ? (tx as any).to.trim() : "";
+  if (!to || !to.startsWith("0x")) return false;
+  const hex = to.replace(/^0x/, "").toLowerCase();
+  if (hex.length !== 40 || !/^[a-f0-9]{40}$/.test(hex)) return false;
+  const toNorm = "0x" + hex;
+  const locked = vault.lockedContracts.map((a) => {
+    const h = String(a).replace(/^0x/, "").toLowerCase();
+    return h.length === 40 ? "0x" + h : "";
+  }).filter(Boolean);
+  return locked.includes(toNorm);
+}
+
 function domainHeuristicsLocalized(host: string): { level: "LOW" | "WARN"; reasons: string[] } {
   const h = (host || "").toLowerCase();
   const reasons: string[] = [];
@@ -118,6 +353,7 @@ function summarizeTx(method: string, params: any[]): any | null {
   if (!tx || typeof tx !== "object") return null;
 
   const to = typeof (tx as any).to === "string" ? (tx as any).to : "";
+  const data = typeof (tx as any).data === "string" ? (tx as any).data : "";
   const valueWei = hexToBigInt((tx as any).value || "0x0");
   const valueEth = weiToEth(valueWei);
 
@@ -125,22 +361,54 @@ function summarizeTx(method: string, params: any[]): any | null {
   const maxFeePerGas = hexToBigInt((tx as any).maxFeePerGas || "0x0");
   const gasPrice = hexToBigInt((tx as any).gasPrice || "0x0");
 
-  // prefer EIP-1559 maxFeePerGas; fallback gasPrice
+  const hasGas = gasLimit > 0n;
+  const hasFeePerGas = maxFeePerGas > 0n || gasPrice > 0n;
+  const feeKnown = !!(hasGas && hasFeePerGas);
+
   const feePerGas = maxFeePerGas > 0n ? maxFeePerGas : gasPrice;
   let maxGasFeeEth = "";
   let maxTotalEth = "";
-  if (gasLimit > 0n && feePerGas > 0n) {
+  if (feeKnown && gasLimit > 0n && feePerGas > 0n) {
     const gasFeeWei = gasLimit * feePerGas;
     maxGasFeeEth = weiToEth(gasFeeWei);
     maxTotalEth = weiToEth(valueWei + gasFeeWei);
   }
 
   const selector =
-    typeof (tx as any).data === "string" && (tx as any).data.startsWith("0x") && (tx as any).data.length >= 10
-      ? (tx as any).data.slice(0, 10)
-      : "";
+    data && data.startsWith("0x") && data.length >= 10 ? data.slice(0, 10) : "";
 
-  return { to, valueEth, maxGasFeeEth, maxTotalEth, selector };
+  const contractNameHint = to && data && data !== "0x" && data.toLowerCase() !== "0x" ? shortAddr(to) : undefined;
+  return { to, valueEth, maxGasFeeEth, maxTotalEth, selector, feeKnown, contractNameHint };
+}
+
+function applyPolicy(analysis: Analysis, settings: Settings): void {
+  const mode = (settings.mode || "BALANCED") as SecurityMode;
+  if (mode === "OFF") {
+    analysis.recommend = "ALLOW";
+    analysis.score = 0;
+    analysis.reasons = [t("mode_off_reason")];
+    return;
+  }
+  const decoded = analysis.decodedAction as DecodedAction | undefined;
+  // Phishing always blocked regardless of mode (STRICT/BALANCED/RELAXED)
+  if (analysis.isPhishing) { analysis.recommend = "BLOCK"; return; }
+  if (mode === "STRICT") {
+    if (decoded?.kind === "SET_APPROVAL_FOR_ALL" && decoded.approved && (settings.strictBlockSetApprovalForAll ?? true)) { analysis.recommend = "BLOCK"; return; }
+    if (decoded?.kind === "APPROVE_ERC20" && decoded.amountType === "UNLIMITED" && (settings.strictBlockApprovalsUnlimited ?? true)) { analysis.recommend = "BLOCK"; return; }
+    if (decoded?.kind === "PERMIT_EIP2612" && decoded.valueType === "UNLIMITED" && (settings.strictBlockPermitLike ?? true)) { analysis.recommend = "BLOCK"; return; }
+    if (analysis.flaggedAddress) { analysis.recommend = "BLOCK"; return; }
+  }
+  if (mode === "BALANCED") {
+    if (analysis.flaggedAddress) { analysis.recommend = "HIGH"; return; }
+    if ((decoded?.kind === "APPROVE_ERC20" && decoded.amountType === "UNLIMITED") || (decoded?.kind === "SET_APPROVAL_FOR_ALL" && decoded?.approved)) {
+      if (analysis.recommend !== "BLOCK") analysis.recommend = "HIGH";
+    }
+  }
+  if (mode === "RELAXED") {
+    // Reduces friction, phishing still BLOCK (handled above)
+    if (analysis.flaggedAddress) { analysis.recommend = "HIGH"; return; }
+    // Don't auto-BLOCK approvals in RELAXED
+  }
 }
 
 function chainName(chainIdHex: string): string {
@@ -156,7 +424,223 @@ function chainName(chainIdHex: string): string {
   return map[id] || chainIdHex;
 }
 
-function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | null): Analysis {
+function intentFromTxDataAndValue(data: string, valueWei: bigint, selector: string): Intent {
+  const dataNorm = typeof data === "string" ? data : "";
+  const hasData = !!dataNorm && dataNorm !== "0x" && dataNorm.toLowerCase() !== "0x";
+  const hasValue = valueWei > 0n;
+
+  if (hasData && hasValue) return "CONTRACT_INTERACTION";
+  if (hasData) return "CONTRACT_INTERACTION";
+  if (!hasData && hasValue) return "ETH_TRANSFER";
+
+  const s = String(selector || "").toLowerCase();
+  if (!s || !s.startsWith("0x") || s.length !== 10) return "UNKNOWN";
+  if (s === "0x095ea7b3" || s === "0xa22cb465") return "APPROVAL";
+
+  const swap = new Set([
+    "0x38ed1739", "0x7ff36ab5", "0x18cbafe5", "0x04e45aaf", "0xb858183f", "0x5023b4df", "0x09b81346",
+  ]);
+  if (swap.has(s)) return "SWAP";
+
+  const seaport = new Set([
+    "0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12",
+  ]);
+  if (seaport.has(s)) return "NFT_PURCHASE";
+
+  return "CONTRACT_INTERACTION";
+}
+
+function intentFromSelector(selector: string): Intent {
+  const s = String(selector || "").toLowerCase();
+  if (!s || !s.startsWith("0x") || s.length !== 10) return "UNKNOWN";
+  if (s === "0x095ea7b3" || s === "0xa22cb465") return "APPROVAL";
+
+  const swap = new Set([
+    "0x38ed1739", "0x7ff36ab5", "0x18cbafe5", "0x04e45aaf", "0xb858183f", "0x5023b4df", "0x09b81346",
+  ]);
+  if (swap.has(s)) return "SWAP";
+
+  const seaport = new Set([
+    "0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12",
+  ]);
+  if (seaport.has(s)) return "NFT_PURCHASE";
+
+  return "CONTRACT_INTERACTION";
+}
+
+function addChecksAndVerdict(
+  analysis: Analysis,
+  ctx: { req: AnalyzeRequest; settings: Settings; intel: ThreatIntel | null }
+): void {
+  const host = hostFromUrl(ctx.req.url);
+  const method = (ctx.req.request?.method || "").toLowerCase();
+  const intelEnabled = ctx.settings.enableIntel !== false;
+  const checks: CheckResult[] = [];
+
+  // DOMAIN_INTEL
+  if (!ctx.settings.domainChecks) {
+    checks.push({ key: "DOMAIN_INTEL" as CheckKey, status: "SKIP" });
+  } else if (analysis.isPhishing) {
+    checks.push({ key: "DOMAIN_INTEL" as CheckKey, status: "FAIL" });
+  } else if (host && intelEnabled && ctx.intel && (analysis.safeDomain || analysis.trust?.verdict === "LIKELY_OFFICIAL")) {
+    checks.push({ key: "DOMAIN_INTEL" as CheckKey, status: "PASS" });
+  } else if (host) {
+    checks.push({ key: "DOMAIN_INTEL" as CheckKey, status: "WARN", noteKey: "coverage_limited" });
+  } else {
+    checks.push({ key: "DOMAIN_INTEL" as CheckKey, status: "SKIP" });
+  }
+
+  // LOOKALIKE
+  if (!host) {
+    checks.push({ key: "LOOKALIKE" as CheckKey, status: "SKIP" });
+  } else if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike") || String(r).toLowerCase().includes("imitation"))) {
+    checks.push({ key: "LOOKALIKE" as CheckKey, status: "WARN" });
+  } else {
+    checks.push({ key: "LOOKALIKE" as CheckKey, status: "PASS" });
+  }
+
+  // TX_DECODE (relevant for tx/sign)
+  const intent = analysis.intent;
+  if (method.includes("sendtransaction") || method.includes("signtypeddata") || method.includes("sign")) {
+    if (intent && intent !== "UNKNOWN") {
+      checks.push({ key: "TX_DECODE" as CheckKey, status: "PASS" });
+    } else {
+      checks.push({ key: "TX_DECODE" as CheckKey, status: "WARN" });
+    }
+  } else {
+    checks.push({ key: "TX_DECODE" as CheckKey, status: "SKIP" });
+  }
+
+  // FEE_ESTIMATE
+  const feeKnown = !!(analysis.txCostPreview?.feeEstimated || (analysis.tx as any)?.feeKnown);
+  if (method.includes("sendtransaction")) {
+    checks.push({ key: "FEE_ESTIMATE" as CheckKey, status: feeKnown ? "PASS" : "WARN", noteKey: feeKnown ? undefined : "fee_unknown_wallet_will_estimate" });
+  } else {
+    checks.push({ key: "FEE_ESTIMATE" as CheckKey, status: "SKIP" });
+  }
+
+  // ADDRESS_INTEL
+  if (!(ctx.settings.addressIntelEnabled ?? true)) {
+    checks.push({ key: "ADDRESS_INTEL" as CheckKey, status: "SKIP" });
+  } else if (analysis.flaggedAddress) {
+    checks.push({ key: "ADDRESS_INTEL" as CheckKey, status: "FAIL" });
+  } else if (method.includes("sendtransaction") || method.includes("signtypeddata")) {
+    checks.push({ key: "ADDRESS_INTEL" as CheckKey, status: "PASS" });
+  } else {
+    checks.push({ key: "ADDRESS_INTEL" as CheckKey, status: "SKIP" });
+  }
+
+  // ASSET_ENRICH
+  if (!(ctx.settings.assetEnrichmentEnabled ?? true)) {
+    checks.push({ key: "ASSET_ENRICH" as CheckKey, status: "SKIP" });
+  } else if (analysis.asset?.symbol != null || analysis.asset?.name != null) {
+    checks.push({ key: "ASSET_ENRICH" as CheckKey, status: "PASS" });
+  } else if (method.includes("sendtransaction") && analysis.decodedAction) {
+    checks.push({ key: "ASSET_ENRICH" as CheckKey, status: "WARN" });
+  } else {
+    checks.push({ key: "ASSET_ENRICH" as CheckKey, status: "SKIP" });
+  }
+
+  // CLOUD_INTEL (not implemented yet)
+  checks.push({ key: "CLOUD_INTEL" as CheckKey, status: "SKIP" });
+
+  const total = checks.length;
+  const performed = checks.filter((c) => c.status !== "SKIP").length;
+  const limited = checks.some((c) => c.status === "WARN" && (c.noteKey === "fee_unknown_wallet_will_estimate" || c.key === "DOMAIN_INTEL" || c.key === "ASSET_ENRICH"));
+
+  let verdictLabelKey: string;
+  if (analysis.recommend === "BLOCK") verdictLabelKey = "verdict_block";
+  else if (analysis.score <= 20 && !checks.some((c) => c.status === "FAIL")) verdictLabelKey = "verdict_ok";
+  else if (analysis.score <= 60) verdictLabelKey = "verdict_warn";
+  else verdictLabelKey = "verdict_high";
+
+  (analysis as Analysis).checks = checks;
+  (analysis as Analysis).coverage = { performed, total, limited };
+  (analysis as Analysis).verdictLabelKey = verdictLabelKey;
+}
+
+/** Run Tenderly simulation for eth_sendTransaction and merge outcome into analysis. */
+async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis): Promise<void> {
+  const method = (req?.request?.method || "").toLowerCase();
+  if (!method.includes("sendtransaction")) return;
+
+  const params = req?.request?.params;
+  const tx = Array.isArray(params) && params[0] && typeof params[0] === "object" ? params[0] as Record<string, unknown> : null;
+  if (!tx) return;
+
+  const from = typeof tx.from === "string" ? tx.from : "0x0000000000000000000000000000000000000000";
+  const to = typeof tx.to === "string" ? tx.to : "0x0000000000000000000000000000000000000000";
+  const input = typeof tx.data === "string" ? tx.data : "0x";
+  const value = typeof tx.value === "string" ? tx.value : "0x0";
+  let gas: number | undefined;
+  if (typeof tx.gas === "string" && tx.gas.startsWith("0x")) {
+    try { gas = parseInt(tx.gas, 16); } catch {}
+  } else if (typeof tx.gas === "number") gas = tx.gas;
+
+  const rawChainId = req?.meta?.chainId ?? (req as any)?.chainId ?? "1";
+  const networkId = String(rawChainId).replace(/^0x/, "");
+
+  try {
+    const outcome = await runSimulation(networkId, from, to, input, value, gas);
+    if (!outcome) return;
+
+    analysis.simulationOutcome = outcome;
+    if (outcome.status === "REVERT") {
+      analysis.simulationRevert = true;
+      analysis.reasons.unshift(t("simulation_tx_will_fail"));
+      analysis.recommend = "BLOCK";
+      analysis.score = Math.max(analysis.score, 100);
+      analysis.level = "HIGH";
+      analysis.title = t("simulation_tx_will_fail");
+    }
+  } catch {
+    // Fail silently: overlay works without simulation
+  }
+}
+
+function setVerificationFields(ctx: {
+  host: string;
+  intel: ThreatIntel;
+  usedCacheOnly: boolean;
+  isStale: boolean;
+  matchedBad: boolean;
+  matchedSeed: boolean;
+  signals: string[];
+}): Partial<Analysis> {
+  const { intel, isStale, matchedBad, matchedSeed, signals } = ctx;
+  const hasCache = intel.updatedAt > 0;
+  let verificationLevel: "FULL" | "LOCAL" | "BASIC" = "BASIC";
+  if (matchedBad) {
+    verificationLevel = hasCache ? "FULL" : "BASIC";
+    return {
+      verificationLevel,
+      verificationUpdatedAt: hasCache ? intel.updatedAt : undefined,
+      knownBad: true,
+      knownSafe: false,
+      domainSignals: signals.length ? signals : undefined,
+      intelSources: (intel.sources || []).map((s: any) => (typeof s === "string" ? s : s.name || s.id || "")).filter(Boolean),
+    };
+  }
+  if (hasCache && !isStale) verificationLevel = "FULL";
+  else if (hasCache && isStale) verificationLevel = "LOCAL";
+  else verificationLevel = "BASIC";
+  return {
+    verificationLevel,
+    verificationUpdatedAt: hasCache ? intel.updatedAt : undefined,
+    knownSafe: matchedSeed,
+    knownBad: false,
+    domainSignals: signals.length ? signals : undefined,
+    intelSources: (intel.sources || []).map((s: any) => (typeof s === "string" ? s : s.name || s.id || "")).filter(Boolean),
+  };
+}
+
+function labelsFor(addrIntel: AddressIntel | null | undefined, addr: string): AddressLabel[] {
+  const a = normalizeAddr(addr);
+  if (!a) return [];
+  return (addrIntel?.labelsByAddress?.[a] || []) as AddressLabel[];
+}
+
+async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | null, tabId?: number, addrIntel?: AddressIntel | null): Promise<Analysis> {
   const host = hostFromUrl(req.url);
   const reasons: string[] = [];
   let level: Analysis["level"] = "LOW";
@@ -180,23 +664,50 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
 
   const method = (req.request?.method || "").toLowerCase();
 
-  // Threat intel (blocked/trusted seed)
+  // Threat intel (blocked/trusted seed) — respect enableIntel; merge user custom lists
   const intelHost = normalizeHost(host || "");
-  const isBlocked = !!intel?.blockedDomains?.some((d) => hostMatches(intelHost, d));
-  const isTrustedSeed = !!intel?.trustedDomainsSeed?.some((d) => hostMatches(intelHost, d));
+  const customBlocked = (settings.customBlockedDomains || []).map((d) => String(d || "").trim().toLowerCase()).filter(Boolean);
+  const customTrusted = (settings.customTrustedDomains || settings.allowlist || []).map((d) => String(d || "").trim().toLowerCase()).filter(Boolean);
+  const inCustomBlocked = customBlocked.some((d) => hostMatches(intelHost, d));
+  const inCustomTrusted = customTrusted.some((d) => hostMatches(intelHost, d));
+  const intelEnabled = settings.enableIntel !== false;
+  const isBlocked = inCustomBlocked || (!!intelEnabled && !!intel && hostInBlocked(intel, intelHost));
+  const isTrustedSeed = inCustomTrusted || (!!intel && (intel.trustedSeed || (intel as any).trustedDomainsSeed || intel.trustedDomains)?.some?.((d: string) => hostMatches(intelHost, d)));
   const safeDomain = isTrustedSeed && !isBlocked;
+
+  // Strong lookalike scoring (always)
+  try {
+    const brands = ["opensea", "uniswap", "metamask", "blur", "etherscan"];
+    const dr = assessDomainRisk(intelHost, brands);
+    if (dr.scoreDelta > 0) {
+      reasons.push(...dr.reasons);
+      score = Math.max(score, clamp01(score + dr.scoreDelta, 0, 100));
+      // If we detected lookalike and it's NOT trusted seed, elevate to HIGH (but don't BLOCK by itself)
+      const looksLike = dr.reasons.some((r) => String(r || "").toLowerCase().includes("lookalike"));
+      if (looksLike && !isTrustedSeed) {
+        level = "HIGH";
+        score = Math.max(score, 85);
+        title = t("suspiciousWebsitePatterns");
+      } else if (level !== "HIGH") {
+        level = "WARN";
+        score = Math.max(score, 45);
+        title = t("suspiciousWebsitePatterns");
+      }
+    }
+  } catch {}
 
   if (isBlocked) {
     return {
       level: "HIGH",
       score: 100,
       title: t("suspiciousWebsitePatterns"),
-      reasons: ["Domínio está em blacklist de phishing (fonte: MetaMask).", ...reasons],
+      reasons: [t("trustReasonPhishingBlacklist"), ...reasons],
       decoded: { kind: "TX", raw: { host } },
       recommend: "BLOCK",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
       safeDomain,
+      isPhishing: true,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -211,8 +722,33 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
   }
 
   if (isTrustedSeed) {
-    reasons.push("Domínio conhecido/oficial (seed).");
+    reasons.push(t("trustReasonAllowlisted"));
     score = Math.max(0, score - 15);
+  }
+
+  // Solana (solana:connect, solana:signMessage, etc.)
+  if (method.startsWith("solana:")) {
+    return {
+      level: "WARN",
+      score: 50,
+      title: t("watchAssetTitle"),
+      reasons: [t("intent_SOLANA")],
+      decoded: { kind: "SIGN", raw: { method, params: req.request.params } },
+      recommend: "WARN",
+      trust,
+      suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      intent: "SOLANA",
+      human: {
+        methodTitle: t("intent_SOLANA"),
+        methodShort: t("summary_SOLANA_1"),
+        methodWhy: t("explain_generic_why"),
+        whatItDoes: [],
+        risks: [t("human_generic_risk_1")],
+        safeNotes: [t("human_generic_safe_1")],
+        nextSteps: [t("human_generic_next_1")],
+        recommendation: t("human_generic_reco"),
+      },
+    };
   }
 
   // Connect / permissions
@@ -224,7 +760,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
     if (settings.showConnectOverlay) {
       // SPEC: if showConnectOverlay=true -> WARN (score >= 30)
       return {
-        level: "WARN",
+        level: level === "HIGH" ? "HIGH" : "WARN",
         score: Math.max(score, 30),
         title: level === "WARN" ? title : baseTitle,
         reasons: connectReasons,
@@ -283,11 +819,12 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
   // Typed data signatures
   if (method === "eth_signtypeddata_v4") {
     reasons.push(t("typedDataWarnReason"));
-    level = "WARN";
+    if (level !== "HIGH") level = "WARN";
     score = Math.max(score, 60);
     title = t("signatureRequest");
 
     // Minimal typed-data risk detection (safe parse)
+    let permitExtras: { spender?: string; value?: string; deadline?: string } | null = null;
     try {
       const params = req.request.params as any;
       const raw =
@@ -295,15 +832,49 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
           ? params[1]
           : (Array.isArray(params) && typeof params[0] === "string" ? params[0] : "");
       if (raw) {
+        permitExtras = extractTypedDataPermitExtras(raw);
+        if (raw.length > 200_000) {
+          reasons.push("Payload muito grande; confirme na carteira.");
+          level = "HIGH";
+          score = Math.max(score, 85);
+          return {
+            level,
+            score,
+            title,
+            reasons,
+            decoded: { kind: "TYPED_DATA", raw: { size: raw.length } },
+            recommend: "WARN",
+            trust,
+            suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+            safeDomain,
+            human: {
+              methodTitle: explain.title,
+              methodShort: explain.short,
+              methodWhy: explain.why,
+              whatItDoes: lists.whatItDoes,
+              risks: lists.risks,
+              safeNotes: lists.safeNotes,
+              nextSteps: lists.nextSteps,
+              recommendation:
+                trust.verdict === "SUSPICIOUS" ? t("human_sign_reco_suspicious") : t("human_sign_reco_ok"),
+            }
+          };
+        }
         const j: any = JSON.parse(raw);
         const domainName = String(j?.domain?.name || "");
         const msg: any = j?.message || {};
 
+        if (permitExtras) {
+          reasons.push(t("permit_signature_detected"));
+          if (permitExtras.spender) reasons.push("Verifique o spender.");
+          level = "HIGH";
+          score = Math.max(score, 90);
+        }
         const looksPermit2 = domainName.toLowerCase().includes("permit2") || (!!msg?.permitted && !!msg?.spender);
         const looksApproveLike = !!msg?.spender && (("value" in msg) || ("amount" in msg));
         const looksSeaport = domainName.toLowerCase().includes("seaport") || (!!msg?.offer && !!msg?.consideration);
 
-        if (looksPermit2 || looksApproveLike) {
+        if (!permitExtras && (looksPermit2 || looksApproveLike)) {
           reasons.push("Assinatura pode permitir que um endereço gaste seus tokens.");
           if (String(msg?.spender || "").trim()) {
             reasons.push("Verifique o spender.");
@@ -318,6 +889,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       }
     } catch {}
 
+    const typedDataExtras = permitExtras ? { spender: permitExtras.spender, value: permitExtras.value, deadline: permitExtras.deadline } : undefined;
     return {
       level,
       score,
@@ -328,6 +900,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
       safeDomain,
+      typedDataExtras,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -344,7 +917,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
 
   if (method === "personal_sign" || method === "eth_sign") {
     reasons.push(t("rawSignWarnReason"));
-    level = "WARN";
+    if (level !== "HIGH") level = "WARN";
     score = Math.max(score, 55);
     title = t("signatureRequest");
     return {
@@ -370,13 +943,10 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
     };
   }
 
-  // Bonus: wallet methods that often pop UI
-  if (
-    method === "wallet_switchethereumchain" ||
-    method === "wallet_addethereumchain"
-  ) {
-    reasons.push(t("chainChangeReason"));
-    level = "WARN";
+  // wallet_switchethereumchain
+  if (method === "wallet_switchethereumchain") {
+    reasons.push(t("explain_switch_short"));
+    if (level !== "HIGH") level = "WARN";
     score = Math.max(score, 45);
     title = t("chainChangeTitle");
     return {
@@ -389,6 +959,7 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
       safeDomain,
+      intent: "SWITCH_CHAIN",
       chainTarget: (() => {
         try {
           const p0 = (req.request.params as any)?.[0];
@@ -410,11 +981,20 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
     };
   }
 
-  if (method === "wallet_watchasset") {
-    reasons.push(t("watchAssetReason"));
-    level = "WARN";
-    score = Math.max(score, 40);
-    title = t("watchAssetTitle");
+  // wallet_addEthereumChain
+  if (method === "wallet_addethereumchain") {
+    reasons.push(t("add_chain_review_rpc"));
+    reasons.push(t("add_chain_verify_chainid"));
+    if (level !== "HIGH") level = "WARN";
+    score = Math.max(score, 45);
+    title = t("chainChangeTitle");
+    const p0 = (req.request.params as any)?.[0];
+    const addChainInfo = p0 ? {
+      chainId: String(p0.chainId || ""),
+      chainName: String(p0.chainName || ""),
+      rpcUrls: Array.isArray(p0.rpcUrls) ? p0.rpcUrls : (p0.rpcUrls ? [p0.rpcUrls] : []),
+      nativeCurrencySymbol: p0?.nativeCurrency?.symbol ? String(p0.nativeCurrency.symbol) : undefined,
+    } : undefined;
     return {
       level,
       score,
@@ -424,9 +1004,53 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       recommend: "WARN",
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain,
+      intent: "ADD_CHAIN",
+      chainTarget: addChainInfo ? { chainIdHex: addChainInfo.chainId, chainName: addChainInfo.chainName } : undefined,
+      addChainInfo,
       human: {
         methodTitle: explain.title,
-        methodShort: explain.short,
+        methodShort: t("explain_add_chain_short"),
+        methodWhy: explain.why,
+        whatItDoes: lists.whatItDoes,
+        risks: lists.risks,
+        safeNotes: lists.safeNotes,
+        nextSteps: lists.nextSteps,
+        recommendation: t("human_chain_reco"),
+      }
+    };
+  }
+
+  // wallet_watchAsset
+  if (method === "wallet_watchasset") {
+    reasons.push(t("watch_asset_no_spend_but_risk"));
+    reasons.push(t("watch_asset_verify_contract"));
+    if (level !== "HIGH") level = "WARN";
+    score = Math.max(score, 40);
+    title = t("watchAssetTitle");
+    const p0 = (req.request.params as any)?.[0];
+    const opts = p0?.options || p0;
+    const watchAssetInfo = opts ? {
+      type: String(opts.type || "ERC20"),
+      address: typeof opts.address === "string" ? opts.address : undefined,
+      symbol: typeof opts.symbol === "string" ? opts.symbol : undefined,
+      decimals: typeof opts.decimals === "number" ? opts.decimals : undefined,
+      image: typeof opts.image === "string" ? opts.image : undefined,
+    } : undefined;
+    return {
+      level,
+      score,
+      title,
+      reasons,
+      decoded: { kind: "TX", raw: { params: req.request.params } },
+      recommend: "WARN",
+      trust,
+      suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      intent: "WATCH_ASSET",
+      watchAssetInfo,
+      human: {
+        methodTitle: explain.title,
+        methodShort: t("explain_watch_asset_short"),
         methodWhy: explain.why,
         whatItDoes: lists.whatItDoes,
         risks: lists.risks,
@@ -444,6 +1068,77 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
     const data = typeof tx.data === "string" ? tx.data : "";
     const value = tx.value ?? "0x0";
     const txSummary = summarizeTx(method, (req.request.params || []) as any) as (TxSummary | null);
+    const selector = (txSummary?.selector || "").toLowerCase();
+    const chainId = (req.meta?.chainId ?? "").toString().toLowerCase() || undefined;
+    const decodedAction = isHexString(data) && data.startsWith("0x") ? decodeTx(data.toLowerCase(), to) : null;
+    const valueWei = hexToBigInt((tx as any).value || "0x0");
+    let intent: Intent = decodedAction
+      ? (decodedAction.kind === "APPROVE_ERC20" || decodedAction.kind === "SET_APPROVAL_FOR_ALL" || decodedAction.kind === "PERMIT_EIP2612"
+          ? "APPROVAL"
+          : decodedAction.kind === "TRANSFER_ERC20" || decodedAction.kind === "TRANSFERFROM_ERC20"
+          ? "TOKEN_TRANSFER"
+          : decodedAction.kind === "TRANSFER_NFT"
+          ? "NFT_TRANSFER"
+          : intentFromTxDataAndValue(data, valueWei, selector))
+      : intentFromTxDataAndValue(data, valueWei, selector);
+    let txExtras: TxExtras | undefined;
+    let flaggedAddr: ThreatIntelAddress | undefined;
+    let asset: AssetInfo | null = null;
+
+    const labelsTo = (settings.addressIntelEnabled ?? true) ? labelsFor(addrIntel ?? null, to) : [];
+    const labelsSpender = (settings.addressIntelEnabled ?? true) && decodedAction && "spender" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.spender || "") : [];
+    const labelsOperator = (settings.addressIntelEnabled ?? true) && decodedAction && "operator" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.operator || "") : [];
+    const labelsTokenContract = (settings.addressIntelEnabled ?? true) && decodedAction && "token" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.token || to) : [];
+    const hasAddrIntelHit = labelsTo.length > 0 || labelsSpender.length > 0 || labelsOperator.length > 0 || labelsTokenContract.length > 0;
+    const addrIntelReasons: string[] = [];
+    let addrIntelScore = 0;
+    let addrIntelRecommend: Analysis["recommend"] | undefined;
+    if (hasAddrIntelHit) {
+      const allLabels = [...labelsTo, ...labelsSpender, ...labelsOperator, ...labelsTokenContract];
+      if (allLabels.includes("SANCTIONED")) {
+        addrIntelReasons.push(t("addr_sanctioned_block"));
+        addrIntelScore = 100;
+        addrIntelRecommend = "BLOCK";
+      } else {
+        if (allLabels.some((l) => l === "SCAM_REPORTED" || l === "PHISHING_REPORTED")) addrIntelReasons.push(t("addr_scam_reported_warn"));
+        if (allLabels.includes("MALICIOUS_CONTRACT")) addrIntelReasons.push(t("addr_malicious_contract_warn"));
+        addrIntelScore = 80;
+        addrIntelRecommend = "HIGH";
+      }
+    }
+    const addressIntelPartial = hasAddrIntelHit
+      ? {
+          addressIntelHit: true as const,
+          addressIntel: {
+            to: labelsTo.map(String),
+            spender: labelsSpender.map(String),
+            operator: labelsOperator.map(String),
+            tokenContract: labelsTokenContract.map(String),
+          },
+        }
+      : {};
+
+    if (decodedAction && (settings.addressIntelEnabled ?? true)) {
+      const candidates: string[] = [to];
+      if ("spender" in decodedAction && decodedAction.spender) candidates.push(decodedAction.spender);
+      if ("operator" in decodedAction && decodedAction.operator) candidates.push(decodedAction.operator);
+      if ("to" in decodedAction && decodedAction.to) candidates.push(decodedAction.to);
+      if ("from" in decodedAction && decodedAction.from) candidates.push(decodedAction.from);
+      const blocked = (intel as any)?.blockedAddressesList || (intel as any)?.blockedAddresses || [];
+      for (const addr of candidates) {
+        const a = addr.toLowerCase();
+        if (!a || a.length < 40) continue;
+        const match = blocked.find((b) => b.address.toLowerCase() === a && (!b.chainId || b.chainId.toLowerCase() === (chainId || "")));
+        if (match) { flaggedAddr = match; reasons.unshift(t("address_flagged_reason", { label: match.label, category: match.category })); break; }
+      }
+    }
+
+    const tokenForAsset = decodedAction && ("token" in decodedAction && decodedAction.token) ? decodedAction.token : to;
+    if (decodedAction && tokenForAsset && (settings.assetEnrichmentEnabled ?? true) && tabId) {
+      try { asset = await getAssetInfo(chainId || "0x1", tokenForAsset, tabId); } catch {}
+    }
+
+    if (asset) reasons.push(t("asset_info_reason", { sym: asset.symbol || asset.name || "?", kind: asset.kind }));
 
     if (isHexString(data) && data.startsWith("0x")) {
       const ap = decodeErc20Approve(data.toLowerCase());
@@ -453,22 +1148,34 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
           level = "HIGH";
           score = Math.max(score, 90);
           title = t("unlimitedApprovalDetected");
+          txExtras = {
+            approvalType: "ERC20_APPROVE",
+            tokenContract: typeof (tx as any).to === "string" ? String((tx as any).to) : undefined,
+            spender: ap.spender,
+            unlimited: true,
+          };
           return {
-            level,
-            score,
+            level: hasAddrIntelHit && addrIntelRecommend === "BLOCK" ? "HIGH" : level,
+            score: Math.max(score, addrIntelScore),
             title,
-            reasons,
+            reasons: hasAddrIntelHit ? [...addrIntelReasons, ...reasons] : reasons,
             decoded: {
               kind: "APPROVE",
               spenderOrOperator: ap.spender,
               amountHuman: "UNLIMITED",
               raw: { to, value, selector: hexSelector(data) }
             },
-            recommend: settings.blockHighRisk ? "BLOCK" : "WARN"
-            ,
+            decodedAction: decodedAction?.kind === "APPROVE_ERC20" ? decodedAction : undefined,
+            recommend: addrIntelRecommend ?? (settings.blockHighRisk ? "BLOCK" : "WARN"),
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
             tx: txSummary,
+            txExtras,
+            intent: "APPROVAL",
+            asset: asset || undefined,
+            flaggedAddress: flaggedAddr,
+            provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
+            ...addressIntelPartial,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -486,22 +1193,34 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
           level = "WARN";
           score = Math.max(score, 40);
           title = t("tokenApproval");
+          txExtras = {
+            approvalType: "ERC20_APPROVE",
+            tokenContract: typeof (tx as any).to === "string" ? String((tx as any).to) : undefined,
+            spender: ap.spender,
+            unlimited: false,
+          };
           return {
-            level,
-            score,
+            level: hasAddrIntelHit && addrIntelRecommend === "BLOCK" ? "HIGH" : level,
+            score: Math.max(score, addrIntelScore),
             title,
-            reasons,
+            reasons: hasAddrIntelHit ? [...addrIntelReasons, ...reasons] : reasons,
             decoded: {
               kind: "APPROVE",
               spenderOrOperator: ap.spender,
               amountHuman: ap.value ? ap.value.toString() : "UNKNOWN",
               raw: { to, value, selector: hexSelector(data) }
             },
-            recommend: "WARN"
-            ,
+            decodedAction: decodedAction?.kind === "APPROVE_ERC20" ? decodedAction : undefined,
+            recommend: addrIntelRecommend ?? "WARN",
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
             tx: txSummary,
+            txExtras,
+            intent: "APPROVAL",
+            asset: asset || undefined,
+            flaggedAddress: flaggedAddr,
+            provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
+            ...addressIntelPartial,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -523,21 +1242,33 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
         level = "HIGH";
         score = Math.max(score, 95);
         title = t("nftOperatorApproval");
+        txExtras = {
+          approvalType: "NFT_SET_APPROVAL_FOR_ALL",
+          tokenContract: typeof (tx as any).to === "string" ? String((tx as any).to) : undefined,
+          operator: sa.operator,
+          unlimited: true,
+        };
         return {
-          level,
-          score,
+          level: hasAddrIntelHit && addrIntelRecommend === "BLOCK" ? "HIGH" : level,
+          score: Math.max(score, addrIntelScore),
           title,
-          reasons,
+          reasons: hasAddrIntelHit ? [...addrIntelReasons, ...reasons] : reasons,
           decoded: {
             kind: "SET_APPROVAL_FOR_ALL",
             spenderOrOperator: sa.operator,
             raw: { to, value, selector: hexSelector(data) }
           },
-          recommend: settings.blockHighRisk ? "BLOCK" : "WARN"
-          ,
+          decodedAction: decodedAction?.kind === "SET_APPROVAL_FOR_ALL" ? decodedAction : undefined,
+          recommend: addrIntelRecommend ?? (settings.blockHighRisk ? "BLOCK" : "WARN"),
           trust,
           suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
           tx: txSummary,
+          txExtras,
+          intent: "APPROVAL",
+          asset: asset || undefined,
+          flaggedAddress: flaggedAddr,
+          provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
+          ...addressIntelPartial,
           human: {
             methodTitle: explain.title,
             methodShort: explain.short,
@@ -553,6 +1284,21 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       }
     }
 
+    if (decodedAction?.kind === "TRANSFER_NFT" && !txExtras) {
+      txExtras = {
+        approvalType: "NFT_TRANSFER",
+        tokenContract: decodedAction.token,
+        toAddress: decodedAction.to,
+      };
+    }
+
+    if (decodedAction) {
+      if (decodedAction.kind === "APPROVE_ERC20" || decodedAction.kind === "PERMIT_EIP2612") reasons.push(t("reason_permission_tokens"));
+      else if (decodedAction.kind === "SET_APPROVAL_FOR_ALL" && decodedAction.approved) reasons.push(t("reason_permission_all_nfts"));
+      else if (decodedAction.kind === "TRANSFER_ERC20" || decodedAction.kind === "TRANSFERFROM_ERC20") reasons.push(t("token_transfer_detected"));
+      else if (decodedAction.kind === "TRANSFER_NFT") reasons.push(t("nft_transfer_detected"));
+      else if (decodedAction.kind !== "UNKNOWN") reasons.push(t("reason_transfer_tokens"));
+    }
     // Default tx
     if (level === "LOW") {
       title = t("txPreview");
@@ -560,21 +1306,37 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
       reasons.push(t("txWarnReason"));
     }
     if (txSummary?.valueEth) reasons.push(`Transação: envia ${txSummary.valueEth} ETH.`);
-    if (txSummary?.maxGasFeeEth) reasons.push(`Taxa máxima estimada: ${txSummary.maxGasFeeEth} ETH.`);
-    else reasons.push("A taxa será estimada pela carteira.");
-    if (txSummary?.maxTotalEth) reasons.push(`Total máximo: ${txSummary.maxTotalEth} ETH.`);
+    if (txSummary?.feeKnown) {
+      if (txSummary.maxGasFeeEth) reasons.push(`Taxa máxima: ${txSummary.maxGasFeeEth} ETH.`);
+      if (txSummary.maxTotalEth) reasons.push(`Total máximo: ${txSummary.maxTotalEth} ETH.`);
+    } else {
+      reasons.push(t("fee_unknown_wallet_will_estimate"));
+      reasons.push(t("check_wallet_network_fee"));
+    }
+    const feeGtValue = !!(txSummary?.feeKnown && txSummary.maxGasFeeEth && txSummary.valueEth && parseFloat(txSummary.maxGasFeeEth) > parseFloat(txSummary.valueEth));
+    if (feeGtValue) reasons.unshift(t("fee_gt_value"));
+    const toIsContract = await getToIsContract(to || undefined, tabId);
+    const defaultRecommend = level === "HIGH" ? (settings.blockHighRisk ? "BLOCK" : "WARN") : (level === "WARN" ? "WARN" : "ALLOW");
     return {
-      level,
-      score,
+      level: hasAddrIntelHit && addrIntelRecommend === "BLOCK" ? "HIGH" : level,
+      score: Math.max(score, addrIntelScore),
       title,
-      reasons,
+      reasons: hasAddrIntelHit ? [...addrIntelReasons, ...reasons] : reasons,
       decoded: { kind: "TX", raw: { to, value, selector: hexSelector(data) } },
-      recommend: level === "HIGH" ? (settings.blockHighRisk ? "BLOCK" : "WARN") : (level === "WARN" ? "WARN" : "ALLOW")
-      ,
+      decodedAction: decodedAction || undefined,
+      recommend: addrIntelRecommend ?? defaultRecommend,
       trust,
       suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
       tx: txSummary || undefined,
+      txExtras,
+      intent,
       safeDomain,
+      asset: asset || undefined,
+      flaggedAddress: flaggedAddr,
+      provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
+      feeGtValue,
+      toIsContract,
+      ...addressIntelPartial,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -612,60 +1374,253 @@ function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatIntel | n
   };
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  (async () => {
-    if (msg?.type === "PING") {
-      sendResponse({ ok: true });
-      return;
-    }
-    if (msg?.type === "GET_ETH_USD") {
-      const usdPerEth = await getEthUsdPriceCached();
-      sendResponse({ ok: true, usdPerEth });
-      return;
-    }
-    if (msg?.type === "SG_INTEL_SUMMARY") {
-      const intel = await getIntelFresh();
-      sendResponse({
-        ok: true,
-        updatedAt: intel.updatedAt,
-        trustedSeedCount: intel.trustedDomainsSeed.length,
-        blockedCount: intel.blockedDomains?.length || 0,
-        sources: intel.sources || [],
-      });
-      return;
-    }
-    if (msg?.type === "SG_INTEL_UPDATE_NOW") {
-      let intel: ThreatIntel;
+// Port-based messaging (avoids runtime.lastError / SW sleep issues). Always respond to every message.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "sg_port") return;
+  port.onMessage.addListener((msg: any) => {
+    const requestId = msg?.requestId;
+    let settled = false;
+    const reply = (payload: any) => {
+      if (settled) return;
+      settled = true;
+      try { port.postMessage({ requestId, ...payload }); } catch {}
+    };
+    (async () => {
       try {
-        intel = await updateIntelNow();
-      } catch {
-        intel = await getIntelFresh();
+        if (msg?.type === "PING") { reply({ ok: true }); return; }
+        if (msg?.type === "GET_ETH_USD") {
+          const usdPerEth = await getEthUsdPriceCached();
+          reply({ ok: true, usdPerEth });
+          return;
+        }
+        if (msg?.type === "SG_INTEL_SUMMARY") {
+          const intel = await getIntelFresh();
+          reply({
+            ok: true,
+            updatedAt: intel.updatedAt,
+            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
+            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
+            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
+            sources: intel.sources || [],
+          });
+          return;
+        }
+        if (msg?.type === "SG_INTEL_UPDATE_NOW" || msg?.type === "UPDATE_INTEL_NOW") {
+          let intel: ThreatIntel;
+          try { intel = await updateIntelNow(); } catch { intel = await getIntelFresh(); }
+          reply({
+            ok: true,
+            updatedAt: intel.updatedAt,
+            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
+            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
+            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
+            sources: intel.sources || [],
+          });
+          return;
+        }
+        if (msg?.type === "ANALYZE") {
+          const settings = await getSettings();
+          const req = msg.payload as AnalyzeRequest;
+          if (isVaultLockedContract(settings, req)) {
+            reply({ ok: true, vaultBlocked: true, vaultMessage: t("vaultBlockedMessage") });
+            return;
+          }
+          const intel = await getIntelCachedFast();
+          const isStale = intel.updatedAt === 0 || (Date.now() - intel.updatedAt >= INTEL_TTL_MS);
+          if (isStale) ensureIntelRefreshSoon("analyze_path");
+          const { intel: addrIntel, isMissing: addrMissing, isStale: addrStale } = await loadAddressIntelCachedFast();
+          if (addrMissing || addrStale) ensureAddressIntelRefreshSoon("analyze_path");
+          const tabId = port.sender?.tab?.id;
+          const analysis = await analyze(req, settings, intel, tabId, addrIntel);
+          if (req.wallet) analysis.wallet = req.wallet;
+          if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
+          await enrichWithSimulation(req, analysis);
+          applyPolicy(analysis, settings);
+          if (!settings.riskWarnings) {
+            analysis.recommend = "ALLOW";
+            analysis.level = "LOW";
+            analysis.score = 0;
+            analysis.reasons = [t("warningsDisabledReason")];
+            analysis.title = t("analyzerUnavailableTitle");
+          }
+          addChecksAndVerdict(analysis, { req, settings, intel });
+          const host = hostFromUrl(req.url);
+          const matchedBad = !!(analysis.isPhishing || (analysis.recommend === "BLOCK" && (analysis.reasons || []).some((r) => String(r).toLowerCase().includes("phishing") || String(r).toLowerCase().includes("blacklist"))));
+          const matchedSeed = !!analysis.safeDomain;
+          const signals: string[] = [];
+          if (matchedSeed) signals.push("SEED_MATCH");
+          if (matchedBad) signals.push("BLACKLIST_HIT");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike"))) signals.push("LOOKALIKE");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
+          Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
+          reply({ ok: true, analysis });
+          return;
+        }
+        reply({ ok: false, error: "unknown_type" });
+      } catch (e) {
+        reply({ ok: false, error: String((e as Error)?.message || e) });
       }
-      sendResponse({
-        ok: true,
-        updatedAt: intel.updatedAt,
-        trustedSeedCount: intel.trustedDomainsSeed.length,
-        blockedCount: intel.blockedDomains?.length || 0,
-        sources: intel.sources || [],
-      });
-      return;
-    }
-    if (!msg || msg.type !== "ANALYZE") return;
-    const settings = await getSettings();
-    const intel = await getIntelFresh();
-    const req = msg.payload as AnalyzeRequest;
-    const analysis = analyze(req, settings, intel);
+    })();
+  });
+});
 
-    // If warnings disabled, don't block or warn — just allow
-    if (!settings.riskWarnings) {
-      analysis.recommend = "ALLOW";
-      analysis.level = "LOW";
-      analysis.score = 0;
-      analysis.reasons = [t("warningsDisabledReason")];
-      analysis.title = t("analyzerUnavailableTitle");
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg !== "object" || !msg.type) {
+    try { sendResponse({ ok: false, error: "INVALID_MESSAGE" }); } catch {}
+    return false;
+  }
+  (async () => {
+    let responded = false;
+    const reply = (payload: any) => {
+      if (responded) return;
+      responded = true;
+      try { sendResponse(payload); } catch {}
+    };
+    try {
+      switch (msg.type) {
+        case "PING":
+          reply({ ok: true });
+          return;
+        case "GET_ETH_USD": {
+          const usdPerEth = await getEthUsdPriceCached();
+          reply({ ok: true, usdPerEth });
+          return;
+        }
+        case "SG_INTEL_SUMMARY": {
+          const intel = await getIntelFresh();
+          reply({
+            ok: true,
+            updatedAt: intel.updatedAt,
+            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
+            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
+            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
+            sources: intel.sources || [],
+          });
+          return;
+        }
+        case "SG_INTEL_UPDATE_NOW":
+        case "UPDATE_INTEL_NOW": {
+          let intel: ThreatIntel;
+          try { intel = await updateIntelNow(); } catch { intel = await getIntelFresh(); }
+          reply({
+            ok: true,
+            updatedAt: intel.updatedAt,
+            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
+            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
+            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
+            sources: intel.sources || [],
+          });
+          return;
+        }
+        case "SG_LOG_HISTORY": {
+          const evt = msg.payload;
+          if (evt && typeof evt === "object") pushHistoryEvent(evt as HistoryEvent);
+          reply({ ok: true });
+          return;
+        }
+        case "SG_ADDR_INTEL_SUMMARY": {
+          const { intel: addrIntel, isMissing, isStale } = await loadAddressIntelCachedFast();
+          const labeledCount = Object.keys(addrIntel.labelsByAddress || {}).length;
+          reply({
+            ok: true,
+            updatedAt: addrIntel.updatedAt,
+            labeledCount,
+            sources: addrIntel.sources || [],
+            isMissing,
+            isStale,
+          });
+          return;
+        }
+        case "SG_ADDR_INTEL_UPDATE_NOW": {
+          const fresh = await refreshAddressIntel();
+          await saveAddressIntel(fresh);
+          const labeledCount = Object.keys(fresh.labelsByAddress || {}).length;
+          reply({
+            ok: true,
+            updatedAt: fresh.updatedAt,
+            labeledCount,
+            sources: fresh.sources || [],
+          });
+          return;
+        }
+        case "ANALYZE": {
+          const settings = await getSettings();
+          const req = msg.payload as AnalyzeRequest;
+          if (isVaultLockedContract(settings, req)) {
+            reply({ ok: true, vaultBlocked: true, vaultMessage: t("vaultBlockedMessage") });
+            return;
+          }
+          const intel = await getIntelCachedFast();
+          const isStale = intel.updatedAt === 0 || (Date.now() - intel.updatedAt >= INTEL_TTL_MS);
+          if (isStale) ensureIntelRefreshSoon("analyze_path");
+          const { intel: addrIntel, isMissing: addrMissing, isStale: addrStale } = await loadAddressIntelCachedFast();
+          if (addrMissing || addrStale) ensureAddressIntelRefreshSoon("analyze_path");
+          const tabId = sender?.tab?.id;
+          const analysis = await analyze(req, settings, intel, tabId, addrIntel);
+          if (req.wallet) analysis.wallet = req.wallet;
+          if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
+          await enrichWithSimulation(req, analysis);
+          applyPolicy(analysis, settings);
+          if (!settings.riskWarnings) {
+            analysis.recommend = "ALLOW";
+            analysis.level = "LOW";
+            analysis.score = 0;
+            analysis.reasons = [t("warningsDisabledReason")];
+            analysis.title = t("analyzerUnavailableTitle");
+          }
+          addChecksAndVerdict(analysis, { req, settings, intel });
+          const host = hostFromUrl(req.url);
+          const matchedBad = !!(analysis.isPhishing || (analysis.recommend === "BLOCK" && (analysis.reasons || []).some((r) => String(r).toLowerCase().includes("phishing") || String(r).toLowerCase().includes("blacklist"))));
+          const matchedSeed = !!analysis.safeDomain;
+          const signals: string[] = [];
+          if (matchedSeed) signals.push("SEED_MATCH");
+          if (matchedBad) signals.push("BLACKLIST_HIT");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike"))) signals.push("LOOKALIKE");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
+          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
+          Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
+          reply({ ok: true, analysis });
+          if (settings.debugMode) {
+            try {
+              pushDebugEvent({
+                ts: Date.now(),
+                kind: "ANALYZE",
+                url: truncateStr(req?.url, 300),
+                host: truncateStr(hostFromUrl(req?.url || ""), 120),
+                method: truncateStr(req?.request?.method, 120),
+                level: analysis.level,
+                score: analysis.score,
+                recommend: analysis.recommend,
+                intent: analysis.intent,
+                isPhishing: !!analysis.isPhishing,
+                reasons: (analysis.reasons || []).slice(0, 8).map((r) => truncateStr(r, 240)),
+                tx: analysis.tx ? {
+                  to: truncateStr((analysis.tx as any).to, 120),
+                  valueEth: truncateStr((analysis.tx as any).valueEth, 64),
+                  maxGasFeeEth: truncateStr((analysis.tx as any).maxGasFeeEth, 64),
+                  maxTotalEth: truncateStr((analysis.tx as any).maxTotalEth, 64),
+                  selector: truncateStr((analysis.tx as any).selector, 16),
+                } : undefined,
+                txExtras: analysis.txExtras ? {
+                  approvalType: (analysis.txExtras as any).approvalType,
+                  tokenContract: truncateStr((analysis.txExtras as any).tokenContract, 120),
+                  spender: truncateStr((analysis.txExtras as any).spender, 120),
+                  operator: truncateStr((analysis.txExtras as any).operator, 120),
+                  unlimited: !!(analysis.txExtras as any).unlimited,
+                } : undefined,
+              });
+            } catch {}
+          }
+          return;
+        }
+        default:
+          reply({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
+          return;
+      }
+    } catch (e) {
+      reply({ ok: false, error: String((e as Error)?.message || e) });
     }
-
-    sendResponse({ ok: true, analysis });
   })();
-  return true;
+  return true; // keep channel open for async sendResponse
 });
