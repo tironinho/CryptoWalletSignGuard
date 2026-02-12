@@ -10,7 +10,24 @@ export interface PageRiskResult {
   reasons: string[];
 }
 
-/** Domains considered "safe" — typo-squatting against these triggers HIGH. */
+/** Web2 / major sites: skip all risk checks (no alerts). Hostname must end with one of these. */
+const SAFE_DOMAINS: string[] = [
+  "google.com",
+  "www.google.com",
+  "youtube.com",
+  "twitter.com",
+  "x.com",
+  "facebook.com",
+  "instagram.com",
+  "github.com",
+  "discord.com",
+  "linkedin.com",
+  "whatsapp.com",
+  "trello.com",
+  "notion.so",
+];
+
+/** Domains considered "safe" for crypto — typo-squatting against these triggers HIGH. */
 const SAFE_DOMAINS_LIST: string[] = [
   "opensea.io",
   "uniswap.org",
@@ -115,7 +132,8 @@ function scanKeywordCombinations(text: string): boolean {
   return false;
 }
 
-const MIN_CLICKABLE_AREA_PX = 100 * 100; // 100x100px
+/** Only treat as clickjacking if element is large (e.g. covering screen). Small invisible pixels ignored. */
+const MIN_CLICKABLE_AREA_PX = 300 * 300; // 300x300px
 const MIN_OPACITY_THRESHOLD = 0.1;
 
 /**
@@ -199,9 +217,24 @@ function detectSuspiciousOverlays(doc: Document): boolean {
 }
 
 /**
+ * True if hostname is a known Web2 / major site (whitelist). No risk scan runs.
+ */
+function isWhitelistedDomain(hostname: string): boolean {
+  const host = normalizeHost(hostname);
+  if (!host) return false;
+  return SAFE_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+}
+
+/**
  * Run full page risk scan. Prefer calling when document.body is ready.
+ * Returns immediately with SAFE (LOW, no reasons) for whitelisted domains.
  */
 export function runPageRiskScan(doc: Document, hostname: string): PageRiskResult {
+  // Early exit: major Web2 sites — do not run any heuristics (no false positives).
+  if (isWhitelistedDomain(hostname)) {
+    return { riskScore: "LOW", reasons: [] };
+  }
+
   const reasons: string[] = [];
   let riskScore: PageRiskLevel = "LOW";
 
