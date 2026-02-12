@@ -13,8 +13,9 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
   const pauseWrap = $("popupPauseWrap");
   const pauseBtn15m = $("popupPause15m");
   const resumeBtn = $("popupResume");
-  const linkDashboard = $("linkDashboard");
   const linkSettings = $("linkSettings");
+  const linkHistory = $("linkHistory");
+  const linkPlan = $("linkPlan");
 
   const r = await safeStorageGet<Settings>(DEFAULT_SETTINGS);
   let s: Settings = r.ok ? (r.data as Settings) : DEFAULT_SETTINGS;
@@ -44,12 +45,26 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     if (statusEl) statusEl.textContent = t("popupStatusPaused") || "Pausado";
   });
 
-  linkDashboard?.addEventListener("click", (e) => {
+  linkSettings?.addEventListener("click", (e) => {
+    e.preventDefault();
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      } else {
+        window.open("options.html", "_blank");
+      }
+      window.close();
+    } catch {
+      window.close();
+    }
+  });
+
+  linkHistory?.addEventListener("click", (e) => {
     e.preventDefault();
     try {
       const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
-        ? chrome.runtime.getURL("dashboard/dashboard.html")
-        : "dashboard/dashboard.html";
+        ? chrome.runtime.getURL("options.html#history")
+        : "options.html#history";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {
@@ -61,13 +76,16 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     }
   });
 
-  linkSettings?.addEventListener("click", (e) => {
+  linkPlan?.addEventListener("click", (e) => {
     e.preventDefault();
     try {
-      if (typeof chrome !== "undefined" && chrome.runtime?.openOptionsPage) {
-        chrome.runtime.openOptionsPage();
+      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
+        ? chrome.runtime.getURL("options.html#plan")
+        : "options.html#plan";
+      if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+        chrome.tabs.create({ url });
       } else {
-        window.open("options.html", "_blank");
+        window.open(url, "_blank");
       }
       window.close();
     } catch {

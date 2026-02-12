@@ -40,6 +40,7 @@
       <button class="nav-btn tab-btn active" data-tab="settings" type="button">⚙️ Geral</button>
       <button class="nav-btn tab-btn" data-tab="security" type="button">🔒 Segurança</button>
       <button class="nav-btn tab-btn" data-tab="history" type="button">📜 Histórico</button>
+      <button class="nav-btn tab-btn" data-tab="plan" type="button">⭐ Plano</button>
     </aside>
     <main class="content">
       <section id="tab-settings" class="tab-panel active">
@@ -72,9 +73,30 @@
       <section id="tab-history" class="tab-panel hidden">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h1 class="panel-title" style="margin:0;">Histórico</h1>
-          <button id="clearHistory" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+          <div style="display:flex; gap:8px;">
+            <button id="historyExport" class="sg-btn" type="button" style="background:#334155;">Exportar</button>
+            <button id="clearHistory" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+          </div>
         </div>
         <div class="card"><div id="historyList">Carregando...</div></div>
+      </section>
+      <section id="tab-plan" class="tab-panel hidden">
+        <h1 class="panel-title">Plano</h1>
+        <p class="panel-desc" style="margin-bottom:20px;">Plano atual e ativação de licença (MVP).</p>
+        <div class="card">
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Plano atual</h3></div>
+            <strong id="planTierDisplay">FREE</strong>
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:block; margin-bottom:8px;">Chave de licença</label>
+            <input type="text" id="licenseKey" placeholder="CSG-..." style="margin-bottom:10px;" />
+            <div style="display:flex; gap:8px;">
+              <button id="planActivate" class="sg-btn" type="button">Ativar</button>
+            </div>
+          </div>
+          <p id="planActivateStatus" class="hidden" style="margin:10px 0 0 0; font-size:0.9rem; color:#94a3b8;"></p>
+        </div>
       </section>
     </main>
   </div>

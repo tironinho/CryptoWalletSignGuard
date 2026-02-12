@@ -7,9 +7,9 @@ import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalle
 // - Content script shows overlay and posts decision
 // - MAIN world RESUMES by reexecuting the ORIGINAL request with bypass (no recursion)
 
-const TIMEOUT_MS_UI = 480000;     // 8 min when UI shown; keepalive resets
+const TIMEOUT_MS_UI = 600_000;   // 10 min when UI shown; keepalive resets
 const TIMEOUT_MS_FAILOPEN = 5000; // 5s when no UI yet (fail-open)
-const KEEPALIVE_CAP_MS = 900000;  // 15 min max lifetime from creation when UI shown
+const KEEPALIVE_CAP_MS = 900_000; // 15 min max lifetime from creation when UI shown
 
 type PendingReq = {
   resolve: (v: any) => void;
@@ -419,7 +419,7 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
       const msg = typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : "User rejected the request";
       pending.reject({ code: 4001, message: msg, data: { method: pending.method } });
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
+        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
       } catch {}
       return;
     }
@@ -428,12 +428,12 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
       const promise = pending.runOriginal();
       promise.then(pending.resolve).catch(pending.reject);
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: true }, "*");
+        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: true }, "*");
       } catch {}
     } catch (e) {
       pending.reject(e);
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
+        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
       } catch {}
     }
   } catch {}
@@ -553,6 +553,9 @@ setInterval(() => {
       pendingCalls.delete(id);
       if (p.uiShown) {
         p.reject({ code: 4001, message: "SignGuard: timeout" });
+        try {
+          window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
+        } catch {}
         continue;
       }
       try {

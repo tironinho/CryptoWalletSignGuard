@@ -116,21 +116,23 @@ function waitForDecisionAck(requestId: string, maxMs = 900): Promise<boolean> {
     const onMsg = (ev: MessageEvent) => {
       const m = (ev as any)?.data;
       if (!m || typeof m !== "object") return;
-      if (m.source !== "signguard" && m.source !== "signguard-inpage") return;
+      if (m.source !== "signguard-inpage") return;
       if (m.type !== "SG_DECISION_ACK") return;
       if (String(m.requestId || "") !== requestId) return;
-
       cleanup();
       resolve(true);
     };
 
     window.addEventListener("message", onMsg);
-
     t = setTimeout(() => {
       cleanup();
       resolve(false);
     }, maxMs);
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function defaultHumanForIntent(
@@ -419,29 +421,34 @@ let __sgSettingsLoading: Promise<void> | null = null;
 let __sgUsdPerEth: number | null = null;
 let __sgUsdFetchedAt = 0;
 
-async function ensureUsdPerEthLoaded() {
+async function ensureUsdLoaded() {
+  if ((__sgSettings ?? DEFAULT_SETTINGS).showUsd === false) return;
   const now = Date.now();
   if (__sgUsdPerEth != null && (now - __sgUsdFetchedAt) < 60_000) return;
 
   const resp = await safeSendMessage<any>({ type: "GET_ETH_USD" }, 2500);
   const usd = Number(resp?.usdPerEth);
   if (resp?.ok && Number.isFinite(usd) && usd > 0) {
+    const changed = __sgUsdPerEth !== usd;
     __sgUsdPerEth = usd;
     __sgUsdFetchedAt = now;
-    if (__sgOverlay?.container?.isConnected) updateOverlay(__sgOverlay);
+    if (changed && __sgOverlay?.container?.isConnected) updateOverlay(__sgOverlay);
   }
 }
 
-function usdApproxFromEthString(ethStr?: string): string {
-  const s = __sgSettings || DEFAULT_SETTINGS;
-  if (s.showUsd === false) return "";
+function usdFromEth(ethStr?: string): string {
+  if ((__sgSettings ?? DEFAULT_SETTINGS).showUsd === false) return "";
   if (__sgUsdPerEth == null) return "";
   const n = Number(String(ethStr ?? "").trim());
   if (!Number.isFinite(n)) return "";
   const usd = n * __sgUsdPerEth;
   if (!Number.isFinite(usd)) return "";
-  const decimals = usd >= 100 ? 2 : usd >= 1 ? 2 : 4;
-  return ` (≈ $${usd.toFixed(decimals)})`;
+  const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  return ` (≈ ${fmt.format(usd)})`;
+}
+
+function usdApproxFromEthString(ethStr?: string): string {
+  return usdFromEth(ethStr);
 }
 
 async function ensureSettingsLoaded() {
@@ -698,7 +705,7 @@ window.addEventListener("message", (ev: MessageEvent) => {
   try {
     if (ev.source !== window) return;
     const d = (ev as any)?.data;
-    if (!d || d.source !== "signguard" || d.type !== "SG_DECISION_ACK") return;
+    if (!d || d.source !== "signguard-inpage" || d.type !== "SG_DECISION_ACK") return;
     const requestId = String(d.requestId || "");
     if (!requestId) return;
     const allow = !!d.allow;
@@ -719,16 +726,27 @@ async function decideCurrentAndAdvance(allow: boolean) {
     return;
   }
   const requestId = cur.requestId;
+  dispatchDecision(requestId, allow);
   pendingClickFallback[requestId] = {
     allow,
     timer: setTimeout(() => {
       if (!pendingClickFallback[requestId]) return;
       delete pendingClickFallback[requestId];
       dispatchDecision(requestId, allow);
-      closeOverlayAndAdvance(requestId, allow);
     }, DECISION_ACK_FALLBACK_MS),
   };
   showToast(t("hint_wallet_popup"));
+
+  const ack = await waitForDecisionAck(requestId, 900);
+  if (!ack) {
+    showToast(t("request_expired_toast") || "Solicitação expirada. Refaça a ação no site e tente novamente.");
+    await sleep(1200);
+  }
+  if (pendingClickFallback[requestId]) {
+    clearTimeout(pendingClickFallback[requestId].timer);
+    delete pendingClickFallback[requestId];
+  }
+  closeOverlayAndAdvance(requestId, allow);
 }
 
 function isPhishingAnalysis(a: Analysis) {
@@ -1429,7 +1447,7 @@ function showOverlay(
 ) {
   void ensureTrustedDomainsLoaded();
   void ensureSettingsLoaded();
-  void ensureUsdPerEthLoaded();
+  void ensureUsdLoaded();
   // If an overlay is already open, update it in place (no close/reopen).
   if (__sgOverlay) {
     __sgOverlay.requestId = requestId;

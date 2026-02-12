@@ -51,7 +51,7 @@ function formatDate(ts: number | null | undefined): string {
   }
 }
 
-const HISTORY_KEY = "sg_history";
+const HISTORY_KEY = "sg_history_v1";
 
 /** Health check: last verification date and protection level from storage. */
 async function renderHealthCheck() {

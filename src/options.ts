@@ -2,12 +2,12 @@ import type { Settings } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import { normalizeDomainLine } from "./shared/utils";
 import { t } from "./i18n";
-import { safeStorageGet, safeStorageSet } from "./runtimeSafe";
+import { safeStorageGet, safeStorageSet, safeSendMessage } from "./runtimeSafe";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
-const HISTORY_KEY = "sg_history";
+const HISTORY_KEY = "sg_history_v1";
 
-type TabName = "settings" | "security" | "history";
+type TabName = "settings" | "security" | "history" | "plan";
 
 function showTab(name: TabName) {
   const tabs = document.querySelectorAll(".tab-btn");
@@ -24,6 +24,23 @@ function showTab(name: TabName) {
     p.classList.toggle("active", panelId === expectedId);
   }
   if (name === "history") loadHistory();
+  if (name === "plan") loadPlan();
+}
+
+async function loadPlan() {
+  const tierEl = document.getElementById("planTierDisplay");
+  const statusEl = document.getElementById("planActivateStatus");
+  if (statusEl) {
+    statusEl.classList.add("hidden");
+    statusEl.textContent = "";
+  }
+  try {
+    const resp = await safeSendMessage<{ ok?: boolean; plan?: { tier: string } }>({ type: "SG_GET_PLAN" }, 2000);
+    const tier = resp?.ok && resp?.plan?.tier ? resp.plan.tier : "FREE";
+    if (tierEl) tierEl.textContent = tier;
+  } catch {
+    if (tierEl) tierEl.textContent = "FREE";
+  }
 }
 
 function localGet<T = unknown>(key: string): Promise<T | null> {
@@ -98,7 +115,7 @@ function listToLines(v: string[]): string {
   if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
 
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName: TabName = hash === "security" ? "security" : hash === "history" ? "history" : "settings";
+  const tabName: TabName = hash === "security" ? "security" : hash === "history" ? "history" : hash === "plan" ? "plan" : "settings";
   showTab(tabName);
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -113,7 +130,7 @@ function listToLines(v: string[]): string {
 
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "history" ? "history" : "settings");
+    showTab(h === "security" ? "security" : h === "history" ? "history" : h === "plan" ? "plan" : "settings");
   });
 
   showUsdEl?.addEventListener("change", async () => {
@@ -147,6 +164,48 @@ function listToLines(v: string[]): string {
       });
       loadHistory();
     } catch {}
+  });
+
+  const historyExportBtn = document.getElementById("historyExport");
+  historyExportBtn?.addEventListener("click", async () => {
+    const items = await localGet<unknown[]>(HISTORY_KEY);
+    const arr = Array.isArray(items) ? items : [];
+    try {
+      const blob = new Blob([JSON.stringify({ exportedAt: Date.now(), history: arr }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "signguard-history.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {}
+  });
+
+  const planActivateBtn = document.getElementById("planActivate");
+  const licenseKeyInput = document.getElementById("licenseKey") as HTMLInputElement | null;
+  const planActivateStatusEl = document.getElementById("planActivateStatus");
+  planActivateBtn?.addEventListener("click", async () => {
+    const key = (licenseKeyInput?.value ?? "").trim();
+    if (planActivateStatusEl) {
+      planActivateStatusEl.classList.remove("hidden");
+      planActivateStatusEl.textContent = key ? "A ativar…" : "Introduza uma chave.";
+    }
+    if (!key) return;
+    try {
+      const resp = await safeSendMessage<{ ok?: boolean; tier?: string; invalid?: boolean }>({ type: "SG_ACTIVATE_LICENSE", payload: { key } }, 3000);
+      if (resp?.ok) {
+        if (planActivateStatusEl) {
+          planActivateStatusEl.textContent = resp.invalid ? "Chave inválida (use CSG-… com mais de 15 caracteres)." : "Ativado: " + (resp.tier || "PRO") + ".";
+        }
+        await loadPlan();
+      } else {
+        if (planActivateStatusEl) planActivateStatusEl.textContent = "Erro ao ativar.";
+      }
+    } catch (e) {
+      if (planActivateStatusEl) planActivateStatusEl.textContent = "Erro: " + String((e as Error)?.message ?? e);
+    }
   });
 
   loadHistory();

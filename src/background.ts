@@ -26,9 +26,9 @@ export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 const INTEL_KEY = "sg_threat_intel_v2";
 const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
 
-const HISTORY_KEY = "sg_history";
+const HISTORY_KEY = "sg_history_v1";
 const HISTORY_MAX = 200;
-const PLAN_KEY = "sg_plan";
+const PLAN_KEY = "sg_plan_v1";
 
 type HistoryEvent = {
   ts: number;
