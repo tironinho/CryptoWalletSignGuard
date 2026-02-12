@@ -25,25 +25,6 @@ import {
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
 import { renderAdToast, dismissAdToast } from "./features/adToast";
 
-(function injectMainWorld() {
-  try {
-    if ((window as any).__signguard_mainworld) return;
-  } catch {}
-  if (!isRuntimeUsable()) return;
-  try {
-    const id = "sg-mainworld-injected";
-    if (document.getElementById(id)) return;
-    const href = safeGetURL("mainWorld.js");
-    if (!href) return;
-    const s = document.createElement("script");
-    s.id = id;
-    s.src = href;
-    s.type = "text/javascript";
-    (document.documentElement || document.head).appendChild(s);
-    s.onload = () => { try { s.remove(); } catch {} };
-  } catch {}
-})();
-
 function isContextInvalidated(msg: string) {
   const s = (msg || "").toLowerCase();
   return s.includes("extension context invalidated") ||
