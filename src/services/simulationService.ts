@@ -1,13 +1,18 @@
 /**
  * Tenderly transaction simulation service for SignGuard.
  * Simulates transactions before they are sent to detect reverts and asset changes.
- * Credentials come from user settings (no hardcoded secrets).
+ * Uses internal API key (isolated/free account).
  */
 
 import type { Settings } from "../shared/types";
 
 const TENDERLY_API_BASE = "https://api.tenderly.co/api/v1";
 const SIMULATE_TIMEOUT_MS = 4000;
+
+/** Internal Tenderly credentials (isolated account). Replace with your real values. */
+const TENDERLY_USER = "Tironi";
+const TENDERLY_PROJECT = "project";
+const TENDERLY_ACCESS_KEY = "YFrGuv00npdb8aUoK3Xy5pfp6UqIpNDx";
 
 /** Request body for Tenderly simulate endpoint. */
 export interface SimulateTransactionBody {
@@ -76,28 +81,21 @@ interface TenderlySimulationResponse {
   [key: string]: unknown;
 }
 
-function getSimulateUrl(settings: Settings): string {
-  const sim = settings.simulation;
-  if (!sim?.tenderlyAccount || !sim?.tenderlyProject) return "";
-  return `${TENDERLY_API_BASE}/account/${encodeURIComponent(sim.tenderlyAccount)}/project/${encodeURIComponent(sim.tenderlyProject)}/simulate`;
+function getSimulateUrl(): string {
+  return `${TENDERLY_API_BASE}/account/${encodeURIComponent(TENDERLY_USER)}/project/${encodeURIComponent(TENDERLY_PROJECT)}/simulate`;
 }
 
 /**
  * Call Tenderly simulate API. Returns null on any error or timeout.
- * Requires settings.simulation.enabled and valid account/project/key.
+ * Uses internal credentials (no user settings).
  */
 export async function simulateTransaction(
   body: SimulateTransactionBody,
-  settings: Settings
+  _settings?: Settings
 ): Promise<TenderlySimulationResponse | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const sim = settings.simulation;
-    if (!sim?.enabled || !sim?.tenderlyKey?.trim()) return null;
-
-    const url = getSimulateUrl(settings);
-    if (!url) return null;
-
+    const url = getSimulateUrl();
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), SIMULATE_TIMEOUT_MS);
 
@@ -105,7 +103,7 @@ export async function simulateTransaction(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Access-Key": sim.tenderlyKey.trim(),
+        "X-Access-Key": TENDERLY_ACCESS_KEY,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -203,8 +201,7 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
 }
 
 /**
- * Run simulation and return parsed outcome. Returns null only when simulation is disabled
- * or credentials missing. On API failure (network, 401/403), returns SKIPPED outcome with fallback: true.
+ * Run simulation and return parsed outcome. On API failure (network, timeout), returns static-mode outcome.
  */
 export async function runSimulation(
   networkId: string,
@@ -213,24 +210,19 @@ export async function runSimulation(
   input: string,
   value: string,
   gas: number | undefined,
-  settings: Settings
+  _settings?: Settings
 ): Promise<SimulationOutcome | null> {
   try {
-    const sim = settings.simulation;
-    if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
-      return makeStaticModeOutcome();
-    }
-
     const body: SimulateTransactionBody = {
-    network_id: networkId,
-    from,
-    to,
-    input: input || "0x",
-    value: value || "0x0",
-  };
+      network_id: networkId,
+      from,
+      to,
+      input: input || "0x",
+      value: value || "0x0",
+    };
     if (gas != null && gas > 0) body.gas = gas;
 
-    const raw = await simulateTransaction(body, settings);
+    const raw = await simulateTransaction(body);
     if (raw) return parseSimulationResult(raw);
     return makeStaticModeOutcome();
   } catch {

@@ -38,11 +38,6 @@ export async function runHoneypotCheck(
   /** Token contract address to test transfer (e.g. from swap path or tx.to for approvals). */
   tokenAddress?: string
 ): Promise<HoneypotResult> {
-  const sim = settings.simulation;
-  if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
-    return { isHoneypot: false, simulated: false, message: "Modo Estático (Adicione chaves para Simulação)" };
-  }
-
   try {
     const body: SimulateTransactionBody = {
       network_id: networkId,
@@ -53,7 +48,7 @@ export async function runHoneypotCheck(
     };
     if (gas != null && gas > 0) body.gas = gas;
 
-    const raw = await simulateTransaction(body, settings);
+    const raw = await simulateTransaction(body);
     if (!raw) return { isHoneypot: false };
 
     const txStatus = raw.transaction?.status;
