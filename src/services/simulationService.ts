@@ -7,10 +7,10 @@ const TENDERLY_API_BASE = "https://api.tenderly.co/api/v1";
 const TENDERLY_ACCESS_TOKEN = "gO4ionqLICPca6aXwUkp0TY36VIClptr";
 
 // TODO: Replace with your Tenderly Account Slug (dashboard URL: https://dashboard.tenderly.co/<ACCOUNT_SLUG>/)
-const TENDERLY_ACCOUNT_SLUG = "YOUR_ACCOUNT_SLUG";
+const TENDERLY_ACCOUNT_SLUG = "Tironi";
 
 // TODO: Replace with your Tenderly Project Slug (dashboard URL: .../<ACCOUNT_SLUG>/<PROJECT_SLUG>/)
-const TENDERLY_PROJECT_SLUG = "YOUR_PROJECT_SLUG";
+const TENDERLY_PROJECT_SLUG = "project";
 
 const SIMULATE_TIMEOUT_MS = 8000;
 
