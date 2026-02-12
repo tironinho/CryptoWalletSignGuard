@@ -23,6 +23,7 @@ import {
   safeLocalSet,
 } from "./runtimeSafe";
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
+import { renderAdToast, dismissAdToast } from "./features/adToast";
 
 (function injectMainWorld() {
   try {
@@ -1799,28 +1800,53 @@ window.addEventListener(
   { capture: true, passive: true }
 );
 
-// RPC bridge: background -> content -> mainWorld (readonly eth_call/eth_chainId)
+// Marketing toast: show 5s after message (discreet, bottom-right card)
 if (isRuntimeUsable() && typeof chrome?.runtime?.onMessage?.addListener === "function") {
   try {
     chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
-  if (msg?.type !== "SG_RPC_CALL_REQUEST") return false;
-  const { id, method, params } = msg;
-  window.postMessage({ source: "signguard-content", type: "SG_RPC_CALL_REQUEST", id, method, params }, "*");
-  const handler = (ev: MessageEvent) => {
-    try {
-      const d = (ev as any)?.data;
-      if (!d || d.source !== "signguard" || d.type !== "SG_RPC_CALL_RESPONSE" || d.id !== id) return;
-      window.removeEventListener("message", handler);
-      clearTimeout(timer);
-      sendResponse({ ok: !d.error, result: d.result, error: d.error });
-    } catch {}
-  };
-  window.addEventListener("message", handler);
-  const timer = setTimeout(() => {
-    window.removeEventListener("message", handler);
-    sendResponse({ ok: false, error: "timeout" });
-  }, 8000);
-  return true; // async
-  });
-} catch (_) {}
+      if (msg?.type === "SHOW_MARKETING_TOAST") {
+        const campaign = msg?.payload;
+        if (campaign?.id && campaign?.title && campaign?.link) {
+          const delay = setTimeout(() => {
+            renderAdToast(
+              {
+                id: campaign.id,
+                title: campaign.title,
+                body: campaign.body ?? "",
+                cta_text: campaign.cta_text ?? "Saber mais",
+                link: campaign.link,
+                icon: campaign.icon,
+              },
+              () => dismissAdToast(),
+              () => {
+                if (typeof chrome?.runtime?.sendMessage === "function") {
+                  chrome.runtime.sendMessage({ type: "AD_TRACK_CLICK", payload: { campaignId: campaign.id } });
+                }
+              }
+            );
+          }, 5000);
+          sendResponse({ ok: true });
+          return true;
+        }
+      }
+      if (msg?.type !== "SG_RPC_CALL_REQUEST") return false;
+      const { id, method, params } = msg;
+      window.postMessage({ source: "signguard-content", type: "SG_RPC_CALL_REQUEST", id, method, params }, "*");
+      const handler = (ev: MessageEvent) => {
+        try {
+          const d = (ev as any)?.data;
+          if (!d || d.source !== "signguard" || d.type !== "SG_RPC_CALL_RESPONSE" || d.id !== id) return;
+          window.removeEventListener("message", handler);
+          clearTimeout(timer);
+          sendResponse({ ok: !d.error, result: d.result, error: d.error });
+        } catch {}
+      };
+      window.addEventListener("message", handler);
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        sendResponse({ ok: false, error: "timeout" });
+      }, 8000);
+      return true; // async
+    });
+  } catch (_) {}
 }

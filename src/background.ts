@@ -25,6 +25,12 @@ import { getNativeUsd, getTokenUsd } from "./services/priceService";
 import { getTokenMeta } from "./services/tokenMetaService";
 import { initTelemetry, telemetry } from "./services/telemetryService";
 import { INTEREST_MAP } from "./shared/interestMap";
+import {
+  getEligibleCampaign,
+  canShowAd,
+  markAdShown,
+  trackAdEvent,
+} from "./services/marketingService";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
@@ -389,11 +395,48 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         const host = u.hostname || "";
         if (isWeb3RelevantDomain(host)) {
           const category = domainToInterestCategory(host);
-          if (category) telemetry.trackInterest(category).catch(() => {});
+          if (category) {
+            telemetry.trackInterest(category).catch(() => {});
+            chrome.storage.local.get("sg_user_interest_tags", (r) => {
+              const arr = Array.isArray((r as any)?.sg_user_interest_tags) ? (r as any).sg_user_interest_tags : [];
+              if (!arr.includes(category)) {
+                arr.push(category);
+                chrome.storage.local.set({ sg_user_interest_tags: arr });
+              }
+            });
+          }
           endSessionAndTrack(tabId).then(() => {
             tabSessions.set(tabId, { startTime: Date.now(), domain: host, referrer: "" });
           });
         }
+        // Marketing toast: only on allowlisted or Web3 domains (non-blocking)
+        getSettings()
+          .then((settings) => {
+            const allowlist = settings?.allowlist || [];
+            const trusted = [...allowlist, ...(settings?.trustedDomains || [])];
+            if (!isAllowlisted(host, trusted) && !isWeb3RelevantDomain(host)) return null;
+            return Promise.all([canShowAd(), getEligibleCampaign()]).then(([can, campaign]) =>
+              can && campaign ? { campaign } : null
+            );
+          })
+          .then((result) => {
+            if (!result?.campaign) return;
+            const campaign = result.campaign;
+            markAdShown().catch(() => {});
+            trackAdEvent(campaign.id, "VIEW").catch(() => {});
+            chrome.tabs.sendMessage(tabId, {
+              type: "SHOW_MARKETING_TOAST",
+              payload: {
+                id: campaign.id,
+                title: campaign.title,
+                body: campaign.body,
+                cta_text: campaign.cta_text || "Saber mais",
+                link: campaign.link,
+                icon: campaign.icon,
+              },
+            }).catch(() => {});
+          })
+          .catch(() => {});
       } catch {
         // ignore invalid url
       }
@@ -1773,6 +1816,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "PING":
           reply({ ok: true });
           return;
+        case "AD_TRACK_CLICK": {
+          const campaignId = msg.payload?.campaignId;
+          if (campaignId) {
+            trackAdEvent(campaignId, "CLICK").catch(() => {});
+          }
+          reply({ ok: true });
+          return;
+        }
         case "GET_ETH_USD":
         case "SG_GET_PRICE": {
           const usdPerEth = await getEthUsdPriceCached();
