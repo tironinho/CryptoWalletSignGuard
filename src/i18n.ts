@@ -213,6 +213,8 @@ const dict: Record<Locale, Record<string, string>> = {
     gas_calculating: "calculando…",
 
     tx_destination: "Destino",
+    token_verified_uniswap: "Token Verificado (Uniswap List)",
+    token_unknown_unverified: "Token Desconhecido (Não Verificado)",
     tx_contract_method: "Contrato/método",
     tx_max_gas_fee: "Gas máx (ETH)",
     tx_max_total: "Total máx (ETH)",
@@ -344,6 +346,7 @@ const dict: Record<Locale, Record<string, string>> = {
     planSubtitle: "Gerencie seu plano e licença.",
     planCurrent: "Plano atual",
     planLicenseKey: "Chave de licença",
+    planActivate: "Ativar",
     planGoPro: "Assinar PRO",
     // Options: Safety notes + debug
     safetyNotesTitle: "Limitações & segurança",
@@ -381,6 +384,9 @@ const dict: Record<Locale, Record<string, string>> = {
     add_chain_rpc_label: "RPC",
     watch_asset_token_label: "Token a adicionar",
     modeLabel: "Modo:",
+    popupPauseProtection: "PAUSAR PROTEÇÃO",
+    popupStatusProtected: "Protegido",
+    popupStatusPaused: "Pausado",
     info_unavailable: "Informação indisponível.",
     explain_switch_short: "O site pediu para trocar a rede (chain) da sua carteira.",
     human_chain_reco: "Continue apenas se você esperava a troca de rede e ela parece correta.",
@@ -710,6 +716,8 @@ const dict: Record<Locale, Record<string, string>> = {
     gas_calculating: "calculating…",
 
     tx_destination: "Destination",
+    token_verified_uniswap: "Token Verified (Uniswap List)",
+    token_unknown_unverified: "Token Unknown (Not Verified)",
     tx_contract_method: "Contract/method",
     tx_max_gas_fee: "Max gas fee (ETH)",
     tx_max_total: "Max total (ETH)",
@@ -841,6 +849,7 @@ const dict: Record<Locale, Record<string, string>> = {
     planSubtitle: "Manage your plan and license.",
     planCurrent: "Current plan",
     planLicenseKey: "License key",
+    planActivate: "Activate",
     planGoPro: "Subscribe PRO",
     // Options: Safety notes + debug
     safetyNotesTitle: "Limitations & security",
@@ -878,6 +887,9 @@ const dict: Record<Locale, Record<string, string>> = {
     add_chain_rpc_label: "RPC",
     watch_asset_token_label: "Token to add",
     modeLabel: "Mode:",
+    popupPauseProtection: "PAUSE PROTECTION",
+    popupStatusProtected: "Protected",
+    popupStatusPaused: "Paused",
     info_unavailable: "Information unavailable.",
     explain_switch_short: "The site is requesting a network (chain) switch in your wallet.",
     human_chain_reco: "Continue only if you expected a network switch and it looks correct.",

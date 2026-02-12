@@ -34,13 +34,14 @@
     .history-card { background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 10px; }
     section.tab-panel { display: none; }
     section.tab-panel.active { display: block; }
+    .hidden { display: none !important; }
     input[type="checkbox"] { width: 1.125rem; height: 1.125rem; border-radius: 0.25rem; border-color: rgb(100 116 139); accent-color: #06b6d4; background-color: #1e293b; }
     textarea { width: 100%; min-height: 120px; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px; color: #f8fafc; padding: 10px; font-family: 'JetBrains Mono', monospace; }
     input[type="text"]:not([class*="rounded"]), input[type="password"], .sg-input { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 8px; color: #f8fafc; padding: 8px 12px; min-width: 160px; }
   </style>
 </head>
 <body class="min-h-screen bg-slate-900 text-slate-50">
-    <div class="max-w-3xl mx-auto p-5 md:p-6">
+    <div id="options-container" class="max-w-3xl mx-auto p-5 md:p-6">
       <div class="flex gap-2 mb-5 border-b border-slate-700">
         <button type="button" class="tab-btn active text-slate-400 hover:text-slate-200 py-3 px-4 text-sm font-medium border-b-2 border-transparent mb-[-1px]" data-tab="settings" data-i18n="tabSettings">Configurações</button>
         <button type="button" class="tab-btn text-slate-400 hover:text-slate-200 py-3 px-4 text-sm font-medium border-b-2 border-transparent mb-[-1px]" data-tab="history" data-i18n="tabHistory">Histórico</button>
@@ -48,6 +49,9 @@
       </div>
 
       <section id="tab-settings" class="tab-panel active">
+      <div id="simulationBanner" class="sg-card p-4 mb-4 hidden" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.4);">
+        <p class="m-0 text-sm text-amber-200">⚠️ Para ativar a Simulação de Segurança, configure as suas chaves abaixo. É grátis!</p>
+      </div>
       <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 class="text-xl font-bold text-slate-50 m-0 mb-1" data-i18n="optionsTitle"></h1>
@@ -320,8 +324,10 @@
             <input type="text" id="licenseKey" placeholder="" style="flex:2; background: rgba(2,6,23,.6); border: 1px solid rgba(148,163,184,.18); border-radius: 8px; color: #e5e7eb; padding: 8px 12px;" />
           </div>
           <div class="row" style="margin-top:10px;">
-            <button id="goPro" class="sg-btn rounded-xl px-4 py-2.5 font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400" data-i18n="planGoPro">Assinar PRO</button>
+            <button id="planActivate" type="button" class="sg-btn rounded-xl px-4 py-2.5 font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400" data-i18n="planActivate">Ativar</button>
+            <button id="goPro" type="button" class="sg-btn sg-btn-secondary rounded-xl px-4 py-2.5 font-semibold" data-i18n="planGoPro">Assinar PRO</button>
           </div>
+          <p id="planActivateStatus" class="muted text-sm mt-2 hidden"></p>
         </div>
       </section>
     </div>

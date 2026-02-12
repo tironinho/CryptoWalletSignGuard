@@ -313,10 +313,13 @@ export type Analysis = {
   };
   /** True when simulation predicted revert (show "ESTA TRANSAÇÃO VAI FALHAR"). */
   simulationRevert?: boolean;
+  /** True when protection is temporarily paused (allow without showing overlay). */
+  protectionPaused?: boolean;
 }
 
 export type SupportedWalletEntry = { name: string; kind: string };
 
+/** User-configurable settings (spec name: UserSettings). */
 export type Settings = {
   riskWarnings: boolean;
   showConnectOverlay: boolean;
@@ -354,6 +357,21 @@ export type Settings = {
     tenderlyProject: string;
     tenderlyKey: string;
   };
+  /** Pause protection until this timestamp (Date.now() + ms). */
+  pausedUntil?: number;
+  /** Domains that bypass overlay when protection is active (e.g. trusted tools). */
+  whitelistedDomains?: string[];
+};
+
+/** Alias for Settings (spec: UserSettings). */
+export type UserSettings = Settings;
+
+/** Stored in chrome.storage.local key "sg_plan". */
+export type PlanState = {
+  tier: "FREE" | "PRO";
+  keyMasked?: string;
+  activatedAt?: number;
+  expiresAt?: number;
 };
 
 export const SUPPORTED_WALLETS: SupportedWalletEntry[] = [
@@ -426,5 +444,6 @@ export const DEFAULT_SETTINGS: Settings = {
     tenderlyProject: "",
     tenderlyKey: "",
   },
+  whitelistedDomains: [],
 };
 

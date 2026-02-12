@@ -1,35 +1,46 @@
-/* SignGuard Overlay — Security-grade design system */
+/* SignGuard Overlay — Dark Mode SaaS / Cyberpunk design system */
+:root {
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-primary: #3b82f6;
+  --accent-danger: #ef4444;
+  --accent-success: #10b981;
+  --border-subtle: #334155;
+  --glass-bg: rgba(15, 23, 42, 0.95);
+}
+
 :host, .sg-root {
   all: initial;
-  --sg-bg: #0b1220;
-  --sg-panel: rgba(15, 23, 42, 0.98);
+  --sg-bg: var(--bg-dark);
+  --sg-panel: var(--glass-bg);
   --sg-border: rgba(148, 163, 184, 0.18);
-  --sg-border-strong: rgba(148, 163, 184, 0.28);
-  --sg-text: #e5e7eb;
-  --sg-muted: #94a3b8;
+  --sg-border-strong: var(--border-subtle);
+  --sg-text: var(--text-main);
+  --sg-muted: var(--text-muted);
   --sg-muted-soft: #cbd5e1;
-  --sg-primary: #f97316;
-  --sg-primary-hover: #fb923c;
-  --sg-danger: #ef4444;
+  --sg-primary: var(--accent-primary);
+  --sg-primary-hover: #60a5fa;
+  --sg-danger: var(--accent-danger);
   --sg-danger-bg: rgba(239, 68, 68, 0.15);
   --sg-high: #ea580c;
   --sg-high-bg: rgba(234, 88, 12, 0.15);
   --sg-warn: #eab308;
   --sg-warn-bg: rgba(234, 179, 8, 0.15);
-  --sg-success: #22c55e;
-  --sg-success-bg: rgba(34, 197, 94, 0.12);
-  --sg-info: #3b82f6;
-  --sg-accent: var(--sg-primary);
-  --sg-ok: var(--sg-success);
-  --sg-warn: var(--sg-warn);
+  --sg-success: var(--accent-success);
+  --sg-success-bg: rgba(16, 185, 129, 0.12);
+  --sg-info: var(--accent-primary);
+  --sg-accent: var(--accent-primary);
+  --sg-ok: var(--accent-success);
   --sg-risk: var(--sg-high);
-  --sg-block: var(--sg-danger);
-  --sg-surface: var(--sg-panel);
+  --sg-block: var(--accent-danger);
+  --sg-surface: var(--bg-card);
   --sg-radius-lg: 14px;
   --sg-radius-md: 10px;
   --sg-radius-sm: 8px;
-  --sg-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
-  --sg-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --sg-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5);
+  --sg-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --sg-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
   --sg-s6: 6px;
   --sg-s8: 8px;
@@ -44,9 +55,9 @@
 .sg-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 2147483647;
   display: flex;
   align-items: center;
@@ -57,10 +68,12 @@
 .sg-modal {
   width: min(820px, calc(100vw - 32px));
   max-height: 85vh;
-  background: var(--sg-bg);
-  border: 1px solid var(--sg-border);
+  background: var(--glass-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--sg-radius-lg);
-  box-shadow: var(--sg-shadow-lg);
+  box-shadow: var(--sg-shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -134,10 +147,10 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.sg-pill--low { background: var(--sg-success-bg); color: var(--sg-success); border: 1px solid rgba(34, 197, 94, 0.4); }
+.sg-pill--low { background: var(--sg-success-bg); color: var(--sg-success); border: 1px solid rgba(16, 185, 129, 0.4); }
 .sg-pill--warn { background: var(--sg-warn-bg); color: var(--sg-warn); border: 1px solid rgba(234, 179, 8, 0.5); }
 .sg-pill--high { background: var(--sg-high-bg); color: var(--sg-high); border: 1px solid rgba(234, 88, 12, 0.5); }
-.sg-pill--block { background: var(--sg-danger-bg); color: var(--sg-danger); border: 1px solid rgba(239, 68, 68, 0.5); }
+.sg-pill--block { background: var(--sg-danger-bg); color: var(--sg-danger); border: 1px solid rgba(239, 68, 68, 0.5); box-shadow: 0 0 12px rgba(239, 68, 68, 0.25); }
 
 .sg-close-btn {
   all: unset;
@@ -324,11 +337,13 @@
 .sg-btn-secondary:hover { background: rgba(30, 41, 59, 0.9); }
 
 .sg-btn-primary {
-  color: #0b1220;
-  background: var(--sg-primary);
+  color: #fff;
+  background: var(--accent-primary);
+  padding: 12px 24px;
+  font-size: 14px;
 }
 
-.sg-btn-primary:hover { filter: brightness(1.08); }
+.sg-btn-primary:hover { filter: brightness(1.1); box-shadow: 0 0 20px rgba(59, 130, 246, 0.35); }
 
 .sg-btn:disabled {
   opacity: 0.6;
@@ -373,6 +388,7 @@
   color: var(--sg-danger);
   margin-bottom: var(--sg-s12);
   text-align: center;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
 }
 
 .sg-fee-warn {
@@ -535,6 +551,10 @@
 .sg-dest-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; }
 .sg-dest-contract { background: rgba(59, 130, 246, 0.2); color: var(--sg-info); }
 .sg-dest-wallet { background: rgba(34, 197, 94, 0.15); color: var(--sg-success); }
+
+.sg-token-badge { font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: var(--sg-radius-sm); }
+.sg-token-verified { background: rgba(16, 185, 129, 0.2); color: var(--sg-success); border: 1px solid rgba(16, 185, 129, 0.4); }
+.sg-token-unknown { background: rgba(245, 158, 11, 0.2); color: var(--sg-warn); border: 1px solid rgba(245, 158, 11, 0.4); }
 .sg-partial-banner {
   background: var(--sg-warn-bg);
   border: 1px solid rgba(234, 179, 8, 0.5);

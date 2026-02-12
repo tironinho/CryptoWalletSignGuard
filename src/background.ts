@@ -1,4 +1,4 @@
-import type { AnalyzeRequest, Analysis, Settings, AssetInfo, DecodedAction, SecurityMode, ThreatIntelAddress, CheckResult, CheckKey } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings, AssetInfo, DecodedAction, SecurityMode, ThreatIntelAddress, CheckResult, CheckKey, PlanState } from "./shared/types";
 import type { TxSummary } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import type { Intent, TxExtras } from "./shared/types";
@@ -18,6 +18,7 @@ import { extractTypedDataPermitExtras } from "./txHumanize";
 import { hexToBigInt, weiToEth } from "./txMath";
 import { assessDomainRisk } from "./domainRisk";
 import { runSimulation } from "./services/simulationService";
+import { isTokenVerified, getTokenAddressForTx } from "./services/tokenSecurity";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
@@ -26,6 +27,7 @@ const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
 
 const HISTORY_KEY = "sg_history";
 const HISTORY_MAX = 200;
+const PLAN_KEY = "sg_plan";
 
 type HistoryEvent = {
   ts: number;
@@ -165,7 +167,12 @@ function ensureAddressIntelRefreshSoon(reason: string): void {
     .catch(() => { _addrIntelRefreshInProgress = false; });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") {
+    try {
+      chrome.tabs.create({ url: chrome.runtime.getURL("options.html?welcome=true") });
+    } catch {}
+  }
   ensureIntelRefreshSoon("startup");
   ensureAddressIntelRefreshSoon("startup");
   chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 });
@@ -269,11 +276,26 @@ function pushDebugEvent(evt: any) {
   } catch {}
 }
 
+const PRICE_CACHE_KEY = "sg_price_cache";
+const PRICE_CACHE_TTL_MS = 120_000; // 2 min
 let __ethUsdCache: { usdPerEth: number; fetchedAt: number } | null = null;
 
 async function getEthUsdPriceCached(): Promise<number | null> {
   const now = Date.now();
-  if (__ethUsdCache && (now - __ethUsdCache.fetchedAt) < 60_000) return __ethUsdCache.usdPerEth;
+  if (__ethUsdCache && (now - __ethUsdCache.fetchedAt) < PRICE_CACHE_TTL_MS) return __ethUsdCache.usdPerEth;
+
+  try {
+    const stored = await new Promise<{ ethUsd?: number; updatedAt?: number } | null>((resolve) => {
+      chrome.storage.local.get(PRICE_CACHE_KEY, (r) => {
+        if (chrome.runtime?.lastError) return resolve(null);
+        resolve((r as any)?.[PRICE_CACHE_KEY] ?? null);
+      });
+    });
+    if (stored?.ethUsd != null && Number.isFinite(stored.ethUsd) && stored.updatedAt != null && (now - stored.updatedAt) < PRICE_CACHE_TTL_MS) {
+      __ethUsdCache = { usdPerEth: stored.ethUsd, fetchedAt: stored.updatedAt };
+      return stored.ethUsd;
+    }
+  } catch {}
 
   try {
     const resp = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", {
@@ -285,6 +307,9 @@ async function getEthUsdPriceCached(): Promise<number | null> {
     const usd = Number(j?.ethereum?.usd);
     if (!Number.isFinite(usd) || usd <= 0) return null;
     __ethUsdCache = { usdPerEth: usd, fetchedAt: now };
+    try {
+      chrome.storage.local.set({ [PRICE_CACHE_KEY]: { ethUsd: usd, updatedAt: now } }, () => void 0);
+    } catch {}
     return usd;
   } catch {
     return null;
@@ -381,7 +406,19 @@ function summarizeTx(method: string, params: any[]): any | null {
   return { to, valueEth, maxGasFeeEth, maxTotalEth, selector, feeKnown, contractNameHint };
 }
 
+function isProtectionPaused(settings: Settings): boolean {
+  const until = settings.pausedUntil;
+  return typeof until === "number" && Number.isFinite(until) && Date.now() < until;
+}
+
 function applyPolicy(analysis: Analysis, settings: Settings): void {
+  if (isProtectionPaused(settings)) {
+    (analysis as Analysis).protectionPaused = true;
+    analysis.recommend = "ALLOW";
+    analysis.score = 0;
+    analysis.reasons = [t("mode_off_reason")];
+    return;
+  }
   const mode = (settings.mode || "BALANCED") as SecurityMode;
   if (mode === "OFF") {
     analysis.recommend = "ALLOW";
@@ -1085,6 +1122,10 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
     let flaggedAddr: ThreatIntelAddress | undefined;
     let asset: AssetInfo | null = null;
 
+    const tokenAddr = getTokenAddressForTx(to, decodedAction);
+    const tokenVerified = tokenAddr ? isTokenVerified(intel, tokenAddr) : false;
+    const tokenMeta = tokenAddr ? { tokenVerified, tokenAddress: tokenAddr } : {};
+
     const labelsTo = (settings.addressIntelEnabled ?? true) ? labelsFor(addrIntel ?? null, to) : [];
     const labelsSpender = (settings.addressIntelEnabled ?? true) && decodedAction && "spender" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.spender || "") : [];
     const labelsOperator = (settings.addressIntelEnabled ?? true) && decodedAction && "operator" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.operator || "") : [];
@@ -1176,6 +1217,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
             flaggedAddress: flaggedAddr,
             provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
             ...addressIntelPartial,
+            ...tokenMeta,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -1221,6 +1263,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
             flaggedAddress: flaggedAddr,
             provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
             ...addressIntelPartial,
+            ...tokenMeta,
             human: {
               methodTitle: explain.title,
               methodShort: explain.short,
@@ -1269,6 +1312,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
           flaggedAddress: flaggedAddr,
           provider: req.providerHint ? { kind: req.providerHint.kind as any, name: req.providerHint.name } : undefined,
           ...addressIntelPartial,
+          ...tokenMeta,
           human: {
             methodTitle: explain.title,
             methodShort: explain.short,
@@ -1337,6 +1381,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
       feeGtValue,
       toIsContract,
       ...addressIntelPartial,
+      ...tokenMeta,
       human: {
         methodTitle: explain.title,
         methodShort: explain.short,
@@ -1388,9 +1433,13 @@ chrome.runtime.onConnect.addListener((port) => {
     (async () => {
       try {
         if (msg?.type === "PING") { reply({ ok: true }); return; }
-        if (msg?.type === "GET_ETH_USD") {
+        if (msg?.type === "GET_ETH_USD" || msg?.type === "SG_GET_PRICE") {
           const usdPerEth = await getEthUsdPriceCached();
-          reply({ ok: true, usdPerEth });
+          if (usdPerEth != null) {
+            reply({ ok: true, usdPerEth, ethUsd: usdPerEth, updatedAt: __ethUsdCache?.fetchedAt ?? Date.now() });
+          } else {
+            reply({ ok: false });
+          }
           return;
         }
         if (msg?.type === "SG_INTEL_SUMMARY") {
@@ -1482,9 +1531,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "PING":
           reply({ ok: true });
           return;
-        case "GET_ETH_USD": {
+        case "GET_ETH_USD":
+        case "SG_GET_PRICE": {
           const usdPerEth = await getEthUsdPriceCached();
-          reply({ ok: true, usdPerEth });
+          if (usdPerEth != null) {
+            reply({ ok: true, usdPerEth, ethUsd: usdPerEth, updatedAt: __ethUsdCache?.fetchedAt ?? Date.now() });
+          } else {
+            reply({ ok: false });
+          }
           return;
         }
         case "SG_INTEL_SUMMARY": {
@@ -1517,6 +1571,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const evt = msg.payload;
           if (evt && typeof evt === "object") pushHistoryEvent(evt as HistoryEvent);
           reply({ ok: true });
+          return;
+        }
+        case "SG_GET_PLAN": {
+          try {
+            const got = await new Promise<Record<string, PlanState>>((resolve) => {
+              chrome.storage.local.get(PLAN_KEY, (r) => {
+                resolve((r as Record<string, PlanState>) ?? {});
+              });
+            });
+            const plan = got[PLAN_KEY] ?? { tier: "FREE" };
+            reply({ ok: true, plan });
+          } catch {
+            reply({ ok: false, plan: { tier: "FREE" } });
+          }
+          return;
+        }
+        case "SG_ACTIVATE_LICENSE": {
+          const key = String(msg.payload?.key ?? "").trim();
+          const valid = key.startsWith("CSG-") && key.length > 15;
+          try {
+            if (valid) {
+              const plan: PlanState = {
+                tier: "PRO",
+                keyMasked: key ? key.slice(0, 6) + "…" + key.slice(-4) : undefined,
+                activatedAt: Date.now(),
+              };
+              await new Promise<void>((resolve, reject) => {
+                chrome.storage.local.set({ [PLAN_KEY]: plan }, () => (chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()));
+              });
+              reply({ ok: true, tier: "PRO", invalid: false });
+            } else {
+              reply({ ok: true, tier: "FREE", invalid: true });
+            }
+          } catch (e) {
+            reply({ ok: false, error: String((e as Error)?.message ?? e) });
+          }
           return;
         }
         case "SG_ADDR_INTEL_SUMMARY": {

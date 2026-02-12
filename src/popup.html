@@ -6,59 +6,177 @@
   <title>SignGuard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
-          },
-          colors: {
-            sg: {
-              bg: '#0f172a',
-              panel: '#1e293b',
-              border: 'rgba(148, 163, 184, 0.2)',
-              muted: '#94a3b8',
-              safe: '#06b6d4',
-              danger: '#e11d48',
-            }
-          },
-          boxShadow: {
-            'glow-cyan': '0 0 20px -2px rgba(6, 182, 212, 0.4)',
-            'glow-rose': '0 0 20px -2px rgba(225, 29, 72, 0.3)',
-          }
-        }
-      }
-    }
-  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; background: #0f172a; color: #f8fafc; min-width: 280px; }
-    .sg-card { background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; }
-    .sg-btn { transition: box-shadow 0.2s, transform 0.1s; }
-    .sg-btn:hover { box-shadow: 0 0 20px -2px rgba(6, 182, 212, 0.35); }
-    .sg-btn:active { transform: translateY(1px); }
-    .sg-btn-danger:hover { box-shadow: 0 0 16px -2px rgba(225, 29, 72, 0.3); }
+    :root {
+      --bg-dark: #0f172a;
+      --bg-card: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-primary: #3b82f6;
+      --accent-danger: #ef4444;
+      --accent-success: #10b981;
+      --border-subtle: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      margin: 0;
+      padding: 0;
+      min-width: 280px;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+    }
+    .popup-inner { padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+    .popup-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    h1.popup-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    .popup-mode-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-family: ui-monospace, monospace;
+    }
+    .sg-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .sg-card label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.875rem; color: var(--text-muted); }
+    .sg-card label input { width: 16px; height: 16px; accent-color: var(--accent-primary); }
+    .sg-card .row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+    .sg-card .row:first-of-type { margin-top: 0; }
+    .sg-card select {
+      font-family: inherit;
+      font-size: 0.8rem;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: var(--text-main);
+      min-width: 100px;
+    }
+    .btn-main {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter 0.15s, box-shadow 0.15s;
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+    }
+    .btn-main:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); }
+    .btn-main .icon-shield { width: 22px; height: 22px; flex-shrink: 0; }
+    .btn-main .icon-shield path { fill: currentColor; }
+    .btn-pause { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: #f87171; }
+    .btn-pause:hover { box-shadow: 0 0 16px rgba(239, 68, 68, 0.2); }
+    .popup-paused-block {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .popup-paused-block p { margin: 0 0 10px 0; font-size: 0.8125rem; color: #fcd34d; }
+    .btn-resume {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      cursor: pointer;
+    }
+    .btn-resume:hover { background: var(--border-subtle); }
+    .btn-row { display: flex; flex-direction: column; gap: 8px; }
+    .btn-row button {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-row button:hover { background: var(--border-subtle); }
+    .btn-row .btn-plan { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+    .btn-row .btn-plan:hover { filter: brightness(1.1); }
+    .popup-footer {
+      margin-top: auto;
+      padding: 12px 20px;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .popup-footer .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-success);
+    }
+    .popup-footer.status-paused .dot { background: #f59e0b; }
+    .hidden { display: none !important; }
   </style>
 </head>
-<body class="bg-slate-900 text-slate-50 p-4 min-h-[320px]">
-  <div class="space-y-4">
-    <header>
-      <h1 id="popupTitle" class="text-lg font-bold text-slate-50 tracking-tight">SignGuard</h1>
-      <p id="popupMode" class="text-xs text-slate-400 mt-0.5 font-mono"></p>
+<body>
+  <div class="popup-inner">
+    <header class="popup-header">
+      <h1 id="popupTitle" class="popup-title">SignGuard</h1>
+      <span id="popupMode" class="popup-mode-badge"></span>
     </header>
 
-    <div class="sg-card p-3 space-y-3">
-      <label class="flex gap-3 items-center cursor-pointer text-sm text-slate-200">
-        <input id="popupShowUsd" type="checkbox" class="w-4 h-4 rounded border-slate-500 text-cyan-500 focus:ring-cyan-500/50 bg-slate-800" />
+    <div id="popupPauseWrap" class="btn-row">
+      <button type="button" id="popupPause1h" class="btn-main btn-pause" aria-label="Pausar proteção">
+        <svg class="icon-shield" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm0 2.18l6 2.25v4.66c0 1.43-.56 2.8-1.53 3.84-.97 1.04-2.27 1.78-3.47 2.27V4.18zM6 7.43l6-2.25v10.2c-1.2-.49-2.5-1.23-3.47-2.27C7.56 14.34 7 12.97 7 11.54V7.43z"/>
+        </svg>
+        <span id="popupPauseLabel">PAUSAR PROTEÇÃO</span>
+      </button>
+    </div>
+
+    <div id="popupPausedBlock" class="popup-paused-block hidden">
+      <p id="popupPausedText">Proteção pausada até …</p>
+      <button id="popupResume" type="button" class="btn-resume">Retomar agora</button>
+    </div>
+
+    <div class="sg-card">
+      <label>
+        <input id="popupShowUsd" type="checkbox" />
         <span id="popupShowUsdLabel">Show USD</span>
       </label>
-      <div class="flex justify-between items-center">
-        <span id="popupModeLabel" class="text-slate-400 text-sm">Mode</span>
-        <select id="popupModeSelect" class="font-mono text-sm bg-slate-800/80 border border-slate-600/50 rounded-lg px-3 py-1.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-500/60 min-w-[120px]">
+      <div class="row">
+        <span id="popupModeLabel" class="popup-mode-badge">Mode</span>
+        <select id="popupModeSelect">
           <option value="STRICT">Strict</option>
           <option value="BALANCED">Balanced</option>
           <option value="RELAXED">Relaxed</option>
@@ -67,12 +185,17 @@
       </div>
     </div>
 
-    <div class="flex flex-col gap-2">
-      <button id="popupOptions" class="sg-btn w-full py-2.5 px-4 rounded-lg font-semibold text-sm bg-slate-700/80 text-slate-100 border border-slate-600/50 hover:border-cyan-500/40">Configurações</button>
-      <button id="popupHistory" class="sg-btn w-full py-2.5 px-4 rounded-lg font-semibold text-sm bg-slate-700/80 text-slate-100 border border-slate-600/50 hover:border-cyan-500/40">Histórico</button>
-      <button id="popupPlan" class="sg-btn w-full py-2.5 px-4 rounded-lg font-semibold text-sm bg-cyan-500 text-slate-900 hover:bg-cyan-400 border border-cyan-400/50">Plano</button>
+    <div class="btn-row">
+      <button id="popupOptions" type="button">Configurações</button>
+      <button id="popupHistory" type="button">Histórico</button>
+      <button id="popupPlan" type="button" class="btn-plan">Plano</button>
     </div>
   </div>
+
+  <footer id="popupFooter" class="popup-footer">
+    <span class="dot" aria-hidden="true"></span>
+    <span id="popupStatus">Protegido</span>
+  </footer>
   <script type="module" src="./popup.js"></script>
 </body>
 </html>

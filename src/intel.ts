@@ -15,6 +15,8 @@ export type ThreatIntel = {
   allowedDomains: Record<string, string[]>;
   blockedAddresses: Record<string, string[]>;
   trustedSeed: string[];
+  /** Token contract addresses from allowlists (e.g. Uniswap list) for verification */
+  trustedTokenAddresses: string[];
   // Flat arrays for backward compat with background
   blockedDomainsList: string[];
   blockedAddressesList: ThreatIntelAddress[];
@@ -390,14 +392,20 @@ export async function fetchThreatIntel(): Promise<ThreatIntel> {
   sources.push(meta.source);
   for (const h of meta.blocked) addToMap(blockedDomains, h, "MetaMask");
 
+  const trustedTokenAddresses: string[] = [];
   for (const src of DOMAIN_SOURCES) {
     if (src.id === "metamask-phishing") continue;
     const r = await fetchSource(src);
-    for (const h of r.domains) addToMap(blockedDomains, h, src.id);
+    if (src.kind === "blocklist") {
+      for (const h of r.domains) addToMap(blockedDomains, h, src.id);
+    } else {
+      for (const h of r.domains) addToMap(allowedDomains, h, src.id);
+    }
+    if (r.addresses?.length) trustedTokenAddresses.push(...r.addresses);
     sources.push({
       name: src.id,
       ok: r.ok,
-      count: r.domains.length,
+      count: r.domains.length + (r.addresses?.length ?? 0),
       url: src.url,
     });
   }
@@ -429,6 +437,7 @@ export async function fetchThreatIntel(): Promise<ThreatIntel> {
     allowedDomains,
     blockedAddresses,
     trustedSeed: trustedDomainsList,
+    trustedTokenAddresses: [...new Set(trustedTokenAddresses.map((a) => a.toLowerCase()))],
     blockedDomainsList,
     blockedAddressesList,
   };

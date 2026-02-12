@@ -51,10 +51,12 @@ function formatDate(ts: number | null | undefined): string {
   }
 }
 
+const HISTORY_KEY = "sg_history";
+
 /** Health check: last verification date and protection level from storage. */
 async function renderHealthCheck() {
   const settings = await getStorageSync();
-  const local = await getStorageLocal([LAST_VERIFICATION_KEY, INTEL_KEY]);
+  const local = await getStorageLocal([LAST_VERIFICATION_KEY, INTEL_KEY, HISTORY_KEY]);
 
   const lastVerificationTs =
     (local[LAST_VERIFICATION_KEY] as number) ??
@@ -69,6 +71,15 @@ async function renderHealthCheck() {
     levelEl.textContent = isPaused ? "Pausado" : "Ativo";
     levelEl.className = isPaused ? "sg-badge-paused" : "sg-badge-active";
   }
+
+  const history = local[HISTORY_KEY] as unknown[] | undefined;
+  const historyArr = Array.isArray(history) ? history : [];
+  const risksBlocked = historyArr.filter((e: any) => e?.verdict === "deny" || e?.verdict === "block").length;
+  const risksEl = $("statRisksBlocked");
+  if (risksEl) risksEl.textContent = String(risksBlocked);
+
+  const valueSavedEl = $("statValueSaved");
+  if (valueSavedEl) valueSavedEl.textContent = "—";
 }
 
 /** Mock data for Token Allowances (no Covalent/Etherscan key yet). */
@@ -122,24 +133,33 @@ function renderAllowances(list: Allowance[], walletAddressForRevoke: string) {
     return;
   }
   if (emptyEl) emptyEl.classList.add("hidden");
-  listEl.innerHTML = list
-    .map(
-      (a, i) => `
-    <div class="sg-panel sg-row" style="align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-      <div style="min-width: 0;">
-        <div class="sg-section-title" style="font-size: 0.875rem; margin-bottom: 0.25rem;">${escapeHtml(a.tokenSymbol)}</div>
-        <div class="sg-muted sg-text-sm">${escapeHtml(a.amount)} · Spender: ${escapeHtml(a.spenderLabel ?? shortenAddr(a.spenderAddress))}</div>
-      </div>
-      <button type="button" class="sg-btn-revoke revoke-btn" data-index="${i}" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">Abrir no Revoke.cash</button>
-    </div>
-  `
-    )
-    .join("");
+  listEl.innerHTML = `
+    <table class="sg-allowances-table" role="grid">
+      <thead>
+        <tr>
+          <th>Token</th>
+          <th>Montante</th>
+          <th>Spender</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list
+          .map(
+            (a) => `
+        <tr>
+          <td><span class="sg-mono">${escapeHtml(a.tokenSymbol)}</span></td>
+          <td>${escapeHtml(a.amount)}</td>
+          <td class="sg-mono">${escapeHtml(a.spenderLabel ?? shortenAddr(a.spenderAddress))}</td>
+          <td><button type="button" class="sg-btn-revoke revoke-btn">Revoke.cash</button></td>
+        </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
 
   listEl.querySelectorAll(".revoke-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      openRevokeCash(walletAddressForRevoke);
-    });
+    btn.addEventListener("click", () => openRevokeCash(walletAddressForRevoke));
   });
 }
 

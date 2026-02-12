@@ -623,14 +623,12 @@ function showCurrentPending() {
   showOverlay(cur.requestId, cur.analysis, { host: cur.host, method: cur.method, params: cur.params, rpcMeta: cur.rpcMeta });
 }
 
-async function decideCurrentAndAdvance(allow: boolean) {
-  const cur = requestQueue.shift();
-  if (!cur) {
-    if (requestQueue.length) showCurrentPending();
-    else cleanupOverlay();
-    return;
-  }
-  const requestId = cur.requestId;
+const DECISION_ACK_FALLBACK_MS = 150;
+const pendingClickFallback: Record<string, { allow: boolean; timer: ReturnType<typeof setTimeout> }> = {};
+
+function closeOverlayAndAdvance(requestId: string, allow: boolean) {
+  const idx = requestQueue.findIndex((p) => p.requestId === requestId);
+  const cur = idx >= 0 ? requestQueue.splice(idx, 1)[0] : null;
   const buttons = __sgOverlay?.shadow?.querySelectorAll?.("button");
   buttons?.forEach((b) => { (b as HTMLButtonElement).disabled = true; (b as HTMLElement).style.pointerEvents = "none"; });
   if (__sgOverlay?.keepaliveInterval) {
@@ -642,64 +640,95 @@ async function decideCurrentAndAdvance(allow: boolean) {
   const hasMore = requestQueue.length > 0;
   __sgOverlay = null;
 
-  try {
-    const tx = (cur.analysis as any)?.tx;
-    const txCost = (cur.analysis as any)?.txCostPreview;
-    const txExtras = (cur.analysis as any)?.txExtras;
-    const historyEvt = {
-      ts: Date.now(),
-      requestId,
-      host: cur.host,
-      url: cur.href,
-      wallet: cur.wallet?.name,
-      chainId: cur.rpcMeta?.chainId,
-      action: (cur.analysis as any)?.intent ?? cur.method,
-      method: cur.method,
-      to: tx?.to ?? txExtras?.toAddress ?? txExtras?.tokenContract,
-      valueEth: tx?.valueEth,
-      feeLikelyEth: txCost?.feeLikelyWei != null ? weiToEthFmt(BigInt(txCost.feeLikelyWei)) : undefined,
-      feeMaxEth: txCost?.feeMaxWei != null ? weiToEthFmt(BigInt(txCost.feeMaxWei)) : undefined,
-      totalLikelyEth: txCost?.totalLikelyWei != null ? weiToEthFmt(BigInt(txCost.totalLikelyWei)) : undefined,
-      totalMaxEth: txCost?.totalMaxWei != null ? weiToEthFmt(BigInt(txCost.totalMaxWei)) : undefined,
-      usdPerEth: __sgUsdPerEth ?? undefined,
-      decision: allow ? "ALLOW" : "BLOCK",
-      score: cur.analysis?.score,
-      level: cur.analysis?.level,
-    };
-    void safeSendMessage({ type: "SG_LOG_HISTORY", payload: historyEvt }, 800);
-  } catch {}
-
-  dispatchDecision(requestId, allow);
-  const ack = await waitForDecisionAck(requestId, 900);
-
-  if (!ack) {
-    showToast(t("toast_request_expired"));
-    await new Promise((r) => setTimeout(r, 1200));
+  if (cur) {
+    try {
+      const tx = (cur.analysis as any)?.tx;
+      const txCost = (cur.analysis as any)?.txCostPreview;
+      const txExtras = (cur.analysis as any)?.txExtras;
+      const historyEvt = {
+        ts: Date.now(),
+        requestId,
+        host: cur.host,
+        url: cur.href,
+        wallet: cur.wallet?.name,
+        chainId: cur.rpcMeta?.chainId,
+        action: (cur.analysis as any)?.intent ?? cur.method,
+        method: cur.method,
+        to: tx?.to ?? txExtras?.toAddress ?? txExtras?.tokenContract,
+        valueEth: tx?.valueEth,
+        feeLikelyEth: txCost?.feeLikelyWei != null ? weiToEthFmt(BigInt(txCost.feeLikelyWei)) : undefined,
+        feeMaxEth: txCost?.feeMaxWei != null ? weiToEthFmt(BigInt(txCost.feeMaxWei)) : undefined,
+        totalLikelyEth: txCost?.totalLikelyWei != null ? weiToEthFmt(BigInt(txCost.totalLikelyWei)) : undefined,
+        totalMaxEth: txCost?.totalMaxWei != null ? weiToEthFmt(BigInt(txCost.totalMaxWei)) : undefined,
+        usdPerEth: __sgUsdPerEth ?? undefined,
+        decision: allow ? "ALLOW" : "BLOCK",
+        score: cur.analysis?.score,
+        level: cur.analysis?.level,
+      };
+      void safeSendMessage({ type: "SG_LOG_HISTORY", payload: historyEvt }, 800);
+    } catch {}
+    try {
+      if ((__sgSettings || DEFAULT_SETTINGS).debugMode) {
+        pushDebugEvent({
+          ts: Date.now(),
+          kind: "DECISION",
+          requestId,
+          allow,
+          origin: cur.origin,
+          href: cur.href,
+          host: cur.host,
+          method: cur.method,
+          level: cur.analysis?.level,
+          score: cur.analysis?.score,
+          recommend: cur.analysis?.recommend,
+          intent: (cur.analysis as any)?.intent,
+          isPhishing: !!(cur.analysis as any)?.isPhishing,
+        });
+      }
+    } catch {}
   }
 
   try { if (container) container.remove(); } catch {}
   try { if (onKey) document.removeEventListener("keydown", onKey); } catch {}
   if (hasMore) setTimeout(() => showCurrentPending(), 50);
   else cleanupOverlay();
+}
+
+window.addEventListener("message", (ev: MessageEvent) => {
   try {
-    if ((__sgSettings || DEFAULT_SETTINGS).debugMode) {
-      pushDebugEvent({
-        ts: Date.now(),
-        kind: "DECISION",
-        requestId,
-        allow,
-        origin: cur.origin,
-        href: cur.href,
-        host: cur.host,
-        method: cur.method,
-        level: cur.analysis?.level,
-        score: cur.analysis?.score,
-        recommend: cur.analysis?.recommend,
-        intent: (cur.analysis as any)?.intent,
-        isPhishing: !!(cur.analysis as any)?.isPhishing,
-      });
+    if (ev.source !== window) return;
+    const d = (ev as any)?.data;
+    if (!d || d.source !== "signguard" || d.type !== "SG_DECISION_ACK") return;
+    const requestId = String(d.requestId || "");
+    if (!requestId) return;
+    const allow = !!d.allow;
+    const pending = pendingClickFallback[requestId];
+    if (pending) {
+      clearTimeout(pending.timer);
+      delete pendingClickFallback[requestId];
     }
+    closeOverlayAndAdvance(requestId, allow);
   } catch {}
+});
+
+async function decideCurrentAndAdvance(allow: boolean) {
+  const cur = requestQueue[0];
+  if (!cur) {
+    if (requestQueue.length) showCurrentPending();
+    else cleanupOverlay();
+    return;
+  }
+  const requestId = cur.requestId;
+  pendingClickFallback[requestId] = {
+    allow,
+    timer: setTimeout(() => {
+      if (!pendingClickFallback[requestId]) return;
+      delete pendingClickFallback[requestId];
+      dispatchDecision(requestId, allow);
+      closeOverlayAndAdvance(requestId, allow);
+    }, DECISION_ACK_FALLBACK_MS),
+  };
+  showToast(t("hint_wallet_popup"));
 }
 
 function isPhishingAnalysis(a: Analysis) {
@@ -741,6 +770,10 @@ function summaryBulletsI18n(a: SGAction): string[] {
 }
 
 function renderOverlay(state: OverlayState) {
+  if (state.container) {
+    state.container.setAttribute("data-sg-overlay", "1");
+    state.container.setAttribute("data-sg-request-id", state.requestId);
+  }
   // Avoid leaking countdown timers when switching queued items
   if (state.countdownTimer) {
     try { clearInterval(state.countdownTimer as any); } catch {}
@@ -1025,6 +1058,7 @@ function renderOverlay(state: OverlayState) {
                   ${hasFeeGtValue ? `<div class="sg-fee-warn">${escapeHtml(t("fee_gt_value"))}</div>` : ""}
                   ${txTo ? `<div style="margin-top:10px"><b>${escapeHtml(t("tx_destination"))}</b>: <code class="sg-mono">${escapeHtml(shortenHex(txTo))}</code> ${(analysis as any).toIsContract === true ? `<span class="sg-dest-chip sg-dest-contract">${escapeHtml(t("destination_contract"))}</span>` : (analysis as any).toIsContract === false ? `<span class="sg-dest-chip sg-dest-wallet">${escapeHtml(t("destination_wallet"))}</span>` : ""} <button class="sg-copy" data-copy="${escapeHtml(txTo)}">${escapeHtml(t("copy"))}</button></div>` : ""}
                   ${txSelector ? `<div style="margin-top:6px"><b>${escapeHtml(t("tx_contract_method"))}</b>: <code class="sg-mono">${escapeHtml(txSelector)}${selectorToLabel(txSelector) ? " • " + escapeHtml(selectorToLabel(txSelector)!) : ""}</code></div>` : ""}
+                  ${(analysis as any).tokenAddress ? ((analysis as any).tokenVerified ? `<div class="sg-token-badge sg-token-verified" style="margin-top:10px">✅ ${escapeHtml(t("token_verified_uniswap"))}</div>` : `<div class="sg-token-badge sg-token-unknown" style="margin-top:10px">⚠️ ${escapeHtml(t("token_unknown_unverified"))}</div>`) : ""}
                 </div>`
               : (displayAction === "SWITCH_CHAIN" && !hasTxInFlow && hasRecentSwitch(__sgFlow))
                 ? `<div class="sg-kv">
@@ -1226,17 +1260,9 @@ function renderOverlay(state: OverlayState) {
     });
   } catch {}
 
-  continueBtn && (continueBtn.onclick = () => {
-    decideCurrentAndAdvance(true);
-    showToast(t("hint_wallet_popup"));
-  });
-  proceedBtn && (proceedBtn.onclick = () => {
-    decideCurrentAndAdvance(true);
-    showToast(t("hint_wallet_popup"));
-  });
-  cancelBtn && (cancelBtn.onclick = () => {
-    decideCurrentAndAdvance(false);
-  });
+  continueBtn && (continueBtn.onclick = () => decideCurrentAndAdvance(true));
+  proceedBtn && (proceedBtn.onclick = () => decideCurrentAndAdvance(true));
+  cancelBtn && (cancelBtn.onclick = () => decideCurrentAndAdvance(false));
 
   const openOpt = state.shadow.getElementById("sg-open-options") as HTMLButtonElement | null;
   openOpt && (openOpt.onclick = () => {
@@ -1375,6 +1401,8 @@ function showOverlay(
     __sgOverlay.requestId = requestId;
     __sgOverlay.analysis = analysis;
     __sgOverlay.meta = meta;
+    const root = __sgOverlay.container;
+    if (root) root.setAttribute("data-sg-request-id", requestId);
     if (__sgOverlay.keepaliveInterval) {
       try { clearInterval(__sgOverlay.keepaliveInterval as any); } catch {}
     }
@@ -1386,6 +1414,8 @@ function showOverlay(
 
   const container = document.createElement("div");
   container.className = "sg-root";
+  container.setAttribute("data-sg-overlay", "1");
+  container.setAttribute("data-sg-request-id", requestId);
   const shadow = container.attachShadow({ mode: "open" });
   ensureOverlayCss(shadow);
   const app = document.createElement("div");
@@ -1523,11 +1553,22 @@ async function handleSGRequest(ev: MessageEvent) {
         if (txCostPreview) cur.analysis.txCostPreview = txCostPreview;
       }
 
+      const analysis = cur.analysis;
+      if (analysis.protectionPaused) {
+        const idx = requestQueue.findIndex((p) => p.requestId === requestId);
+        if (idx >= 0) requestQueue.splice(idx, 1);
+        if (__sgOverlay && __sgOverlay.requestId === requestId) {
+          cleanupOverlay();
+          if (requestQueue.length) showCurrentPending();
+        }
+        dispatchDecision(requestId, true);
+        return;
+      }
+
       (__sgOverlay as any).analysisLoading = false;
       __sgOverlay.analysis = cur.analysis;
       updateOverlay(__sgOverlay);
 
-      const analysis = cur.analysis;
       const action = classifyAction(method, params);
       if (analysis.recommend === "ALLOW" && action !== "SEND_TX") {
         const idx = requestQueue.findIndex((p) => p.requestId === requestId);

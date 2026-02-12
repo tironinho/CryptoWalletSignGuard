@@ -23,6 +23,20 @@ function showTab(name: TabName) {
     p.classList.toggle("active", p.id === `tab-${name}`);
   }
   if (name === "history") loadHistory();
+  if (name === "plan") loadPlan();
+}
+
+async function loadPlan() {
+  const tierEl = $("planTierDisplay");
+  const statusEl = $("planActivateStatus");
+  if (statusEl) { statusEl.classList.add("hidden"); statusEl.textContent = ""; }
+  try {
+    const resp = await safeSendMessage<{ ok?: boolean; plan?: { tier: string } }>({ type: "SG_GET_PLAN" }, 2000);
+    const tier = resp?.ok && resp?.plan?.tier ? resp.plan.tier : "FREE";
+    if (tierEl) tierEl.textContent = tier;
+  } catch {
+    if (tierEl) tierEl.textContent = "FREE";
+  }
 }
 
 async function loadHistory() {
@@ -175,10 +189,25 @@ function escapeHtml(s: string): string {
 }
 
 (async function init() {
+  const s = await load();
+
+  const container = document.getElementById("options-container");
+  if (container) {
+    const urlParams = new URLSearchParams(location.search);
+    const showWelcome = urlParams.get("welcome") === "true" || !(s.simulation?.tenderlyKey ?? "").trim();
+    if (showWelcome) {
+      const banner = document.createElement("div");
+      banner.id = "welcome-banner";
+      banner.className = "bg-blue-900 border-l-4 border-blue-500 text-blue-100 p-4 mb-6 rounded shadow-lg";
+      banner.innerHTML = `<p class="font-bold text-lg">Bem-vindo ao SignGuard! 🛡️</p>
+<p>Para ativar a Simulação de Transações (que previne drenagem de carteira), você precisa de uma chave gratuita da Tenderly.</p>
+<p class="text-sm mt-2 opacity-75">Configure abaixo na aba "Simulação".</p>`;
+      container.insertBefore(banner, container.firstChild);
+    }
+  }
+
   applyI18n();
   document.title = t("optionsTitle");
-
-  const s = await load();
   const modeEl = $("mode") as HTMLSelectElement;
   modeEl.value = s.mode || "BALANCED";
   if (!modeEl.querySelector(`option[value="${modeEl.value}"]`)) modeEl.value = "BALANCED";
@@ -204,6 +233,11 @@ function escapeHtml(s: string): string {
   ($("simulationTenderlyAccount") as HTMLInputElement).value = sim.tenderlyAccount ?? "";
   ($("simulationTenderlyProject") as HTMLInputElement).value = sim.tenderlyProject ?? "";
   ($("simulationTenderlyKey") as HTMLInputElement).value = sim.tenderlyKey ?? "";
+  const simulationBanner = $("simulationBanner");
+  if (simulationBanner) {
+    const keysEmpty = !(sim.tenderlyAccount ?? "").trim() && !(sim.tenderlyProject ?? "").trim() && !(sim.tenderlyKey ?? "").trim();
+    simulationBanner.classList.toggle("hidden", !keysEmpty);
+  }
   const domains = (s.trustedDomains && Array.isArray(s.trustedDomains) && s.trustedDomains.length) ? s.trustedDomains : s.allowlist;
   ($("allowlist") as HTMLTextAreaElement).value = listToLines(domains);
   ($("customTrustedDomains") as HTMLTextAreaElement).value = listToLines(s.customTrustedDomains || []);
@@ -269,11 +303,18 @@ function escapeHtml(s: string): string {
         tenderlyProject: (($("simulationTenderlyProject") as HTMLInputElement)?.value ?? "").trim(),
         tenderlyKey: (($("simulationTenderlyKey") as HTMLInputElement)?.value ?? "").trim(),
       },
+      pausedUntil: latest.pausedUntil,
+      whitelistedDomains: latest.whitelistedDomains ?? [],
     };
     await save(next);
     const st = $("status");
     st.style.opacity = "1";
     setTimeout(() => (st.style.opacity = "0"), 1200);
+    const simBanner = $("simulationBanner");
+    if (simBanner && next.simulation) {
+      const keysEmpty = !next.simulation.tenderlyAccount?.trim() && !next.simulation.tenderlyProject?.trim() && !next.simulation.tenderlyKey?.trim();
+      simBanner.classList.toggle("hidden", !keysEmpty);
+    }
   });
 
   $("exportLists")?.addEventListener("click", () => {
@@ -367,9 +408,27 @@ function escapeHtml(s: string): string {
     } catch {}
   });
 
+  $("planActivate")?.addEventListener("click", async () => {
+    const input = $("licenseKey") as HTMLInputElement;
+    const key = (input?.value ?? "").trim();
+    const statusEl = $("planActivateStatus");
+    if (statusEl) { statusEl.classList.remove("hidden"); statusEl.textContent = key ? "A ativar…" : "Introduza uma chave."; }
+    if (!key) return;
+    try {
+      const resp = await safeSendMessage<{ ok?: boolean; tier?: string; invalid?: boolean }>({ type: "SG_ACTIVATE_LICENSE", payload: { key } }, 3000);
+      if (resp?.ok) {
+        if (statusEl) statusEl.textContent = resp.invalid ? "Chave inválida (use CSG-… com mais de 15 caracteres)." : "Ativado: " + (resp.tier || "PRO") + ".";
+        await loadPlan();
+      } else {
+        if (statusEl) statusEl.textContent = "Erro ao ativar.";
+      }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = "Erro: " + String((e as Error)?.message ?? e);
+    }
+  });
+
   $("goPro")?.addEventListener("click", () => {
-    // TODO: replace with real checkout URL
-    window.open("https://example.com", "_blank");
+    try { window.open("https://example.com", "_blank"); } catch {}
   });
 
   $("exportDebug")?.addEventListener("click", async () => {

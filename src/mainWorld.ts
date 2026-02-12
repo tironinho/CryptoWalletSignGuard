@@ -419,7 +419,7 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
       const msg = typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : "User rejected the request";
       pending.reject({ code: 4001, message: msg, data: { method: pending.method } });
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
       } catch {}
       return;
     }
@@ -428,12 +428,12 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
       const promise = pending.runOriginal();
       promise.then(pending.resolve).catch(pending.reject);
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: true }, "*");
       } catch {}
     } catch (e) {
       pending.reject(e);
       try {
-        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
+        window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
       } catch {}
     }
   } catch {}
@@ -476,7 +476,39 @@ window.addEventListener("message", (ev) => {
   } catch {}
 });
 
-// Primary path: SYNCHRONOUS CustomEvent (preserves user gesture — CRITICAL for wallet popup)
+// CRITICAL: Click capture in MAIN world so resume runs in same user-activation stack (MetaMask opens 100%)
+window.addEventListener("click", (ev: MouseEvent) => {
+  try {
+    const path = ev.composedPath && ev.composedPath();
+    if (!path || !Array.isArray(path) || path.length === 0) return;
+    let allow: boolean | null = null;
+    for (let i = 0; i < path.length; i++) {
+      const el = path[i] as Element | undefined;
+      if (!el || typeof el.getAttribute !== "function") continue;
+      const id = el.id;
+      if (id === "sg-continue" || id === "sg-proceed") { allow = true; break; }
+      if (id === "sg-cancel" || id === "sg-close") { allow = false; break; }
+    }
+    if (allow === null) return;
+    let overlayRoot: Element | null = null;
+    for (let i = 0; i < path.length; i++) {
+      const el = path[i] as Element | undefined;
+      if (el?.getAttribute?.("data-sg-overlay") === "1") {
+        overlayRoot = el;
+        break;
+      }
+    }
+    if (!overlayRoot) return;
+    const requestId = overlayRoot.getAttribute("data-sg-request-id") || "";
+    if (!requestId) return;
+    if (!pendingCalls.has(requestId)) return;
+    resumeDecisionInner(requestId, allow);
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  } catch {}
+}, true);
+
+// Fallback path: CustomEvent from content (when click capture did not run)
 window.addEventListener("signguard:decision", (ev: any) => {
   try {
     const detail = ev?.detail || {};
