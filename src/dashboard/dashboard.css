@@ -1,0 +1,192 @@
+/* SignGuard Dashboard — local styles (CSP-safe, no CDN) */
+:root {
+  --sg-bg: #0f172a;
+  --sg-panel: #1e293b;
+  --sg-border: rgba(148, 163, 184, 0.2);
+  --sg-muted: #94a3b8;
+  --sg-safe: #06b6d4;
+  --sg-danger: #e11d48;
+  --sg-text: #f8fafc;
+  --sg-text-dim: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--sg-bg);
+  color: var(--sg-text);
+  margin: 0;
+  min-height: 100vh;
+  padding: 1rem 1.5rem;
+}
+
+.sg-card {
+  background: var(--sg-panel);
+  border: 1px solid var(--sg-border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.sg-panel {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.sg-btn {
+  transition: box-shadow 0.2s, transform 0.1s;
+  cursor: pointer;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  background: var(--sg-safe);
+  color: #0f172a;
+}
+
+.sg-btn:hover {
+  box-shadow: 0 0 20px -2px rgba(6, 182, 212, 0.35);
+}
+
+.sg-btn:active {
+  transform: translateY(1px);
+}
+
+.sg-btn-revoke {
+  background: rgba(225, 29, 72, 0.15);
+  color: #f43f5e;
+  border: 1px solid rgba(225, 29, 72, 0.35);
+}
+
+.sg-btn-revoke:hover {
+  background: rgba(225, 29, 72, 0.25);
+  box-shadow: 0 0 16px -2px rgba(225, 29, 72, 0.25);
+}
+
+.sg-btn-revoke:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sg-badge-active {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+  border-radius: 9999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sg-badge-paused {
+  background: rgba(148, 163, 184, 0.25);
+  color: var(--sg-muted);
+  border-radius: 9999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sg-muted {
+  color: var(--sg-muted);
+}
+
+.sg-max-w {
+  max-width: 48rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.sg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.sg-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--sg-text);
+}
+
+.sg-link {
+  color: var(--sg-muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.sg-link:hover {
+  color: var(--sg-safe);
+}
+
+.sg-input {
+  flex: 1;
+  min-width: 200px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(100, 116, 139, 0.5);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--sg-text);
+  font-family: ui-monospace, monospace;
+}
+
+.sg-input::placeholder {
+  color: var(--sg-muted);
+}
+
+.sg-input:focus {
+  outline: none;
+  border-color: var(--sg-safe);
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.3);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.sg-space-y > * + * {
+  margin-top: 0.75rem;
+}
+
+.sg-flex-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.sg-section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--sg-text);
+  margin-bottom: 0.5rem;
+}
+
+.sg-text-sm {
+  font-size: 0.875rem;
+}
+
+.sg-grid-2 {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-error {
+  color: #f43f5e;
+  font-size: 0.875rem;
+}

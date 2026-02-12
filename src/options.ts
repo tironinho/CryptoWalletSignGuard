@@ -199,6 +199,11 @@ function escapeHtml(s: string): string {
   ($("enableIntel") as HTMLInputElement).checked = s.enableIntel !== false;
   ($("vaultEnabled") as HTMLInputElement).checked = s.vault?.enabled ?? false;
   renderVaultList(s.vault?.lockedContracts ?? []);
+  const sim = s.simulation ?? { enabled: false, tenderlyAccount: "", tenderlyProject: "", tenderlyKey: "" };
+  ($("simulationEnabled") as HTMLInputElement).checked = sim.enabled ?? false;
+  ($("simulationTenderlyAccount") as HTMLInputElement).value = sim.tenderlyAccount ?? "";
+  ($("simulationTenderlyProject") as HTMLInputElement).value = sim.tenderlyProject ?? "";
+  ($("simulationTenderlyKey") as HTMLInputElement).value = sim.tenderlyKey ?? "";
   const domains = (s.trustedDomains && Array.isArray(s.trustedDomains) && s.trustedDomains.length) ? s.trustedDomains : s.allowlist;
   ($("allowlist") as HTMLTextAreaElement).value = listToLines(domains);
   ($("customTrustedDomains") as HTMLTextAreaElement).value = listToLines(s.customTrustedDomains || []);
@@ -258,6 +263,12 @@ function escapeHtml(s: string): string {
         enabled: ($("vaultEnabled") as HTMLInputElement)?.checked ?? false,
         lockedContracts: latest.vault?.lockedContracts ?? [],
       },
+      simulation: {
+        enabled: ($("simulationEnabled") as HTMLInputElement)?.checked ?? false,
+        tenderlyAccount: (($("simulationTenderlyAccount") as HTMLInputElement)?.value ?? "").trim(),
+        tenderlyProject: (($("simulationTenderlyProject") as HTMLInputElement)?.value ?? "").trim(),
+        tenderlyKey: (($("simulationTenderlyKey") as HTMLInputElement)?.value ?? "").trim(),
+      },
     };
     await save(next);
     const st = $("status");
@@ -276,11 +287,13 @@ function escapeHtml(s: string): string {
   });
 
   $("addSuggested").addEventListener("click", async () => {
+    const latest = await load();
     const current = linesToList(($("allowlist") as HTMLTextAreaElement).value);
     const merged = Array.from(new Set([...current, ...SUGGESTED_TRUSTED_DOMAINS.map((d) => normalizeDomainLine(d))])).filter(Boolean);
     merged.sort();
     ($("allowlist") as HTMLTextAreaElement).value = listToLines(merged);
     const next: Settings = {
+      ...latest,
       riskWarnings: ($("riskWarnings") as HTMLInputElement).checked,
       mode: (($("mode") as HTMLSelectElement).value || "BALANCED") as any,
       showConnectOverlay: ($("showConnectOverlay") as HTMLInputElement).checked,
@@ -297,7 +310,7 @@ function escapeHtml(s: string): string {
       debugMode: ($("debugMode") as HTMLInputElement).checked,
       domainChecks: ($("domainChecks") as HTMLInputElement).checked,
       allowlist: merged,
-      trustedDomains: merged
+      trustedDomains: merged,
     };
     await save(next);
     const st = $("status");

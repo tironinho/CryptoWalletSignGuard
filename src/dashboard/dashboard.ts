@@ -67,7 +67,7 @@ async function renderHealthCheck() {
   const levelEl = $("protectionLevel");
   if (levelEl) {
     levelEl.textContent = isPaused ? "Pausado" : "Ativo";
-    levelEl.className = `font-semibold rounded-full px-3 py-1 ${isPaused ? "sg-badge-paused" : "sg-badge-active"}`;
+    levelEl.className = isPaused ? "sg-badge-paused" : "sg-badge-active";
   }
 }
 
@@ -97,40 +97,14 @@ export function fetchAllowances(_address: string): Promise<Allowance[]> {
   });
 }
 
-/** Build ABI-encoded calldata for ERC20 approve(spender, 0). */
-function encodeApproveZero(spenderAddress: string): string {
-  const selector = "0x095ea7b3";
-  const addr = spenderAddress.replace(/^0x/i, "").padStart(64, "0");
-  const amount = "0".padStart(64, "0");
-  return selector + addr + amount;
-}
-
-/** Send approve(spender, 0) via the user's wallet. */
-async function revokeAllowance(allowance: Allowance): Promise<{ success: boolean; error?: string }> {
-  const ethereum = (window as any).ethereum;
-  if (!ethereum?.request) {
-    return { success: false, error: "Carteira não detetada (window.ethereum)." };
-  }
-  const data = encodeApproveZero(allowance.spenderAddress);
+/** Open Revoke.cash for the given address (extension pages have no window.ethereum). */
+function openRevokeCash(walletAddress: string) {
+  const base = "https://revoke.cash/address/";
+  const url = walletAddress ? base + encodeURIComponent(walletAddress) : "https://revoke.cash/";
   try {
-    await ethereum.request({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          to: allowance.tokenAddress,
-          data,
-          value: "0x0",
-          gas: "0x0", // let wallet estimate
-        },
-      ],
-    });
-    return { success: true };
-  } catch (e: any) {
-    const msg = e?.message || String(e);
-    if (msg.includes("User rejected") || msg.includes("user rejected") || msg.includes("4001")) {
-      return { success: false, error: "Pedido cancelado pelo utilizador." };
-    }
-    return { success: false, error: msg || "Erro ao enviar transação." };
+    chrome.tabs.create({ url });
+  } catch {
+    window.open(url, "_blank");
   }
 }
 
@@ -139,7 +113,7 @@ function shortenAddr(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-function renderAllowances(list: Allowance[]) {
+function renderAllowances(list: Allowance[], walletAddressForRevoke: string) {
   const listEl = $("allowancesList");
   const emptyEl = $("allowancesEmpty");
   if (!list.length) {
@@ -151,32 +125,20 @@ function renderAllowances(list: Allowance[]) {
   listEl.innerHTML = list
     .map(
       (a, i) => `
-    <div class="sg-panel p-4 flex flex-wrap items-center justify-between gap-3 allowance-row" data-index="${i}">
-      <div class="min-w-0">
-        <div class="font-semibold text-white">${escapeHtml(a.tokenSymbol)}</div>
-        <div class="sg-muted text-xs mt-0.5">${escapeHtml(a.amount)} · Spender: ${escapeHtml(a.spenderLabel ?? shortenAddr(a.spenderAddress))}</div>
+    <div class="sg-panel sg-row" style="align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <div style="min-width: 0;">
+        <div class="sg-section-title" style="font-size: 0.875rem; margin-bottom: 0.25rem;">${escapeHtml(a.tokenSymbol)}</div>
+        <div class="sg-muted sg-text-sm">${escapeHtml(a.amount)} · Spender: ${escapeHtml(a.spenderLabel ?? shortenAddr(a.spenderAddress))}</div>
       </div>
-      <button type="button" class="sg-btn-revoke rounded-lg px-3 py-1.5 text-sm font-semibold revoke-btn" data-index="${i}">REVOGAR</button>
+      <button type="button" class="sg-btn-revoke revoke-btn" data-index="${i}" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">Abrir no Revoke.cash</button>
     </div>
   `
     )
     .join("");
 
   listEl.querySelectorAll(".revoke-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const index = parseInt((btn as HTMLElement).getAttribute("data-index") ?? "-1", 10);
-      const allowance = list[index];
-      if (!allowance) return;
-      (btn as HTMLButtonElement).disabled = true;
-      (btn as HTMLButtonElement).textContent = "A enviar…";
-      const result = await revokeAllowance(allowance);
-      if (result.success) {
-        (btn as HTMLButtonElement).textContent = "Enviado";
-      } else {
-        (btn as HTMLButtonElement).textContent = "REVOGAR";
-        (btn as HTMLButtonElement).disabled = false;
-        alert(result.error ?? "Erro ao revogar.");
-      }
+    btn.addEventListener("click", () => {
+      openRevokeCash(walletAddressForRevoke);
     });
   });
 }
@@ -197,22 +159,27 @@ async function loadAllowances() {
   errEl.textContent = "";
   if (!address) {
     cachedAllowances = [];
-    renderAllowances([]);
+    renderAllowances([], "");
     return;
   }
   try {
     const list = await fetchAllowances(address);
     cachedAllowances = list;
-    renderAllowances(list);
+    renderAllowances(list, address);
   } catch (e: any) {
     errEl.textContent = e?.message ?? "Erro ao carregar aprovações.";
     errEl.classList.remove("hidden");
     cachedAllowances = [];
-    renderAllowances([]);
+    renderAllowances([], "");
   }
 }
 
 function init() {
+  const configLink = $("configLink");
+  if (configLink && typeof chrome?.runtime?.getURL === "function") {
+    (configLink as HTMLAnchorElement).href = chrome.runtime.getURL("options.html");
+  }
+
   renderHealthCheck();
   setLastVerification(Date.now());
 

@@ -428,7 +428,7 @@ async function ensureUsdPerEthLoaded() {
   if (resp?.ok && Number.isFinite(usd) && usd > 0) {
     __sgUsdPerEth = usd;
     __sgUsdFetchedAt = now;
-    if (__sgOverlay) updateOverlay(__sgOverlay);
+    if (__sgOverlay?.container?.isConnected) updateOverlay(__sgOverlay);
   }
 }
 
@@ -1063,7 +1063,7 @@ function renderOverlay(state: OverlayState) {
               }
             }
             if (cp?.feeEstimated && (feeLikelyEth || feeMaxEth)) {
-              impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px"><b>${escapeHtml(t("label_fee_likely"))}</b> / <b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeLikelyEth ? `${feeLikelyEth} ETH` : "—")}</code> / <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ETH` : "—")}</code></div><div style="margin-top:6px"><b>${escapeHtml(t("label_total_likely"))}</b> / <b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ETH` : "—")}</code> / <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ETH` : "—")}</code></div>`);
+              impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px"><b>${escapeHtml(t("label_fee_likely"))}</b> / <b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeLikelyEth ? `${feeLikelyEth} ETH${usdApproxFromEthString(feeLikelyEth)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ETH${usdApproxFromEthString(feeMaxEth)}` : "—")}</code></div><div style="margin-top:6px"><b>${escapeHtml(t("label_total_likely"))}</b> / <b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ETH${usdApproxFromEthString(totalLikelyEth)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ETH${usdApproxFromEthString(totalMaxEth)}` : "—")}</code></div>`);
             } else if (displayAction === "SEND_TX") {
               impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px" class="sg-sub">${escapeHtml(t("tx_fee_estimated_by_wallet"))}</div>`);
             }

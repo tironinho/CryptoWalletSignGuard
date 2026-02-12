@@ -49,6 +49,7 @@ copyFile(path.join(ROOT, "manifest.json"), path.join(DIST, "manifest.json"));
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
 copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
 copyFile(path.join(SRC, "dashboard", "dashboard.html"), path.join(DIST, "dashboard", "dashboard.html"));
+copyFile(path.join(SRC, "dashboard", "dashboard.css"), path.join(DIST, "dashboard", "dashboard.css"));
 copyFile(path.join(SRC, "overlay.css"), path.join(DIST, "overlay.css"));
 copyDir(path.join(SRC, "icons"), path.join(DIST, "icons"));
 const LOCALES_SRC = path.join(ROOT, "_locales");

@@ -560,7 +560,7 @@ function addChecksAndVerdict(
 }
 
 /** Run Tenderly simulation for eth_sendTransaction and merge outcome into analysis. */
-async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis): Promise<void> {
+async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis, settings: Settings): Promise<void> {
   const method = (req?.request?.method || "").toLowerCase();
   if (!method.includes("sendtransaction")) return;
 
@@ -581,7 +581,7 @@ async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis): Pr
   const networkId = String(rawChainId).replace(/^0x/, "");
 
   try {
-    const outcome = await runSimulation(networkId, from, to, input, value, gas);
+    const outcome = await runSimulation(networkId, from, to, input, value, gas, settings);
     if (!outcome) return;
 
     analysis.simulationOutcome = outcome;
@@ -1434,7 +1434,7 @@ chrome.runtime.onConnect.addListener((port) => {
           const analysis = await analyze(req, settings, intel, tabId, addrIntel);
           if (req.wallet) analysis.wallet = req.wallet;
           if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
-          await enrichWithSimulation(req, analysis);
+          await enrichWithSimulation(req, analysis, settings);
           applyPolicy(analysis, settings);
           if (!settings.riskWarnings) {
             analysis.recommend = "ALLOW";
@@ -1560,7 +1560,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const analysis = await analyze(req, settings, intel, tabId, addrIntel);
           if (req.wallet) analysis.wallet = req.wallet;
           if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
-          await enrichWithSimulation(req, analysis);
+          await enrichWithSimulation(req, analysis, settings);
           applyPolicy(analysis, settings);
           if (!settings.riskWarnings) {
             analysis.recommend = "ALLOW";

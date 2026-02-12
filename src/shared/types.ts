@@ -347,6 +347,13 @@ export type Settings = {
     enabled: boolean;
     lockedContracts: string[];
   };
+  /** Tenderly simulation (no hardcoded keys). */
+  simulation?: {
+    enabled: boolean;
+    tenderlyAccount: string;
+    tenderlyProject: string;
+    tenderlyKey: string;
+  };
 };
 
 export const SUPPORTED_WALLETS: SupportedWalletEntry[] = [
@@ -412,6 +419,12 @@ export const DEFAULT_SETTINGS: Settings = {
   vault: {
     enabled: false,
     lockedContracts: [],
+  },
+  simulation: {
+    enabled: false,
+    tenderlyAccount: "",
+    tenderlyProject: "",
+    tenderlyKey: "",
   },
 };
 

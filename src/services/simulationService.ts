@@ -1,17 +1,12 @@
 /**
  * Tenderly transaction simulation service for SignGuard.
  * Simulates transactions before they are sent to detect reverts and asset changes.
+ * Credentials come from user settings (no hardcoded secrets).
  */
 
+import type { Settings } from "../shared/types";
+
 const TENDERLY_API_BASE = "https://api.tenderly.co/api/v1";
-const TENDERLY_ACCESS_TOKEN = "gO4ionqLICPca6aXwUkp0TY36VIClptr";
-
-// TODO: Replace with your Tenderly Account Slug (dashboard URL: https://dashboard.tenderly.co/<ACCOUNT_SLUG>/)
-const TENDERLY_ACCOUNT_SLUG = "Tironi";
-
-// TODO: Replace with your Tenderly Project Slug (dashboard URL: .../<ACCOUNT_SLUG>/<PROJECT_SLUG>/)
-const TENDERLY_PROJECT_SLUG = "project";
-
 const SIMULATE_TIMEOUT_MS = 8000;
 
 /** Request body for Tenderly simulate endpoint. */
@@ -69,20 +64,25 @@ interface TenderlySimulationResponse {
   [key: string]: unknown;
 }
 
-function getSimulateUrl(): string {
-  return `${TENDERLY_API_BASE}/account/${TENDERLY_ACCOUNT_SLUG}/project/${TENDERLY_PROJECT_SLUG}/simulate`;
+function getSimulateUrl(settings: Settings): string {
+  const sim = settings.simulation;
+  if (!sim?.tenderlyAccount || !sim?.tenderlyProject) return "";
+  return `${TENDERLY_API_BASE}/account/${encodeURIComponent(sim.tenderlyAccount)}/project/${encodeURIComponent(sim.tenderlyProject)}/simulate`;
 }
 
 /**
  * Call Tenderly simulate API. Returns null on any error or timeout.
+ * Requires settings.simulation.enabled and valid account/project/key.
  */
 export async function simulateTransaction(
-  body: SimulateTransactionBody
+  body: SimulateTransactionBody,
+  settings: Settings
 ): Promise<TenderlySimulationResponse | null> {
-  const url = getSimulateUrl();
-  if (TENDERLY_ACCOUNT_SLUG === "YOUR_ACCOUNT_SLUG" || TENDERLY_PROJECT_SLUG === "YOUR_PROJECT_SLUG") {
-    return null;
-  }
+  const sim = settings.simulation;
+  if (!sim?.enabled || !sim?.tenderlyKey?.trim()) return null;
+
+  const url = getSimulateUrl(settings);
+  if (!url) return null;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SIMULATE_TIMEOUT_MS);
@@ -92,7 +92,7 @@ export async function simulateTransaction(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Access-Key": TENDERLY_ACCESS_TOKEN,
+        "X-Access-Key": sim.tenderlyKey.trim(),
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -128,8 +128,6 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
     const logo = typeof info?.logo === "string" ? info.logo : undefined;
     const entry: SimulationAsset = { symbol, amount, logo };
 
-    // Heuristic: "from" is often the user (outgoing), "to" is recipient (incoming for recipient).
-    // For a single user simulation, outgoing = assets leaving from, incoming = assets arriving to.
     const type = String(change?.type || "").toUpperCase();
     if (type.includes("SEND") || change?.from) {
       outgoingAssets.push(entry);
@@ -151,7 +149,8 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
 }
 
 /**
- * Run simulation and return parsed outcome. Returns null if simulation is skipped or fails.
+ * Run simulation and return parsed outcome. Returns null if simulation is disabled,
+ * credentials missing, or simulation fails.
  */
 export async function runSimulation(
   networkId: string,
@@ -159,8 +158,14 @@ export async function runSimulation(
   to: string,
   input: string,
   value: string,
-  gas?: number
+  gas: number | undefined,
+  settings: Settings
 ): Promise<SimulationOutcome | null> {
+  const sim = settings.simulation;
+  if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
+    return null;
+  }
+
   const body: SimulateTransactionBody = {
     network_id: networkId,
     from,
@@ -170,6 +175,6 @@ export async function runSimulation(
   };
   if (gas != null && gas > 0) body.gas = gas;
 
-  const raw = await simulateTransaction(body);
+  const raw = await simulateTransaction(body, settings);
   return parseSimulationResult(raw);
 }

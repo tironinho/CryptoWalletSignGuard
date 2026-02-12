@@ -12,16 +12,16 @@ const TIMEOUT_MS_FAILOPEN = 5000; // 5s when no UI yet (fail-open)
 const KEEPALIVE_CAP_MS = 900000;  // 15 min max lifetime from creation when UI shown
 
 type PendingReq = {
-  invoke: () => Promise<any>;
   resolve: (v: any) => void;
   reject: (e: any) => void;
+  runOriginal: () => Promise<any>;
   createdAt: number;
-  lastKeepaliveAt?: number; // reset on SG_KEEPALIVE
+  lastKeepaliveAt?: number;
   method: string;
   uiShown?: boolean;
 };
 
-const SG_PENDING = new Map<string, PendingReq>();
+const pendingCalls = new Map<string, PendingReq>();
 const SG_BYPASS = Symbol.for("SG_BYPASS"); // evita recursão
 
 function sgId() {
@@ -173,10 +173,10 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
     const requestId = sgId();
 
     return new Promise((resolve, reject) => {
-      SG_PENDING.set(requestId, {
-        invoke: () => Promise.resolve(rawRequest({ ...(args || {}), [SG_BYPASS]: true })),
+      pendingCalls.set(requestId, {
         resolve,
         reject,
+        runOriginal: () => rawRequest({ ...(args || {}), [SG_BYPASS]: true }),
         createdAt: Date.now(),
         method,
         uiShown: false
@@ -295,10 +295,10 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
         } catch {}
       })();
       return new Promise((resolve, reject) => {
-        SG_PENDING.set(requestId, {
-          invoke: () => Promise.resolve(rawSend(methodOrPayload, paramsOrCb)),
+        pendingCalls.set(requestId, {
           resolve,
           reject,
+          runOriginal: () => Promise.resolve(rawSend(methodOrPayload, paramsOrCb)),
           createdAt: Date.now(),
           method,
           uiShown: false,
@@ -383,8 +383,10 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
         } catch {}
       })();
       return new Promise((resolve, reject) => {
-        SG_PENDING.set(requestId, {
-          invoke: () =>
+        pendingCalls.set(requestId, {
+          resolve: (v) => { try { doneCb(null, v); } catch {} resolve(v); },
+          reject: (e) => { try { doneCb(e); } catch {} reject(e); },
+          runOriginal: () =>
             new Promise((res, rej) => {
               try {
                 rawSendAsync(payload, (err: any, resp: any) => {
@@ -393,8 +395,6 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
                 });
               } catch (e) { rej(e); }
             }),
-          resolve: (v) => { try { doneCb(null, v); } catch {} resolve(v); },
-          reject: (e) => { try { doneCb(e); } catch {} reject(e); },
           createdAt: Date.now(),
           method,
           uiShown: false,
@@ -410,10 +410,10 @@ function rejectEIP1193UserRejected(method: string) {
 
 function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: string) {
   try {
-    const pending = SG_PENDING.get(requestId);
+    const pending = pendingCalls.get(requestId);
     if (!pending) return;
 
-    SG_PENDING.delete(requestId);
+    pendingCalls.delete(requestId);
 
     if (!allow) {
       const msg = typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : "User rejected the request";
@@ -425,8 +425,8 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
     }
 
     try {
-      const promise = pending.invoke();
-      pending.resolve(promise);
+      const promise = pending.runOriginal();
+      promise.then(pending.resolve).catch(pending.reject);
       try {
         window.postMessage({ source: "signguard", type: "SG_DECISION_ACK", requestId }, "*");
       } catch {}
@@ -441,7 +441,7 @@ function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: s
 
 function markUiShown(requestId: string) {
   try {
-    const p = SG_PENDING.get(requestId);
+    const p = pendingCalls.get(requestId);
     if (p) {
       p.uiShown = true;
       p.lastKeepaliveAt = Date.now();
@@ -451,7 +451,7 @@ function markUiShown(requestId: string) {
 
 function handleKeepalive(requestId: string) {
   try {
-    const p = SG_PENDING.get(requestId);
+    const p = pendingCalls.get(requestId);
     if (p) p.lastKeepaliveAt = Date.now();
   } catch {}
 }
@@ -511,22 +511,21 @@ window.addEventListener("message", (ev) => {
 
 setInterval(() => {
   const now = Date.now();
-  for (const [id, p] of SG_PENDING.entries()) {
+  for (const [id, p] of pendingCalls.entries()) {
     const base = p.lastKeepaliveAt ?? p.createdAt;
     const timeout = p.uiShown ? TIMEOUT_MS_UI : TIMEOUT_MS_FAILOPEN;
     const expiresAt = p.uiShown
       ? Math.min(base + timeout, p.createdAt + KEEPALIVE_CAP_MS)
       : base + timeout;
     if (now > expiresAt) {
-      SG_PENDING.delete(id);
+      pendingCalls.delete(id);
       if (p.uiShown) {
         p.reject({ code: 4001, message: "SignGuard: timeout" });
         continue;
       }
-      // Technical failure (no UI): fail-open
       try {
-        const promise = p.invoke();
-        p.resolve(promise);
+        const promise = p.runOriginal();
+        promise.then(p.resolve).catch(p.reject);
       } catch (e) {
         p.reject(e);
       }
@@ -557,10 +556,10 @@ function tryWrapSolana() {
       const wallet = detectSolWallet(sol);
       const requestId = sgId();
       return new Promise((resolve, reject) => {
-        SG_PENDING.set(requestId, {
-          invoke: () => Promise.resolve(raw(...args)),
+        pendingCalls.set(requestId, {
           resolve,
           reject,
+          runOriginal: () => Promise.resolve(raw(...args)),
           createdAt: Date.now(),
           method: `solana:${m}`,
           uiShown: false,
