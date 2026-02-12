@@ -18,7 +18,8 @@ import { extractTypedDataPermitExtras } from "./txHumanize";
 import { hexToBigInt, weiToEth } from "./txMath";
 import { assessDomainRisk } from "./domainRisk";
 import { runSimulation } from "./services/simulationService";
-import { isTokenVerified, getTokenAddressForTx } from "./services/tokenSecurity";
+import { runHoneypotCheck } from "./services/honeypotService";
+import { initTokenSecurity, getTokenInfo, getTokenAddressForTx } from "./services/tokenSecurity";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
@@ -173,6 +174,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       chrome.tabs.create({ url: chrome.runtime.getURL("options.html?welcome=true") });
     } catch {}
   }
+  initTokenSecurity().catch(() => {});
   ensureIntelRefreshSoon("startup");
   ensureAddressIntelRefreshSoon("startup");
   chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 });
@@ -622,6 +624,25 @@ async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis, set
     if (!outcome) return;
 
     analysis.simulationOutcome = outcome;
+
+    try {
+      const gasCostWei = (outcome as any).gasCostWei;
+      if (gasCostWei && typeof gasCostWei === "string") {
+        const usdPerEth = await getEthUsdPriceCached();
+        if (usdPerEth != null && usdPerEth > 0) {
+          const valueWei = hexToBigInt(value || "0x0");
+          const gasCostNum = BigInt(gasCostWei);
+          const gasCostUsd = Number(gasCostNum) / 1e18 * usdPerEth;
+          const valueUsd = Number(valueWei) / 1e18 * usdPerEth;
+          if (gasCostUsd > 50 && valueUsd < 50) {
+            (outcome as any).isHighGas = true;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (outcome.status === "REVERT") {
       analysis.simulationRevert = true;
       analysis.reasons.unshift(t("simulation_tx_will_fail"));
@@ -629,6 +650,21 @@ async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis, set
       analysis.score = Math.max(analysis.score, 100);
       analysis.level = "HIGH";
       analysis.title = t("simulation_tx_will_fail");
+    } else if (outcome.status === "SUCCESS") {
+      const tokenAddress = (analysis as any).tokenAddress as string | undefined;
+      try {
+        const honeypot = await runHoneypotCheck(networkId, from, to, input, value, gas, settings, tokenAddress);
+        if (honeypot.isHoneypot) {
+          analysis.isHoneypot = true;
+          analysis.recommend = "BLOCK";
+          analysis.score = Math.max(analysis.score, 100);
+          analysis.level = "HIGH";
+          analysis.reasons.unshift(honeypot.reason || t("honeypot_message"));
+          analysis.title = t("honeypot_message");
+        }
+      } catch {
+        // Honeypot check optional
+      }
     }
   } catch {
     // Fail silently: overlay works without simulation
@@ -700,6 +736,45 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
   }
 
   const method = (req.request?.method || "").toLowerCase();
+
+  // Modo Fortaleza: block token approvals on non-trusted sites
+  if (settings.fortressMode === true && (method === "eth_sendtransaction" || method === "wallet_sendtransaction")) {
+    const tx = req.request?.params?.[0] as { data?: string } | undefined;
+    const data = typeof tx?.data === "string" ? tx.data : "";
+    const selector = data && data.length >= 10 ? data.slice(0, 10).toLowerCase() : "";
+    const isApproval = selector === "0x095ea7b3" || selector === "0xa22cb465" || selector === "0x39509351";
+    if (isApproval) {
+      const fortressAllowlist = [
+        ...(settings.allowlist || []),
+        ...(settings.trustedDomains || []),
+        ...(settings.whitelistedDomains || []),
+      ];
+      if (!isAllowlisted(host, fortressAllowlist)) {
+        const fortressMsg = t("fortress_block_message");
+        return {
+          level: "HIGH",
+          score: 100,
+          title: fortressMsg,
+          reasons: [fortressMsg],
+          decoded: { kind: "TX", raw: { host, method } },
+          recommend: "BLOCK",
+          trust,
+          suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+          safeDomain: false,
+          human: {
+            methodTitle: explain.title,
+            methodShort: explain.short,
+            methodWhy: explain.why,
+            whatItDoes: lists.whatItDoes,
+            risks: lists.risks,
+            safeNotes: lists.safeNotes,
+            nextSteps: lists.nextSteps,
+            recommendation: fortressMsg,
+          },
+        };
+      }
+    }
+  }
 
   // Threat intel (blocked/trusted seed) — respect enableIntel; merge user custom lists
   const intelHost = normalizeHost(host || "");
@@ -1100,6 +1175,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
 
   // Transactions
   if (method === "eth_sendtransaction" || method === "wallet_sendtransaction") {
+    await initTokenSecurity().catch(() => {});
     const tx = (req.request.params?.[0] ?? {}) as any;
     const to = (tx.to ?? "").toLowerCase();
     const data = typeof tx.data === "string" ? tx.data : "";
@@ -1123,8 +1199,15 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
     let asset: AssetInfo | null = null;
 
     const tokenAddr = getTokenAddressForTx(to, decodedAction);
-    const tokenVerified = tokenAddr ? isTokenVerified(intel, tokenAddr) : false;
-    const tokenMeta = tokenAddr ? { tokenVerified, tokenAddress: tokenAddr } : {};
+    const tokenInfo = tokenAddr ? getTokenInfo(tokenAddr) : undefined;
+    const tokenMeta = tokenAddr
+      ? {
+          tokenVerified: tokenInfo?.v ?? false,
+          tokenAddress: tokenAddr,
+          tokenSymbol: tokenInfo?.s,
+          tokenLogoUri: tokenInfo?.l || undefined,
+        }
+      : {};
 
     const labelsTo = (settings.addressIntelEnabled ?? true) ? labelsFor(addrIntel ?? null, to) : [];
     const labelsSpender = (settings.addressIntelEnabled ?? true) && decodedAction && "spender" in decodedAction ? labelsFor(addrIntel ?? null, decodedAction.spender || "") : [];

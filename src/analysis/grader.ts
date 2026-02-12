@@ -19,10 +19,18 @@ export interface GradingContext {
   isVerifiedSite?: boolean;
   /** Simulation reverted. */
   simulationRevert?: boolean;
+  /** Honeypot detected: can buy but cannot sell. */
+  isHoneypot?: boolean;
   /** High outgoing value / many assets. */
   highOutgoingCount?: number;
   /** Domain or address flagged as risky. */
   hasRiskFlags?: boolean;
+  /** Gas cost > $50 and tx value < $50 (disproportionate). */
+  isHighGas?: boolean;
+  /** User receives tokens but no Transfer event (fake minting). */
+  isFakeMinting?: boolean;
+  /** Contract old but very low tx count (dormant). */
+  isDormantRisk?: boolean;
 }
 
 const LETTER_THRESHOLDS: { letter: Grade["letter"]; min: number }[] = [
@@ -43,6 +51,9 @@ const LETTER_COLORS: Record<Grade["letter"], string> = {
   F: "text-rose-600",
 };
 
+/** Neon purple for honeypot (distinct from phishing red). */
+const HONEYPOT_COLOR = "#c084fc";
+
 function scoreToLetter(score: number): { letter: Grade["letter"]; color: string } {
   const clamped = Math.max(0, Math.min(100, Math.round(score)));
   for (const { letter, min } of LETTER_THRESHOLDS) {
@@ -62,8 +73,24 @@ export function gradeTransaction(
   const reasons: string[] = [];
   let score = 50; // base
 
+  if (context?.isHoneypot) {
+    reasons.push("🪤 HONEYPOT: Você pode comprar, mas NÃO poderá vender.");
+    return {
+      score: 0,
+      letter: "F",
+      color: HONEYPOT_COLOR,
+      reasons,
+    };
+  }
+
   if (!outcome) {
     reasons.push("Simulação indisponível (0)");
+    const { letter, color } = scoreToLetter(score);
+    return { score, letter, color, reasons };
+  }
+
+  if (outcome.status === "SKIPPED") {
+    reasons.push("Simulação Indisponível (Análise Estática Ativa)");
     const { letter, color } = scoreToLetter(score);
     return { score, letter, color, reasons };
   }
@@ -110,6 +137,21 @@ export function gradeTransaction(
   if (context?.highOutgoingCount != null && context.highOutgoingCount > 3) {
     score -= 10;
     reasons.push("Muitos ativos a sair (-10)");
+  }
+
+  if (context?.isHighGas) {
+    score -= 10;
+    reasons.push("⚠️ Taxa de Gás Desproporcional (>100% do valor)");
+  }
+
+  if (context?.isFakeMinting) {
+    score = Math.min(score, 0);
+    reasons.push("Fake Minting: tokens recebidos sem evento Transfer (-100)");
+  }
+
+  if (context?.isDormantRisk) {
+    score -= 15;
+    reasons.push("Contrato inativo/dormant (-15)");
   }
 
   // Cap and derive letter/color

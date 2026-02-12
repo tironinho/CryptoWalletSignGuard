@@ -304,15 +304,20 @@ export type Analysis = {
     operator?: string[];
     tokenContract?: string[];
   };
-  /** Result of Tenderly simulation (if run). */
+  /** Result of Tenderly simulation (if run). SKIPPED when API failed (fallback). */
   simulationOutcome?: {
-    status: "SUCCESS" | "REVERT" | "RISK";
+    status: "SUCCESS" | "REVERT" | "RISK" | "SKIPPED";
     outgoingAssets: Array<{ symbol: string; amount: string; logo?: string }>;
     incomingAssets: Array<{ symbol: string; amount: string; logo?: string }>;
     gasUsed: string;
+    fallback?: boolean;
+    gasCostWei?: string;
+    isHighGas?: boolean;
   };
   /** True when simulation predicted revert (show "ESTA TRANSAÇÃO VAI FALHAR"). */
   simulationRevert?: boolean;
+  /** True when honeypot detected (buy but cannot sell / transfer). */
+  isHoneypot?: boolean;
   /** True when protection is temporarily paused (allow without showing overlay). */
   protectionPaused?: boolean;
 }
@@ -361,6 +366,8 @@ export type Settings = {
   pausedUntil?: number;
   /** Domains that bypass overlay when protection is active (e.g. trusted tools). */
   whitelistedDomains?: string[];
+  /** Modo Fortaleza: bloqueia todas as aprovações de tokens exceto em sites confiáveis. */
+  fortressMode?: boolean;
 };
 
 /** Alias for Settings (spec: UserSettings). */
@@ -445,5 +452,6 @@ export const DEFAULT_SETTINGS: Settings = {
     tenderlyKey: "",
   },
   whitelistedDomains: [],
+  fortressMode: false,
 };
 

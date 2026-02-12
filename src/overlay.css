@@ -391,6 +391,29 @@
   box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
 }
 
+.sg-honeypot-banner {
+  background: rgba(192, 132, 252, 0.15);
+  border: 1px solid rgba(192, 132, 252, 0.5);
+  border-radius: var(--sg-radius-md);
+  padding: var(--sg-s16);
+  font-weight: 800;
+  color: #c084fc;
+  margin-bottom: var(--sg-s12);
+  text-align: center;
+  box-shadow: 0 0 20px rgba(192, 132, 252, 0.2);
+}
+
+.sg-skeleton {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.2) 25%, rgba(148, 163, 184, 0.35) 50%, rgba(148, 163, 184, 0.2) 75%);
+  background-size: 200% 100%;
+  animation: sg-skeleton-pulse 1.2s ease-in-out infinite;
+  border-radius: var(--sg-radius-sm);
+}
+@keyframes sg-skeleton-pulse {
+  0%, 100% { background-position: 200% 0; }
+  50% { background-position: -200% 0; }
+}
+
 .sg-fee-warn {
   background: var(--sg-warn-bg);
   border: 1px solid rgba(245, 158, 11, 0.4);
@@ -552,6 +575,14 @@
 .sg-dest-contract { background: rgba(59, 130, 246, 0.2); color: var(--sg-info); }
 .sg-dest-wallet { background: rgba(34, 197, 94, 0.15); color: var(--sg-success); }
 
+.sg-token-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid var(--sg-border, rgba(148, 163, 184, 0.3));
+  object-fit: cover;
+  flex-shrink: 0;
+}
 .sg-token-badge { font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: var(--sg-radius-sm); }
 .sg-token-verified { background: rgba(16, 185, 129, 0.2); color: var(--sg-success); border: 1px solid rgba(16, 185, 129, 0.4); }
 .sg-token-unknown { background: rgba(245, 158, 11, 0.2); color: var(--sg-warn); border: 1px solid rgba(245, 158, 11, 0.4); }

@@ -115,6 +115,45 @@ function scanKeywordCombinations(text: string): boolean {
   return false;
 }
 
+const MIN_CLICKABLE_AREA_PX = 100 * 100; // 100x100px
+const MIN_OPACITY_THRESHOLD = 0.1;
+
+/**
+ * Detect invisible clickable elements (clickjacking: opacity near 0 but still receiving clicks).
+ */
+export function detectInvisibleClickables(doc: Document): boolean {
+  try {
+    const win = doc.defaultView;
+    if (!win) return false;
+
+    const candidates = doc.querySelectorAll("a, button, div[role='button']");
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
+      if (!(el instanceof HTMLElement)) continue;
+
+      const style = win.getComputedStyle(el);
+      if (!style) continue;
+
+      const opacity = parseFloat(style.opacity);
+      const pointerEvents = (style.pointerEvents || "").toLowerCase();
+      const isOpacityNearZero = !Number.isNaN(opacity) && opacity < MIN_OPACITY_THRESHOLD;
+      const hasRgbaZero =
+        (style.backgroundColor && /rgba?\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(style.backgroundColor)) ||
+        (style.color && /rgba?\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(style.color));
+      const acceptsClicks = pointerEvents === "auto" || pointerEvents === "";
+
+      if ((isOpacityNearZero || hasRgbaZero) && acceptsClicks) {
+        const rect = el.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        if (area >= MIN_CLICKABLE_AREA_PX) return true;
+      }
+    }
+  } catch {
+    // cross-origin or restricted access
+  }
+  return false;
+}
+
 /**
  * Detect transparent or near-full-page iframes / high z-index overlays (clickjacking-style).
  */
@@ -193,6 +232,12 @@ export function runPageRiskScan(doc: Document, hostname: string): PageRiskResult
     if (riskScore === "LOW") riskScore = "MEDIUM";
     else if (riskScore === "MEDIUM") riskScore = "HIGH";
     reasons.push("Page has a transparent or high z-index overlay covering most of the screen (possible clickjacking).");
+  }
+
+  // 4) Invisible clickables (opacity < 0.1, pointer-events auto, area > 100x100) → HIGH
+  if (detectInvisibleClickables(doc)) {
+    riskScore = "HIGH";
+    reasons.push("HIDDEN_OVERLAY_DETECTED");
   }
 
   return { riskScore, reasons };

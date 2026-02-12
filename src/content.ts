@@ -1017,14 +1017,26 @@ function renderOverlay(state: OverlayState) {
 
         <div class="sg-body">
           ${isLoading ? `
-          <div class="sg-summary-line sg-loading-skeleton" style="padding:24px;text-align:center;">
-            <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px;">
-              <span class="sg-spinner" aria-hidden="true"></span>
-              <span class="sg-summary-title" style="margin:0;">${escapeHtml(t("analyzing"))}</span>
+          <div class="sg-skeleton-loading" aria-busy="true" aria-label="${escapeHtml(t("analyzing"))}">
+            <div class="sg-summary-line" style="margin-bottom:16px;">
+              <div class="sg-skeleton" style="height:24px;width:70%;max-width:320px;margin-bottom:10px;"></div>
+              <div class="sg-skeleton" style="height:14px;width:90%;max-width:400px;"></div>
             </div>
-            <div class="sg-sub" style="margin-bottom:4px;">${escapeHtml(host || "")} • ${escapeHtml(method || "")}</div>
-            <div class="sg-sub" style="font-size:11px;opacity:.85;">${escapeHtml(t("analyzing_hint"))}</div>
-            <div class="sg-progress"></div>
+            <div class="sg-card" style="margin-bottom:12px;">
+              <div class="sg-card-title" style="visibility:hidden;">_</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="sg-skeleton" style="height:48px;border-radius:8px;"></div>
+                <div class="sg-skeleton" style="height:48px;border-radius:8px;"></div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;">
+                <div class="sg-skeleton" style="height:36px;flex:1;border-radius:8px;"></div>
+                <div class="sg-skeleton" style="height:36px;flex:1;border-radius:8px;"></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;">
+              <span class="sg-spinner" aria-hidden="true"></span>
+              <span class="sg-sub" style="margin:0;">${escapeHtml(t("analyzing"))}</span>
+            </div>
           </div>
           ` : `
           <div class="sg-summary-line">
@@ -1041,6 +1053,7 @@ function renderOverlay(state: OverlayState) {
           ${!knownBad && !knownSafe && verificationLevel === "BASIC" ? `<div class="sg-banner-warn">${escapeHtml(t("banner_basic_verification"))}</div>` : ""}
           ${phishingHardBlock ? `<div class="sg-blocked-banner">${escapeHtml(t("severity_BLOCKED"))} — ${escapeHtml(t("phishing_hard_block"))}</div>` : ""}
           ${(analysis as any).simulationRevert ? `<div class="sg-simulation-revert-banner" role="alert">${escapeHtml(t("simulation_tx_will_fail"))}</div>` : ""}
+          ${(analysis as any).isHoneypot ? `<div class="sg-honeypot-banner" role="alert">${escapeHtml(t("honeypot_message"))}</div>` : ""}
 
           ${
             displayAction === "SEND_TX"
@@ -1058,7 +1071,23 @@ function renderOverlay(state: OverlayState) {
                   ${hasFeeGtValue ? `<div class="sg-fee-warn">${escapeHtml(t("fee_gt_value"))}</div>` : ""}
                   ${txTo ? `<div style="margin-top:10px"><b>${escapeHtml(t("tx_destination"))}</b>: <code class="sg-mono">${escapeHtml(shortenHex(txTo))}</code> ${(analysis as any).toIsContract === true ? `<span class="sg-dest-chip sg-dest-contract">${escapeHtml(t("destination_contract"))}</span>` : (analysis as any).toIsContract === false ? `<span class="sg-dest-chip sg-dest-wallet">${escapeHtml(t("destination_wallet"))}</span>` : ""} <button class="sg-copy" data-copy="${escapeHtml(txTo)}">${escapeHtml(t("copy"))}</button></div>` : ""}
                   ${txSelector ? `<div style="margin-top:6px"><b>${escapeHtml(t("tx_contract_method"))}</b>: <code class="sg-mono">${escapeHtml(txSelector)}${selectorToLabel(txSelector) ? " • " + escapeHtml(selectorToLabel(txSelector)!) : ""}</code></div>` : ""}
-                  ${(analysis as any).tokenAddress ? ((analysis as any).tokenVerified ? `<div class="sg-token-badge sg-token-verified" style="margin-top:10px">✅ ${escapeHtml(t("token_verified_uniswap"))}</div>` : `<div class="sg-token-badge sg-token-unknown" style="margin-top:10px">⚠️ ${escapeHtml(t("token_unknown_unverified"))}</div>`) : ""}
+                  ${((): string => {
+                    const tokenAddr = (analysis as any).tokenAddress;
+                    if (!tokenAddr) return "";
+                    const tokenVerified = (analysis as any).tokenVerified;
+                    const tokenSymbol = (analysis as any).tokenSymbol;
+                    const tokenLogoUri = (analysis as any).tokenLogoUri;
+                    const logoUri = typeof tokenLogoUri === "string" && tokenLogoUri ? tokenLogoUri : "";
+                    const placeholderSvg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>');
+                    const imgSrc = logoUri || placeholderSvg;
+                    const symbol = typeof tokenSymbol === "string" && tokenSymbol ? tokenSymbol : "";
+                    const label = tokenVerified ? t("token_verified_uniswap") : t("token_unknown_unverified");
+                    return `<div class="sg-token-badge-row" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <img class="sg-token-logo" src="${escapeHtml(imgSrc)}" alt="" width="24" height="24" loading="lazy" onerror="this.src='${placeholderSvg}'" />
+                      ${symbol ? `<span class="sg-mono">${escapeHtml(symbol)}</span>` : ""}
+                      <span class="sg-token-badge ${tokenVerified ? "sg-token-verified" : "sg-token-unknown"}">${tokenVerified ? "✅" : "⚠️"} ${escapeHtml(label)}</span>
+                    </div>`;
+                  })()}
                 </div>`
               : (displayAction === "SWITCH_CHAIN" && !hasTxInFlow && hasRecentSwitch(__sgFlow))
                 ? `<div class="sg-kv">

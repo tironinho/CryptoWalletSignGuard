@@ -146,6 +146,25 @@
     }
     .popup-footer.status-paused .dot { background: #f59e0b; }
     .hidden { display: none !important; }
+    .fortress-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+    .fortress-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+    .fortress-toggle input { display: none; }
+    .fortress-slider {
+      width: 40px; height: 22px; border-radius: 11px; background: var(--border-subtle);
+      position: relative; transition: background 0.2s, box-shadow 0.2s;
+    }
+    .fortress-slider::after {
+      content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--text-muted); top: 2px; left: 2px; transition: transform 0.2s;
+    }
+    .fortress-toggle input:checked + .fortress-slider {
+      background: var(--accent-primary); box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+    }
+    .fortress-toggle input:checked + .fortress-slider::after {
+      transform: translateX(18px); background: #fff;
+    }
+    .fortress-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; color: var(--text-main); }
+    .fortress-desc { margin: 6px 0 0 0; font-size: 0.7rem; color: var(--text-muted); line-height: 1.35; }
   </style>
 </head>
 <body>
@@ -182,6 +201,14 @@
           <option value="RELAXED">Relaxed</option>
           <option value="OFF">Off</option>
         </select>
+      </div>
+      <div class="fortress-wrap">
+        <label class="fortress-toggle">
+          <input id="popupFortress" type="checkbox" />
+          <span class="fortress-slider"></span>
+          <span id="popupFortressLabel" class="fortress-label">MODO FORTALEZA</span>
+        </label>
+        <p id="popupFortressDesc" class="fortress-desc">Bloqueia todas as aprovações de tokens, exceto em sites confiáveis.</p>
       </div>
     </div>
 

@@ -28,10 +28,16 @@ export interface SimulationAsset {
 
 /** Simplified outcome for the overlay UI. */
 export type SimulationOutcome = {
-  status: "SUCCESS" | "REVERT" | "RISK";
+  status: "SUCCESS" | "REVERT" | "RISK" | "SKIPPED";
   outgoingAssets: SimulationAsset[];
   incomingAssets: SimulationAsset[];
   gasUsed: string;
+  /** True when simulation was skipped (API failure / no credentials). */
+  fallback?: boolean;
+  /** Estimated gas cost in wei (gas_used * gas_price) when available. */
+  gasCostWei?: string;
+  /** True when estimated gas cost > $50 and tx value < $50 (set by background). */
+  isHighGas?: boolean;
 };
 
 /** Raw Tenderly simulation response (relevant fields). */
@@ -61,6 +67,8 @@ interface TenderlySimulationResponse {
     dollar_value?: number;
   }>;
   gas_used?: string;
+  gas_price?: string;
+  effective_gas_price?: string;
   [key: string]: unknown;
 }
 
@@ -98,13 +106,26 @@ export async function simulateTransaction(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const data = (await res.json()) as TenderlySimulationResponse;
     return data;
   } catch {
     clearTimeout(timeoutId);
     return null;
   }
+}
+
+/** Build a SKIPPED outcome when API fails (network, 401/403, etc.). */
+export function makeSkippedOutcome(): SimulationOutcome {
+  return {
+    status: "SKIPPED",
+    outgoingAssets: [],
+    incomingAssets: [],
+    gasUsed: "0",
+    fallback: true,
+  };
 }
 
 /**
@@ -140,17 +161,32 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
 
   const gasUsed = typeof data.gas_used === "string" ? data.gas_used : (data.gas_used != null ? String(data.gas_used) : "0");
 
+  let gasCostWei: string | undefined;
+  try {
+    const gasPrice =
+      data.effective_gas_price ?? data.gas_price ?? (data as any).transaction?.gas_price;
+    const gasPriceStr = typeof gasPrice === "string" ? gasPrice : gasPrice != null ? String(gasPrice) : "";
+    const usedNum = BigInt(gasUsed);
+    const priceNum = gasPriceStr ? BigInt(gasPriceStr) : 0n;
+    if (usedNum > 0n && priceNum > 0n) {
+      gasCostWei = (usedNum * priceNum).toString();
+    }
+  } catch {
+    // ignore
+  }
+
   return {
     status,
     outgoingAssets,
     incomingAssets,
     gasUsed,
+    gasCostWei,
   };
 }
 
 /**
- * Run simulation and return parsed outcome. Returns null if simulation is disabled,
- * credentials missing, or simulation fails.
+ * Run simulation and return parsed outcome. Returns null only when simulation is disabled
+ * or credentials missing. On API failure (network, 401/403), returns SKIPPED outcome with fallback: true.
  */
 export async function runSimulation(
   networkId: string,
@@ -175,6 +211,11 @@ export async function runSimulation(
   };
   if (gas != null && gas > 0) body.gas = gas;
 
-  const raw = await simulateTransaction(body, settings);
-  return parseSimulationResult(raw);
+  try {
+    const raw = await simulateTransaction(body, settings);
+    if (raw) return parseSimulationResult(raw);
+    return makeSkippedOutcome();
+  } catch {
+    return makeSkippedOutcome();
+  }
 }

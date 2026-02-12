@@ -79,15 +79,30 @@ function openOptionsHash(hash: string) {
   if (modeSelect) modeSelect.value = s.mode || "BALANCED";
   if (showUsdCb) showUsdCb.checked = s.showUsd !== false;
 
+  const fortressCb = $("popupFortress") as HTMLInputElement;
+  const fortressLabel = $("popupFortressLabel");
+  const fortressDesc = $("popupFortressDesc");
+  if (fortressCb) fortressCb.checked = s.fortressMode === true;
+  if (fortressLabel) fortressLabel.textContent = t("fortressModeLabel") || "MODO FORTALEZA";
+  if (fortressDesc) fortressDesc.textContent = t("fortressModeDesc") || "Bloqueia todas as aprovações de tokens, exceto em sites confiáveis.";
+
+  fortressCb?.addEventListener("change", async () => {
+    const next = { ...s, fortressMode: fortressCb.checked };
+    await safeStorageSet(next as unknown as Record<string, unknown>);
+    s = next;
+  });
+
   modeSelect?.addEventListener("change", async () => {
     const next = { ...s, mode: (modeSelect.value || "BALANCED") as Settings["mode"] };
     await safeStorageSet(next as unknown as Record<string, unknown>);
+    s = next;
     if (modeEl) modeEl.textContent = `${t("modeLabel") || "Mode"}: ${next.mode}`;
   });
 
   showUsdCb?.addEventListener("change", async () => {
     const next = { ...s, showUsd: showUsdCb.checked };
     await safeStorageSet(next as unknown as Record<string, unknown>);
+    s = next;
   });
 
   $("popupOptions")?.addEventListener("click", () => {
