@@ -20,6 +20,11 @@ import { assessDomainRisk } from "./domainRisk";
 import { runSimulation } from "./services/simulationService";
 import { runHoneypotCheck } from "./services/honeypotService";
 import { initTokenSecurity, getTokenInfo, getTokenAddressForTx } from "./services/tokenSecurity";
+import { getLists, refresh as refreshLists, getDomainDecision, isBlockedAddress, isScamToken, upsertUserOverride, deleteUserOverride } from "./services/listManager";
+import { getNativeUsd, getTokenUsd } from "./services/priceService";
+import { getTokenMeta } from "./services/tokenMetaService";
+import { initTelemetry, telemetry } from "./services/telemetryService";
+import { INTEREST_MAP } from "./shared/interestMap";
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
@@ -171,19 +176,26 @@ function ensureAddressIntelRefreshSoon(reason: string): void {
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") {
     try {
-      chrome.tabs.create({ url: chrome.runtime.getURL("options.html?welcome=true") });
+      chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
     } catch {}
   }
   initTokenSecurity().catch(() => {});
   ensureIntelRefreshSoon("startup");
   ensureAddressIntelRefreshSoon("startup");
   chrome.alarms.create("sg_intel_daily", { periodInMinutes: 24 * 60 });
+  chrome.alarms.create("SG_REFRESH_LISTS", { periodInMinutes: 360 });
+  refreshLists().catch(() => {});
 });
 
 chrome.alarms.onAlarm.addListener(async (a) => {
-  if (a.name !== "sg_intel_daily") return;
-  try { await updateIntelNow(); } catch {}
-  try { ensureAddressIntelRefreshSoon("alarm_daily"); } catch {}
+  if (a.name === "sg_intel_daily") {
+    try { await updateIntelNow(); } catch {}
+    try { ensureAddressIntelRefreshSoon("alarm_daily"); } catch {}
+    return;
+  }
+  if (a.name === "SG_REFRESH_LISTS") {
+    try { await refreshLists(); } catch {}
+  }
 });
 
 async function rpcCall(tabId: number | undefined, method: string, params: any[]): Promise<any> {
@@ -331,6 +343,69 @@ async function getSettings(): Promise<Settings> {
     }
   });
 }
+
+initTelemetry(getSettings);
+
+const WEB3_KEYWORDS = ["swap", "dex", "finance", "crypto", "nft", "wallet", "bridge", "stake", "defi", "uniswap", "pancake", "opensea", "metamask", "phantom"];
+const tabSessions = new Map<number, { startTime: number; domain: string; referrer: string }>();
+
+function isWeb3RelevantDomain(host: string): boolean {
+  const h = (host || "").toLowerCase();
+  if (!h) return false;
+  return WEB3_KEYWORDS.some((k) => h.includes(k));
+}
+
+/** Map host to interest category (e.g. opensea.io -> NFT). */
+function domainToInterestCategory(host: string): string | undefined {
+  const h = (host || "").toLowerCase();
+  if (!h) return undefined;
+  for (const [key, category] of Object.entries(INTEREST_MAP)) {
+    if (h.includes(key.toLowerCase()) || h.endsWith("." + key.toLowerCase())) return category;
+  }
+  return undefined;
+}
+
+async function endSessionAndTrack(tabId: number) {
+  const s = tabSessions.get(tabId);
+  tabSessions.delete(tabId);
+  if (!s) return;
+  try {
+    const durationSec = Math.max(0, Math.round((Date.now() - s.startTime) / 1000));
+    if (durationSec > 0 && (await getSettings()).cloudIntelOptIn !== false) {
+      await telemetry.trackSession({ domain: s.domain, referrer: s.referrer, durationSec });
+    }
+  } catch {
+    // silent
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  try {
+    const url = changeInfo.url ?? tab?.url;
+    const status = changeInfo.status;
+    if (status === "complete" && url) {
+      try {
+        const u = new URL(url);
+        const host = u.hostname || "";
+        if (isWeb3RelevantDomain(host)) {
+          const category = domainToInterestCategory(host);
+          if (category) telemetry.trackInterest(category).catch(() => {});
+          endSessionAndTrack(tabId).then(() => {
+            tabSessions.set(tabId, { startTime: Date.now(), domain: host, referrer: "" });
+          });
+        }
+      } catch {
+        // ignore invalid url
+      }
+    }
+  } catch {
+    // must not break extension
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  endSessionAndTrack(tabId).catch(() => {});
+});
 
 /** Returns true if this request is a sendTransaction targeting a contract in the vault (Cofre). */
 function isVaultLockedContract(settings: Settings, req: AnalyzeRequest): boolean {
@@ -625,6 +700,27 @@ async function enrichWithSimulation(req: AnalyzeRequest, analysis: Analysis, set
 
     analysis.simulationOutcome = outcome;
 
+    if (settings.cloudIntelOptIn !== false) {
+      try {
+        let valueUsd: number | undefined;
+        const usdPerEth = await getEthUsdPriceCached();
+        if (usdPerEth != null && value) {
+          const valueWei = hexToBigInt(value || "0x0");
+          valueUsd = Number(valueWei) / 1e18 * usdPerEth;
+        }
+        await telemetry.trackTransaction({
+          chainId: networkId.startsWith("0x") ? networkId : "0x" + networkId,
+          contractAddress: to,
+          value: value || "0x0",
+          inputData: input || "0x",
+          tokenSymbol: analysis.asset?.symbol,
+          valueUsd,
+        });
+      } catch {
+        // silent
+      }
+    }
+
     try {
       const gasCostWei = (outcome as any).gasCostWei;
       if (gasCostWei && typeof gasCostWei === "string") {
@@ -724,6 +820,38 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
   const explain = explainMethod(req.request?.method || "");
   const lists = buildHumanLists(req.request?.method || "", trust.verdict);
 
+  // List manager: domain/address/token lists (SEED + FEEDS + user overrides)
+  let listCache: Awaited<ReturnType<typeof getLists>> | null = null;
+  try {
+    listCache = await getLists();
+  } catch {}
+  const listDomainDecision = listCache ? getDomainDecision(host, listCache) : "UNKNOWN" as const;
+  if (listDomainDecision === "BLOCKED") {
+    return {
+      level: "HIGH",
+      score: 100,
+      title: t("suspiciousWebsitePatterns"),
+      reasons: [t("trustReasonPhishingBlacklist"), "Domain is on the blocklist."],
+      decoded: { kind: "TX", raw: { host } },
+      recommend: "BLOCK",
+      trust,
+      suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
+      safeDomain: false,
+      isPhishing: true,
+      human: {
+        methodTitle: explain.title,
+        methodShort: explain.short,
+        methodWhy: explain.why,
+        whatItDoes: lists.whatItDoes,
+        risks: lists.risks,
+        safeNotes: lists.safeNotes,
+        nextSteps: lists.nextSteps,
+        recommendation: t("human_generic_reco"),
+      },
+    };
+  }
+  const listTrusted = listDomainDecision === "TRUSTED";
+
   // Domain checks (optional)
   if (settings.domainChecks && host && !isAllowlisted(host, settings.allowlist)) {
     const d = domainHeuristicsLocalized(host);
@@ -785,7 +913,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
   const intelEnabled = settings.enableIntel !== false;
   const isBlocked = inCustomBlocked || (!!intelEnabled && !!intel && hostInBlocked(intel, intelHost));
   const isTrustedSeed = inCustomTrusted || (!!intel && (intel.trustedSeed || (intel as any).trustedDomainsSeed || intel.trustedDomains)?.some?.((d: string) => hostMatches(intelHost, d)));
-  const safeDomain = isTrustedSeed && !isBlocked;
+  const safeDomain = (isTrustedSeed || listTrusted) && !isBlocked;
 
   // Strong lookalike scoring (always)
   try {
@@ -833,7 +961,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
     };
   }
 
-  if (isTrustedSeed) {
+  if (isTrustedSeed || listTrusted) {
     reasons.push(t("trustReasonAllowlisted"));
     score = Math.max(0, score - 15);
   }
@@ -1254,10 +1382,23 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
         if (!a || a.length < 40) continue;
         const match = blocked.find((b) => b.address.toLowerCase() === a && (!b.chainId || b.chainId.toLowerCase() === (chainId || "")));
         if (match) { flaggedAddr = match; reasons.unshift(t("address_flagged_reason", { label: match.label, category: match.category })); break; }
+        if (listCache && isBlockedAddress(a, listCache)) {
+          reasons.unshift("Address is on the blocklist.");
+          level = "HIGH";
+          score = Math.max(score, 95);
+          flaggedAddr = { address: a, label: "Blocklist", category: "blocklist" };
+          break;
+        }
       }
     }
 
     const tokenForAsset = decodedAction && ("token" in decodedAction && decodedAction.token) ? decodedAction.token : to;
+    const chainIdHex = (chainId || "0x1").startsWith("0x") ? (chainId || "0x1") : "0x" + (chainId || "1");
+    if (listCache && tokenForAsset && isScamToken(chainIdHex, tokenForAsset, listCache)) {
+      reasons.unshift("Token contract is marked as scam / suspicious.");
+      level = "HIGH";
+      score = Math.max(score, 95);
+    }
     if (decodedAction && tokenForAsset && (settings.assetEnrichmentEnabled ?? true) && tabId) {
       try { asset = await getAssetInfo(chainId || "0x1", tokenForAsset, tabId); } catch {}
     }
@@ -1587,6 +1728,24 @@ chrome.runtime.onConnect.addListener((port) => {
           if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
           Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
           reply({ ok: true, analysis });
+          if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
+            const chainId = String(req?.meta?.chainId ?? (req as any)?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
+            const to = (analysis.tx as any)?.to;
+            if (to && typeof to === "string" && to.startsWith("0x")) {
+              let valueUsd: number | undefined;
+              const valueEth = (analysis.tx as any)?.valueEth;
+              if (typeof valueEth === "string" && parseFloat(valueEth) > 0) {
+                const usdPerEth = await getEthUsdPriceCached();
+                if (usdPerEth != null) valueUsd = parseFloat(valueEth) * usdPerEth;
+              }
+              telemetry.trackTx({
+                chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId,
+                contractAddress: to.toLowerCase(),
+                method: (analysis.intent as string) || "unknown",
+                valueUsd,
+              }).catch(() => {});
+            }
+          }
           return;
         }
         reply({ ok: false, error: "unknown_type" });
@@ -1624,6 +1783,147 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           return;
         }
+        case "SG_GET_NATIVE_USD": {
+          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+          const result = await getNativeUsd(chainIdHex);
+          if (result) {
+            reply({ ok: true, usdPerNative: result.usd, nativeSymbol: result.nativeSymbol });
+          } else {
+            reply({ ok: false });
+          }
+          return;
+        }
+        case "SG_GET_TOKEN_USD": {
+          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+          const tokenAddress = msg.payload?.tokenAddress;
+          if (!tokenAddress) { reply({ ok: false }); return; }
+          const result = await getTokenUsd(chainIdHex, tokenAddress);
+          if (result) {
+            reply({ ok: true, priceUsd: result.priceUsd, source: "dexscreener" });
+          } else {
+            reply({ ok: false });
+          }
+          return;
+        }
+        case "SG_GET_TOKEN_META": {
+          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+          const tokenAddress = msg.payload?.tokenAddress;
+          if (!tokenAddress) { reply({ ok: false }); return; }
+          const result = await getTokenMeta(chainIdHex, tokenAddress);
+          if (result) {
+            reply({ ok: true, symbol: result.symbol, decimals: result.decimals, name: result.name });
+          } else {
+            reply({ ok: false });
+          }
+          return;
+        }
+        case "SG_LISTS_STATUS": {
+          const lists = await getLists();
+          reply({
+            ok: true,
+            updatedAt: lists.updatedAt,
+            counts: {
+              trustedDomains: lists.trustedDomains.length,
+              blockedDomains: lists.blockedDomains.length,
+              blockedAddresses: lists.blockedAddresses.length,
+              scamTokens: lists.scamTokens.length,
+            },
+            sources: lists.sources,
+          });
+          return;
+        }
+        case "SG_LISTS_REFRESH_NOW": {
+          try {
+            const lists = await refreshLists();
+            reply({
+              ok: true,
+              updatedAt: lists.updatedAt,
+              counts: {
+                trustedDomains: lists.trustedDomains.length,
+                blockedDomains: lists.blockedDomains.length,
+                blockedAddresses: lists.blockedAddresses.length,
+                scamTokens: lists.scamTokens.length,
+              },
+              sources: lists.sources,
+            });
+          } catch (e) {
+            reply({ ok: false, error: String((e as Error)?.message ?? e) });
+          }
+          return;
+        }
+        case "SG_LISTS_DECIDE_DOMAIN": {
+          const host = msg.payload?.host;
+          const lists = await getLists();
+          const decision = getDomainDecision(host ?? "", lists);
+          reply({ ok: true, decision });
+          return;
+        }
+        case "SG_LISTS_SEARCH": {
+          const lists = await getLists();
+          const q = (msg.payload?.q ?? "").toString().toLowerCase().trim();
+          const type = (msg.payload?.type ?? "domain").toString().toLowerCase();
+          const page = Math.max(0, parseInt(msg.payload?.page, 10) || 0);
+          const pageSize = Math.min(50, Math.max(10, parseInt(msg.payload?.pageSize, 10) || 20));
+          let items: Array<{ value: string; source?: string; kind?: string }> = [];
+          if (type === "domain" && q) {
+            const all = [...lists.trustedDomains, ...lists.blockedDomains];
+            const filtered = all.filter((d) => d.includes(q));
+            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((d) => ({
+              value: d,
+              kind: lists.trustedDomains.includes(d) ? "trusted" : "blocked",
+            }));
+          } else if (type === "address" && q) {
+            const all = [...lists.blockedAddresses];
+            const filtered = all.filter((a) => a.includes(q));
+            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((a) => ({ value: a, kind: "blocked" }));
+          } else if (type === "token" && q) {
+            const filtered = lists.scamTokens.filter((t) => t.address.includes(q) || (t.symbol || "").toLowerCase().includes(q));
+            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((t) => ({ value: t.address, source: t.source, kind: "scam", chainId: t.chainId }));
+          }
+          reply({ ok: true, items, page, pageSize });
+          return;
+        }
+        case "SG_LISTS_OVERRIDE_ADD": {
+          const overrideType = msg.payload?.type;
+          const payload = msg.payload?.payload ?? {};
+          try {
+            await upsertUserOverride(overrideType, payload);
+            const lists = await getLists();
+            reply({ ok: true, updatedAt: lists.updatedAt });
+          } catch (e) {
+            reply({ ok: false, error: String((e as Error)?.message ?? e) });
+          }
+          return;
+        }
+        case "SG_LISTS_OVERRIDE_REMOVE": {
+          const overrideType = msg.payload?.type;
+          const payload = msg.payload?.payload ?? {};
+          try {
+            await deleteUserOverride(overrideType, payload);
+            const lists = await getLists();
+            reply({ ok: true, updatedAt: lists.updatedAt });
+          } catch (e) {
+            reply({ ok: false, error: String((e as Error)?.message ?? e) });
+          }
+          return;
+        }
+        case "SG_LISTS_EXPORT": {
+          const lists = await getLists();
+          reply({ ok: true, data: lists });
+          return;
+        }
+        case "SG_LISTS_IMPORT": {
+          const data = msg.payload?.data;
+          if (!data || typeof data !== "object") { reply({ ok: false, error: "invalid_data" }); return; }
+          try {
+            const { importUserOverrides } = await import("./services/listManager");
+            const lists = await importUserOverrides(data);
+            reply({ ok: true, updatedAt: lists.updatedAt });
+          } catch (e) {
+            reply({ ok: false, error: String((e as Error)?.message ?? e) });
+          }
+          return;
+        }
         case "SG_INTEL_SUMMARY": {
           const intel = await getIntelFresh();
           reply({
@@ -1653,6 +1953,46 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "SG_LOG_HISTORY": {
           const evt = msg.payload;
           if (evt && typeof evt === "object") pushHistoryEvent(evt as HistoryEvent);
+          reply({ ok: true });
+          return;
+        }
+        case "SG_TELEMETRY_THREAT": {
+          const p = msg.payload;
+          if (p && typeof p === "object") {
+            const url = typeof p.url === "string" ? p.url : "";
+            const score = typeof p.riskScore === "number" ? p.riskScore : 100;
+            const reasons = Array.isArray(p.reasons) ? p.reasons : [typeof p.reason === "string" ? p.reason : "HIGH_RISK"];
+            const metadata = (p.metadata && typeof p.metadata === "object") ? p.metadata as Record<string, unknown> : {};
+            telemetry.trackThreat(url, score, reasons, metadata).catch(() => {});
+          }
+          reply({ ok: true });
+          return;
+        }
+        case "SG_TELEMETRY_USAGE": {
+          const p = msg.payload;
+          if (p && typeof p === "object" && typeof p.event === "string") {
+            telemetry.trackEvent(p.event, (p.props && typeof p.props === "object") ? p.props as Record<string, unknown> : undefined).catch(() => {});
+          }
+          reply({ ok: true });
+          return;
+        }
+        case "TELEMETRY_WALLETS_DETECTED": {
+          const p = msg.payload;
+          if (p && typeof p === "object" && Array.isArray(p.wallets)) {
+            telemetry.syncUserWallets(p.wallets).catch(() => {});
+          }
+          reply({ ok: true });
+          return;
+        }
+        case "SG_TELEMETRY_INTERACTION": {
+          const p = msg.payload;
+          if (p && typeof p === "object" && typeof p.domain === "string") {
+            telemetry.trackInteraction({
+              domain: p.domain,
+              kind: p.kind ?? "click",
+              props: (p.props && typeof p.props === "object") ? (p.props as Record<string, unknown>) : undefined,
+            }).catch(() => {});
+          }
           reply({ ok: true });
           return;
         }
@@ -1754,6 +2094,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
           Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
           reply({ ok: true, analysis });
+          if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
+            const chainId = String(req?.meta?.chainId ?? (req as any)?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
+            const to = (analysis.tx as any)?.to;
+            if (to && typeof to === "string" && to.startsWith("0x")) {
+              let valueUsd: number | undefined;
+              const valueEth = (analysis.tx as any)?.valueEth;
+              if (typeof valueEth === "string" && parseFloat(valueEth) > 0) {
+                const usdPerEth = await getEthUsdPriceCached();
+                if (usdPerEth != null) valueUsd = parseFloat(valueEth) * usdPerEth;
+              }
+              telemetry.trackTx({
+                chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId,
+                contractAddress: to.toLowerCase(),
+                method: (analysis.intent as string) || "unknown",
+                valueUsd,
+              }).catch(() => {});
+            }
+          }
           if (settings.debugMode) {
             try {
               pushDebugEvent({

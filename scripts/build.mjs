@@ -48,6 +48,8 @@ fs.mkdirSync(DIST, { recursive: true });
 copyFile(path.join(ROOT, "manifest.json"), path.join(DIST, "manifest.json"));
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
 copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
+copyFile(path.join(SRC, "onboarding.html"), path.join(DIST, "onboarding.html"));
+copyFile(path.join(SRC, "onboarding.css"), path.join(DIST, "onboarding.css"));
 copyFile(path.join(SRC, "dashboard", "dashboard.html"), path.join(DIST, "dashboard", "dashboard.html"));
 copyFile(path.join(SRC, "dashboard", "dashboard.css"), path.join(DIST, "dashboard", "dashboard.css"));
 copyFile(path.join(SRC, "overlay.css"), path.join(DIST, "overlay.css"));
@@ -76,6 +78,7 @@ const extraEntryPoints = {
   background: path.join(SRC, "background.ts"),
   options: path.join(SRC, "options.ts"),
   popup: path.join(SRC, "popup.ts"),
+  onboarding: path.join(SRC, "onboarding.ts"),
   "dashboard/dashboard": path.join(SRC, "dashboard", "dashboard.ts"),
 };
 

@@ -438,7 +438,7 @@ export const DEFAULT_SETTINGS: Settings = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: false,
+  cloudIntelOptIn: true,
   showUsd: true,
   planTier: "FREE",
   licenseKey: "",

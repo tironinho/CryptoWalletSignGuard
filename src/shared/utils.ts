@@ -23,6 +23,34 @@ export function isAllowlisted(host: string, allowlist: string[]) {
   });
 }
 
+/** Normalize host for comparison: lowercase, trim trailing dot. Do NOT strip www when storing. */
+export function normalizeHost(host: string): string {
+  return (host || "").toLowerCase().replace(/\.+$/, "").trim();
+}
+
+/** Match host to domain: exact or subdomain. Do NOT use endsWith(domain) without dot. */
+export function isHostMatch(host: string, domain: string): boolean {
+  const h = normalizeHost(host);
+  const d = (domain || "").toLowerCase().trim();
+  if (!d) return false;
+  return h === d || h.endsWith("." + d);
+}
+
+/** Normalize address: lowercase 0x + 40 hex. Returns "" if invalid. */
+export function normalizeAddress(addr: string): string {
+  const s = (addr || "").trim();
+  const hex = s.startsWith("0x") ? s.slice(2) : s;
+  if (hex.length !== 40 || !/^[a-fA-F0-9]{40}$/.test(hex)) return "";
+  return "0x" + hex.toLowerCase();
+}
+
+/** Build cache key for token (chainId:addressLower). */
+export function normalizeTokenKey(chainId: string, addr: string): string {
+  const a = normalizeAddress(addr);
+  const c = (chainId || "").toLowerCase().replace(/^0x/, "") || "0";
+  return `${c}:${a}`;
+}
+
 export function isHexString(v: any): v is string {
   return typeof v === "string" && /^0x[0-9a-fA-F]*$/.test(v);
 }

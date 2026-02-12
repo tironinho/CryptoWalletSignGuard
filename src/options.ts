@@ -7,7 +7,7 @@ import { safeStorageGet, safeStorageSet, safeSendMessage } from "./runtimeSafe";
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
 const HISTORY_KEY = "sg_history_v1";
 
-type TabName = "settings" | "security" | "lists" | "history" | "plan";
+type TabName = "settings" | "security" | "lists" | "history";
 
 function showTab(name: TabName) {
   const tabs = document.querySelectorAll(".tab-btn");
@@ -24,7 +24,6 @@ function showTab(name: TabName) {
     p.classList.toggle("active", panelId === expectedId);
   }
   if (name === "history") loadHistory();
-  if (name === "plan") loadPlan();
   if (name === "lists") loadListsTab();
 }
 
@@ -66,22 +65,6 @@ async function loadListsTab() {
     }
   } catch {
     if (lastUpdatedEl) lastUpdatedEl.textContent = "Erro ao carregar.";
-  }
-}
-
-async function loadPlan() {
-  const tierEl = document.getElementById("planTierDisplay");
-  const statusEl = document.getElementById("planActivateStatus");
-  if (statusEl) {
-    statusEl.classList.add("hidden");
-    statusEl.textContent = "";
-  }
-  try {
-    const resp = await safeSendMessage<{ ok?: boolean; plan?: { tier: string } }>({ type: "SG_GET_PLAN" }, 2000);
-    const tier = resp?.ok && resp?.plan?.tier ? resp.plan.tier : "FREE";
-    if (tierEl) tierEl.textContent = tier;
-  } catch {
-    if (tierEl) tierEl.textContent = "FREE";
   }
 }
 
@@ -157,7 +140,7 @@ function listToLines(v: string[]): string {
   if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
 
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName: TabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "plan" ? "plan" : "settings";
+  const tabName: TabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : "settings";
   showTab(tabName);
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -172,7 +155,7 @@ function listToLines(v: string[]): string {
 
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "plan" ? "plan" : "settings");
+    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : "settings");
   });
 
   showUsdEl?.addEventListener("change", async () => {
@@ -223,31 +206,6 @@ function listToLines(v: string[]): string {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {}
-  });
-
-  const planActivateBtn = document.getElementById("planActivate");
-  const licenseKeyInput = document.getElementById("licenseKey") as HTMLInputElement | null;
-  const planActivateStatusEl = document.getElementById("planActivateStatus");
-  planActivateBtn?.addEventListener("click", async () => {
-    const key = (licenseKeyInput?.value ?? "").trim();
-    if (planActivateStatusEl) {
-      planActivateStatusEl.classList.remove("hidden");
-      planActivateStatusEl.textContent = key ? "A ativar…" : "Introduza uma chave.";
-    }
-    if (!key) return;
-    try {
-      const resp = await safeSendMessage<{ ok?: boolean; tier?: string; invalid?: boolean }>({ type: "SG_ACTIVATE_LICENSE", payload: { key } }, 3000);
-      if (resp?.ok) {
-        if (planActivateStatusEl) {
-          planActivateStatusEl.textContent = resp.invalid ? "Chave inválida (use CSG-… com mais de 15 caracteres)." : "Ativado: " + (resp.tier || "PRO") + ".";
-        }
-        await loadPlan();
-      } else {
-        if (planActivateStatusEl) planActivateStatusEl.textContent = "Erro ao ativar.";
-      }
-    } catch (e) {
-      if (planActivateStatusEl) planActivateStatusEl.textContent = "Erro: " + String((e as Error)?.message ?? e);
-    }
   });
 
   document.getElementById("listsRefreshNow")?.addEventListener("click", async () => {

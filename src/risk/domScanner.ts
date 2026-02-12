@@ -277,6 +277,12 @@ export function runPageRiskScan(doc: Document, hostname: string): PageRiskResult
 }
 
 /**
+ * Note: When riskScore === "HIGH", the caller (e.g. content script) should report
+ * the threat to telemetry via SG_TELEMETRY_THREAT so the backend can aggregate
+ * security signals (opt-in only).
+ */
+
+/**
  * Injects a fixed red warning bar at the top of the page.
  * Call only when riskScore === "HIGH". Uses inline styles so it works in any page context.
  */

@@ -1,5 +1,5 @@
 /**
- * Chain registry: native symbol and CoinGecko id for USD pricing.
+ * V2: Chain registry — native symbol and CoinGecko id for USD pricing.
  */
 
 export type ChainInfo = {
@@ -10,7 +10,7 @@ export type ChainInfo = {
   rpcUrls: string[];
 };
 
-export const CHAINS: ChainInfo[] = [
+const CHAINS: ChainInfo[] = [
   { chainIdHex: "0x1", name: "Ethereum", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://eth.llamarpc.com"] },
   { chainIdHex: "0xa", name: "Optimism", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.optimism.io"] },
   { chainIdHex: "0xa4b1", name: "Arbitrum One", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://arb1.arbitrum.io/rpc"] },
@@ -24,15 +24,22 @@ const byChainId = new Map<string, ChainInfo>();
 for (const c of CHAINS) {
   const id = c.chainIdHex.toLowerCase();
   byChainId.set(id, c);
-  if (!id.startsWith("0x")) byChainId.set("0x" + id, c);
+  const num = id.startsWith("0x") ? id : "0x" + id;
+  if (num !== id) byChainId.set(num, c);
 }
 
 export function getChainInfo(chainIdHex: string | undefined): ChainInfo | null {
   if (!chainIdHex) return null;
   const id = String(chainIdHex).toLowerCase();
-  return byChainId.get(id) ?? byChainId.get(id.startsWith("0x") ? id : "0x" + id) ?? null;
+  if (!id.startsWith("0x")) return byChainId.get("0x" + id) ?? null;
+  return byChainId.get(id) ?? null;
 }
 
 export function getNativeSymbol(chainIdHex: string | undefined): string {
-  return getChainInfo(chainIdHex)?.nativeSymbol ?? "ETH";
+  const info = getChainInfo(chainIdHex);
+  return info?.nativeSymbol ?? "ETH";
+}
+
+export function getAllChains(): ChainInfo[] {
+  return [...CHAINS];
 }

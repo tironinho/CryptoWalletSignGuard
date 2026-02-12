@@ -83,6 +83,15 @@ function buildRpcMeta(methodLower: string, params: any, provider: any) {
   }
 }
 
+function toChainIdHex(chainId: string | number | null | undefined): string | null {
+  if (chainId == null || chainId === "") return null;
+  const s = String(chainId).trim();
+  if (s.toLowerCase().startsWith("0x")) return s;
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return "0x" + n.toString(16);
+}
+
 type EIP6963Provider = { uuid: string; name: string; icon?: string; rdns?: string; providerRef: any };
 
 const SG_ANNOUNCED_PROVIDERS: EIP6963Provider[] = [];
@@ -199,6 +208,7 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
             method,
             params: Array.isArray(params) ? params : (params ?? null),
             chainId: provider?.chainId ?? null,
+            chainIdHex: toChainIdHex(provider?.chainId ?? null),
             wallet: { ...walletInfo, id: walletMeta.id, walletBrand, walletName: walletInfo.walletName || walletBrand },
             providerKey,
             providerSource: providerSource || "window.ethereum",
@@ -282,6 +292,7 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
               method,
               params: Array.isArray(params) ? params : (params ?? null),
               chainId: provider?.chainId ?? null,
+              chainIdHex: toChainIdHex(provider?.chainId ?? null),
               wallet: { ...walletInfo, id: walletMetaInner.id, walletBrand: walletBrandInner, walletName: walletInfo.walletName || walletBrandInner },
               providerKey,
               providerSource: providerSource || "window.ethereum",
@@ -370,6 +381,7 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
               method,
               params: Array.isArray(params) ? params : (params ?? null),
               chainId: provider?.chainId ?? null,
+              chainIdHex: toChainIdHex(provider?.chainId ?? null),
               wallet: { ...walletInfo, id: walletMetaAsync.id, walletBrand: walletBrandAsync, walletName: walletInfo.walletName || walletBrandAsync },
               providerKey,
               providerSource: providerSource || "window.ethereum",
@@ -719,8 +731,42 @@ window.addEventListener("message", (ev: MessageEvent) => {
   } catch {}
 });
 
+/** Market intelligence: detect which wallets are present and report to telemetry. */
+function reportWalletsDetected() {
+  try {
+    const w = typeof window !== "undefined" ? (window as any) : null;
+    if (!w) return;
+    const names: string[] = [];
+    if (w.ethereum) {
+      if (w.ethereum.isMetaMask === true) names.push("MetaMask");
+      if (w.ethereum.isRabby === true) names.push("Rabby");
+      if (w.ethereum.isCoinbaseWallet === true) names.push("Coinbase Wallet");
+      if (w.ethereum.isTrust === true || w.ethereum.isTrustWallet === true) names.push("Trust Wallet");
+      if (w.ethereum.isOkxWallet === true || w.ethereum.isOKExWallet === true) names.push("OKX Wallet");
+      if (w.ethereum.isBraveWallet === true) names.push("Brave Wallet");
+      if (w.ethereum.isRainbow === true) names.push("Rainbow");
+      if (w.ethereum.isPhantom === true) names.push("Phantom");
+      if (w.ethereum.isBitget === true || w.ethereum.isBitKeep === true) names.push("Bitget");
+      if (w.ethereum.isBinance === true || w.ethereum.isBinanceWallet === true) names.push("Binance Web3");
+    }
+    if (w.phantom?.solana) names.push("Phantom");
+    if (w.coinbaseWalletExtension) names.push("Coinbase Wallet");
+    const unique = [...new Set(names)];
+    if (unique.length > 0) {
+      window.postMessage(
+        { __SIGNGUARD__: true, type: "TELEMETRY_WALLETS_DETECTED", data: { wallets: unique }, href: location.href, origin: location.origin, ts: Date.now() },
+        "*"
+      );
+    }
+  } catch {
+    // must not break extension
+  }
+}
+
 // document_start
 tryWrapAll();
 startWrapRetry();
 startProviderGuardRewrap();
+setTimeout(reportWalletsDetected, 500);
+setTimeout(reportWalletsDetected, 3000);
 

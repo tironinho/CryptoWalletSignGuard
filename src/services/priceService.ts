@@ -1,29 +1,25 @@
 /**
- * Native USD price by chain (CoinGecko). Token USD via DexScreener. No API keys.
+ * V2: Native USD per chain (CoinGecko) + token USD per contract (DexScreener). No API keys.
  */
 
 import { getChainInfo } from "../shared/chains";
 
-const NATIVE_PRICE_CACHE_KEY = "sg_price_native_v1";
-const TOKEN_PRICE_CACHE_KEY = "sg_price_token_v1";
-const NATIVE_CACHE_TTL_MS = 2 * 60 * 1000;   // 2 min
-const TOKEN_CACHE_TTL_MS = 3 * 60 * 1000;   // 3 min
-const FETCH_TIMEOUT_MS = 6000;
+const NATIVE_CACHE_KEY = "sg_price_native_v1";
+const TOKEN_CACHE_KEY = "sg_price_token_v1";
+const NATIVE_TTL_MS = 60_000 * 5; // 5 min
+const TOKEN_TTL_MS = 60_000 * 3;   // 3 min
+const FETCH_TIMEOUT_MS = 8000;
 
-function normalizeTokenKey(chainId: string, addr: string): string {
-  const c = String(chainId).toLowerCase();
-  const a = String(addr).trim().toLowerCase();
-  const hex = a.startsWith("0x") ? a.slice(2) : a;
-  if (hex.length !== 40 || !/^[a-f0-9]{40}$/.test(hex)) return "";
-  return `${c}:0x${hex}`;
-}
+type NativeCache = Record<string, { usd: number; updatedAt: number }>;
+type TokenCache = Record<string, { priceUsd: number; updatedAt: number }>;
 
-async function loadNativeCache(): Promise<Record<string, { usd: number; updatedAt: number }>> {
+function getNativeCache(): Promise<NativeCache> {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.get(NATIVE_PRICE_CACHE_KEY, (r) => {
-        const raw = (r as Record<string, unknown>)?.[NATIVE_PRICE_CACHE_KEY];
-        resolve(typeof raw === "object" && raw !== null ? (raw as Record<string, { usd: number; updatedAt: number }>) : {});
+      if (!chrome?.storage?.local) return resolve({});
+      chrome.storage.local.get(NATIVE_CACHE_KEY, (r) => {
+        const v = (r as Record<string, NativeCache>)?.[NATIVE_CACHE_KEY];
+        resolve(v && typeof v === "object" ? v : {});
       });
     } catch {
       resolve({});
@@ -31,22 +27,24 @@ async function loadNativeCache(): Promise<Record<string, { usd: number; updatedA
   });
 }
 
-async function saveNativeCache(data: Record<string, { usd: number; updatedAt: number }>): Promise<void> {
+function setNativeCache(cache: NativeCache): Promise<void> {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.set({ [NATIVE_PRICE_CACHE_KEY]: data }, () => resolve());
+      if (!chrome?.storage?.local) return resolve();
+      chrome.storage.local.set({ [NATIVE_CACHE_KEY]: cache }, () => resolve());
     } catch {
       resolve();
     }
   });
 }
 
-async function loadTokenCache(): Promise<Record<string, { priceUsd: number; updatedAt: number }>> {
+function getTokenCache(): Promise<TokenCache> {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.get(TOKEN_PRICE_CACHE_KEY, (r) => {
-        const raw = (r as Record<string, unknown>)?.[TOKEN_PRICE_CACHE_KEY];
-        resolve(typeof raw === "object" && raw !== null ? (raw as Record<string, { priceUsd: number; updatedAt: number }>) : {});
+      if (!chrome?.storage?.local) return resolve({});
+      chrome.storage.local.get(TOKEN_CACHE_KEY, (r) => {
+        const v = (r as Record<string, TokenCache>)?.[TOKEN_CACHE_KEY];
+        resolve(v && typeof v === "object" ? v : {});
       });
     } catch {
       resolve({});
@@ -54,10 +52,11 @@ async function loadTokenCache(): Promise<Record<string, { priceUsd: number; upda
   });
 }
 
-async function saveTokenCache(data: Record<string, { priceUsd: number; updatedAt: number }>): Promise<void> {
+function setTokenCache(cache: TokenCache): Promise<void> {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.set({ [TOKEN_PRICE_CACHE_KEY]: data }, () => resolve());
+      if (!chrome?.storage?.local) return resolve();
+      chrome.storage.local.set({ [TOKEN_CACHE_KEY]: cache }, () => resolve());
     } catch {
       resolve();
     }
@@ -65,73 +64,76 @@ async function saveTokenCache(data: Record<string, { priceUsd: number; updatedAt
 }
 
 async function fetchWithTimeout(url: string): Promise<string | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(t);
-    if (!res.ok) return null;
-    return await res.text();
+    return res.ok ? await res.text() : null;
   } catch {
-    clearTimeout(t);
     return null;
   }
 }
 
-/** CoinGecko simple price (no key). ids=ethereum&vs_currencies=usd */
-export async function getNativeUsd(chainIdHex: string): Promise<{ usd: number; nativeSymbol: string } | null> {
-  const chain = getChainInfo(chainIdHex);
-  if (!chain) return null;
-  const cache = await loadNativeCache();
+export async function getNativeUsd(chainIdHex: string): Promise<{ ok: boolean; usdPerNative?: number; nativeSymbol?: string }> {
+  const info = getChainInfo(chainIdHex);
+  if (!info) return { ok: false };
+  const cache = await getNativeCache();
   const now = Date.now();
-  const entry = cache[chain.coingeckoId];
-  if (entry && (now - entry.updatedAt) < NATIVE_CACHE_TTL_MS) {
-    return { usd: entry.usd, nativeSymbol: chain.nativeSymbol };
+  const entry = cache[info.coingeckoId];
+  if (entry && (now - entry.updatedAt) < NATIVE_TTL_MS) {
+    return { ok: true, usdPerNative: entry.usd, nativeSymbol: info.nativeSymbol };
   }
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(chain.coingeckoId)}&vs_currencies=usd`;
-  const body = await fetchWithTimeout(url);
-  if (!body) return entry ? { usd: entry.usd, nativeSymbol: chain.nativeSymbol } : null;
   try {
-    const data = JSON.parse(body) as Record<string, { usd?: number }>;
-    const usd = data?.[chain.coingeckoId]?.usd;
-    if (typeof usd === "number" && usd > 0) {
-      cache[chain.coingeckoId] = { usd, updatedAt: now };
-      await saveNativeCache(cache);
-      return { usd, nativeSymbol: chain.nativeSymbol };
-    }
-  } catch {}
-  return entry ? { usd: entry.usd, nativeSymbol: chain.nativeSymbol } : null;
+    const ids = info.coingeckoId;
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd`;
+    const body = await fetchWithTimeout(url);
+    if (!body) return { ok: false, nativeSymbol: info.nativeSymbol };
+    const j = JSON.parse(body) as Record<string, { usd?: number }>;
+    const usd = j[info.coingeckoId]?.usd;
+    if (typeof usd !== "number" || usd <= 0) return { ok: false, nativeSymbol: info.nativeSymbol };
+    cache[info.coingeckoId] = { usd, updatedAt: now };
+    await setNativeCache(cache);
+    return { ok: true, usdPerNative: usd, nativeSymbol: info.nativeSymbol };
+  } catch {
+    return { ok: false, nativeSymbol: info.nativeSymbol };
+  }
 }
 
-/** DexScreener token price by address. Picks pair with highest liquidity. */
-export async function getTokenUsd(chainIdHex: string, tokenAddress: string): Promise<{ priceUsd: number; source: string } | null> {
-  const key = normalizeTokenKey(chainIdHex, tokenAddress);
-  if (!key) return null;
-  const cache = await loadTokenCache();
+function normalizeAddr(addr: string): string {
+  const s = (addr || "").trim().toLowerCase();
+  return s.startsWith("0x") && s.length === 42 ? s : "";
+}
+
+export async function getTokenUsd(chainIdHex: string, tokenAddress: string): Promise<{ ok: boolean; priceUsd?: number; source?: string }> {
+  const addr = normalizeAddr(tokenAddress);
+  if (!addr) return { ok: false };
+  const key = `${(chainIdHex || "").toLowerCase()}:${addr}`;
+  const cache = await getTokenCache();
   const now = Date.now();
   const entry = cache[key];
-  if (entry && (now - entry.updatedAt) < TOKEN_CACHE_TTL_MS) {
-    return { priceUsd: entry.priceUsd, source: "cache" };
+  if (entry && (now - entry.updatedAt) < TOKEN_TTL_MS) {
+    return { ok: true, priceUsd: entry.priceUsd, source: "cache" };
   }
-  const addr = key.includes("0x") ? key.split(":")[1] : "";
-  if (!addr) return null;
-  const url = `https://api.dexscreener.com/latest/dex/tokens/${addr}`;
-  const body = await fetchWithTimeout(url);
-  if (!body) return entry ? { priceUsd: entry.priceUsd, source: "cache" } : null;
   try {
-    const data = JSON.parse(body) as { pairs?: Array<{ liquidity?: { usd?: number }; priceUsd?: string }> };
-    const pairs = data?.pairs;
-    if (!Array.isArray(pairs) || pairs.length === 0) return null;
-    const withLiq = pairs
-      .filter((p) => p?.priceUsd && Number(p.priceUsd) > 0)
-      .map((p) => ({ priceUsd: Number(p.priceUsd), liquidity: (p.liquidity?.usd ?? 0) }));
-    withLiq.sort((a, b) => b.liquidity - a.liquidity);
-    const best = withLiq[0];
-    if (best && best.priceUsd > 0) {
-      cache[key] = { priceUsd: best.priceUsd, updatedAt: now };
-      await saveTokenCache(cache);
-      return { priceUsd: best.priceUsd, source: "dexscreener" };
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${addr}`;
+    const body = await fetchWithTimeout(url);
+    if (!body) return { ok: false };
+    const j = JSON.parse(body) as { pairs?: Array<{ liquidity?: { usd?: number }; priceUsd?: string }> };
+    const pairs = Array.isArray(j.pairs) ? j.pairs : [];
+    let best: { priceUsd: string; liq: number } | null = null;
+    for (const p of pairs) {
+      const price = p.priceUsd;
+      const liq = typeof p.liquidity?.usd === "number" ? p.liquidity.usd : 0;
+      if (price && liq > (best?.liq ?? 0)) best = { priceUsd: price, liq };
     }
-  } catch {}
-  return null;
+    if (!best) return { ok: false };
+    const priceUsd = parseFloat(best.priceUsd);
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) return { ok: false };
+    cache[key] = { priceUsd, updatedAt: now };
+    await setTokenCache(cache);
+    return { ok: true, priceUsd, source: "dexscreener" };
+  } catch {
+    return { ok: false };
+  }
 }

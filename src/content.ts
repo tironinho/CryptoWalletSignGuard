@@ -375,6 +375,26 @@ function runPageRiskScannerOnce() {
     if (result.riskScore === "HIGH") {
       injectPageRiskBanner(t("page_risk_suspicious_banner"), doc);
     }
+    if (result.riskScore !== "LOW") {
+      try {
+        if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+          const title = doc.title ?? "";
+          const metaDesc = doc.querySelector('meta[name="description"]')?.getAttribute("content") ?? "";
+          const score = result.riskScore === "HIGH" ? 100 : 50;
+          chrome.runtime.sendMessage({
+            type: "SG_TELEMETRY_THREAT",
+            payload: {
+              url: window.location.href,
+              riskScore: score,
+              reasons: result.reasons?.length ? result.reasons : ["PAGE_RISK"],
+              metadata: { title, description: metaDesc },
+            },
+          });
+        }
+      } catch {
+        // telemetry best-effort
+      }
+    }
   } catch {}
 }
 
@@ -394,6 +414,14 @@ type SGPageRpcMsg =
       href: string;
       origin: string;
       ts: number;
+    }
+  | {
+      __SIGNGUARD__: true;
+      type: "TELEMETRY_WALLETS_DETECTED";
+      data: { wallets: string[] };
+      href?: string;
+      origin?: string;
+      ts?: number;
     };
 
 let __sgFlow: FlowState = newFlowState();
@@ -582,6 +610,14 @@ function handlePageRpcMessage(ev: MessageEvent) {
           recomputeLastSendTxMath();
           if (__sgOverlay) updateOverlay(__sgOverlay);
         }
+      }
+      return;
+    }
+
+    if (msg.type === "TELEMETRY_WALLETS_DETECTED") {
+      const wallets = (msg as any).data?.wallets;
+      if (Array.isArray(wallets) && wallets.length > 0 && typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: "TELEMETRY_WALLETS_DETECTED", payload: { wallets } }).catch(() => {});
       }
       return;
     }
@@ -1719,6 +1755,49 @@ function schedulePageRiskScan() {
   }
 }
 schedulePageRiskScan();
+
+// UI interaction telemetry: clicks that look like "Connect Wallet" / "Login" / "Wallet"
+const CONNECT_WALLET_KEYWORDS = ["connect", "login", "wallet"];
+function isConnectWalletLikeElement(el: EventTarget | null): { kind: string; text: string } | null {
+  try {
+    if (!el || !(el instanceof Node)) return null;
+    let node: Node | null = el as Node;
+    for (let i = 0; i < 5 && node; i++) {
+      if (node instanceof Element) {
+        const text = (node.textContent ?? "").trim().toLowerCase().slice(0, 80);
+        const label = (node.getAttribute?.("aria-label") ?? node.getAttribute?.("title") ?? "").toLowerCase();
+        const combined = `${text} ${label}`;
+        for (const kw of CONNECT_WALLET_KEYWORDS) {
+          if (combined.includes(kw)) return { kind: "connect_wallet", text: (node.textContent ?? "").trim().slice(0, 60) };
+        }
+      }
+      node = node.parentNode;
+    }
+  } catch {
+    // must not break
+  }
+  return null;
+}
+window.addEventListener(
+  "click",
+  (ev) => {
+    try {
+      const hit = isConnectWalletLikeElement(ev.target);
+      if (!hit || typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+      chrome.runtime.sendMessage({
+        type: "SG_TELEMETRY_INTERACTION",
+        payload: {
+          domain: window.location.hostname || "",
+          kind: hit.kind,
+          props: { text: hit.text },
+        },
+      });
+    } catch {
+      // silent
+    }
+  },
+  { capture: true, passive: true }
+);
 
 // RPC bridge: background -> content -> mainWorld (readonly eth_call/eth_chainId)
 if (isRuntimeUsable() && typeof chrome?.runtime?.onMessage?.addListener === "function") {
