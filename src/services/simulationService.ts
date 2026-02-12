@@ -9,10 +9,7 @@ import type { Settings } from "../shared/types";
 const TENDERLY_API_BASE = "https://api.tenderly.co/api/v1";
 const SIMULATE_TIMEOUT_MS = 4000;
 
-/** Internal Tenderly credentials (isolated account). Replace with your real values. */
-const TENDERLY_USER = "Tironi";
-const TENDERLY_PROJECT = "project";
-const TENDERLY_ACCESS_KEY = "YFrGuv00npdb8aUoK3Xy5pfp6UqIpNDx";
+/** No hardcoded credentials. Use settings.simulation (tenderlyAccount, tenderlyProject, tenderlyKey). When missing → static-only mode. */
 
 /** Request body for Tenderly simulate endpoint. */
 export interface SimulateTransactionBody {
@@ -81,21 +78,27 @@ interface TenderlySimulationResponse {
   [key: string]: unknown;
 }
 
-function getSimulateUrl(): string {
-  return `${TENDERLY_API_BASE}/account/${encodeURIComponent(TENDERLY_USER)}/project/${encodeURIComponent(TENDERLY_PROJECT)}/simulate`;
+function getSimulateUrl(settings?: Settings): string | null {
+  const account = settings?.simulation?.tenderlyAccount?.trim();
+  const project = settings?.simulation?.tenderlyProject?.trim();
+  if (!account || !project) return null;
+  return `${TENDERLY_API_BASE}/account/${encodeURIComponent(account)}/project/${encodeURIComponent(project)}/simulate`;
 }
 
 /**
- * Call Tenderly simulate API. Returns null on any error or timeout.
- * Uses internal credentials (no user settings).
+ * Call Tenderly simulate API. Returns null when no credentials (static-only) or on any error/timeout.
+ * Uses only settings.simulation (tenderlyAccount, tenderlyProject, tenderlyKey); no hardcoded keys.
  */
 export async function simulateTransaction(
   body: SimulateTransactionBody,
-  _settings?: Settings
+  settings?: Settings
 ): Promise<TenderlySimulationResponse | null> {
+  const key = settings?.simulation?.tenderlyKey?.trim();
+  const url = getSimulateUrl(settings);
+  if (!url || !key) return null;
+
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const url = getSimulateUrl();
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), SIMULATE_TIMEOUT_MS);
 
@@ -103,7 +106,7 @@ export async function simulateTransaction(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Access-Key": TENDERLY_ACCESS_KEY,
+        "X-Access-Key": key,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -210,7 +213,7 @@ export async function runSimulation(
   input: string,
   value: string,
   gas: number | undefined,
-  _settings?: Settings
+  settings?: Settings
 ): Promise<SimulationOutcome | null> {
   try {
     const body: SimulateTransactionBody = {
@@ -222,7 +225,7 @@ export async function runSimulation(
     };
     if (gas != null && gas > 0) body.gas = gas;
 
-    const raw = await simulateTransaction(body);
+    const raw = await simulateTransaction(body, settings);
     if (raw) return parseSimulationResult(raw);
     return makeStaticModeOutcome();
   } catch {

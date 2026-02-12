@@ -48,8 +48,8 @@ export async function runHoneypotCheck(
     };
     if (gas != null && gas > 0) body.gas = gas;
 
-    const raw = await simulateTransaction(body);
-    if (!raw) return { isHoneypot: false };
+    const raw = await simulateTransaction(body, settings);
+    if (!raw) return { isHoneypot: false, simulated: false, message: "Modo Estático (Adicione chaves para Simulação)" };
 
     const txStatus = raw.transaction?.status;
     if (txStatus === 1) return { isHoneypot: false }; // Buy reverted

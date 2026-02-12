@@ -25,8 +25,6 @@ import {
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
 import { renderAdToast, dismissAdToast } from "./features/adToast";
 
-// --- INJEÇÃO MANUAL REMOVIDA AQUI ---
-
 function isContextInvalidated(msg: string) {
   const s = (msg || "").toLowerCase();
   return s.includes("extension context invalidated") ||

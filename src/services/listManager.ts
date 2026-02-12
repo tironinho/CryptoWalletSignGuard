@@ -207,13 +207,24 @@ export async function refresh(): Promise<ListsCacheV1> {
     updated.sources.metamask = { ...updated.sources.metamask, ok: false, error: String((e as Error)?.message ?? e) };
   }
 
-  // ScamSniffer (example URLs — adjust if real endpoints differ)
+  // ScamSniffer scam-database (domains + addresses)
+  const SCAMSNIFFER_DOMAINS_URL = "https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/domains.json";
+  const SCAMSNIFFER_ADDRESSES_URL = "https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/address.json";
   try {
-    const ssDomains = await fetchWithTimeout("https://raw.githubusercontent.com/ScamSniffer/blockchain-scam-list/main/domains.json", updated.sources.scamsniffer?.etag);
+    const [ssDomains, ssAddresses] = await Promise.all([
+      fetchWithTimeout(SCAMSNIFFER_DOMAINS_URL, updated.sources.scamsniffer?.etag),
+      fetchWithTimeout(SCAMSNIFFER_ADDRESSES_URL),
+    ]);
     if (ssDomains?.body) {
       const list = parseScamSnifferDomains(ssDomains.body);
       list.forEach((d) => { const n = normalizeHost(d); if (n) blockedSet.add(n); });
-      updated.sources.scamsniffer = { ok: true, updatedAt: Date.now(), etag: ssDomains.etag };
+    }
+    if (ssAddresses?.body) {
+      const addrs = parseScamSnifferAddresses(ssAddresses.body);
+      addrs.forEach((a) => { if (a) blockedAddrSet.add(a); });
+    }
+    if (ssDomains?.body || ssAddresses?.body) {
+      updated.sources.scamsniffer = { ok: true, updatedAt: Date.now(), etag: ssDomains?.etag };
     } else {
       updated.sources.scamsniffer = { ...updated.sources.scamsniffer, ok: false, error: "fetch failed" };
     }
@@ -240,6 +251,7 @@ export async function refresh(): Promise<ListsCacheV1> {
   updated.blockedDomains = [...blockedSet];
   updated.blockedAddresses = [...blockedAddrSet];
   updated.scamTokens = updated.scamTokens.filter((t) => scamKeys.has(normalizeTokenKey(t.chainId, t.address)));
+  // Scam tokens: no remote fetch until stable URL; seed + user overrides only
   await setStorage(updated);
   return updated;
 }

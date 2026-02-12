@@ -8,7 +8,7 @@ import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalle
 // - MAIN world RESUMES by reexecuting the ORIGINAL request with bypass (no recursion)
 
 const TIMEOUT_MS_UI = 600_000;   // 10 min when UI shown; keepalive resets
-const TIMEOUT_MS_FAILOPEN = 5000; // 5s when no UI yet (fail-open)
+const TIMEOUT_MS_FAILOPEN = 60_000; // 60s when no UI yet (fail-open on next user gesture)
 const KEEPALIVE_CAP_MS = 900_000; // 15 min max lifetime from creation when UI shown
 
 type PendingReq = {
@@ -22,6 +22,44 @@ type PendingReq = {
 };
 
 const pendingCalls = new Map<string, PendingReq>();
+
+type FailOpenItem = {
+  id: string;
+  runOriginal: () => Promise<any>;
+  resolve: (v: any) => void;
+  reject: (e: any) => void;
+  armedAt: number;
+};
+const failOpenQueue: FailOpenItem[] = [];
+let failOpenArmed = false;
+
+function armFailOpenOnNextGesture(item: FailOpenItem) {
+  failOpenQueue.push(item);
+  if (failOpenArmed) return;
+  failOpenArmed = true;
+
+  const handler = () => {
+    window.removeEventListener("pointerdown", handler, true);
+    failOpenArmed = false;
+
+    const next = failOpenQueue.shift();
+    if (!next) return;
+
+    try {
+      next.runOriginal().then(next.resolve).catch(next.reject);
+    } catch (e) {
+      next.reject(e);
+    }
+
+    if (failOpenQueue.length > 0) {
+      const nextItem = failOpenQueue.shift()!;
+      armFailOpenOnNextGesture(nextItem);
+    }
+  };
+
+  window.addEventListener("pointerdown", handler, true);
+}
+
 const SG_BYPASS = Symbol.for("SG_BYPASS"); // evita recursão
 
 function sgId() {
@@ -464,7 +502,9 @@ function markUiShown(requestId: string) {
 function handleKeepalive(requestId: string) {
   try {
     const p = pendingCalls.get(requestId);
-    if (p) p.lastKeepaliveAt = Date.now();
+    if (!p) return;
+    p.lastKeepaliveAt = Date.now();
+    if (!p.uiShown) p.uiShown = true; // keepalive implies overlay is active
   } catch {}
 }
 
@@ -570,12 +610,13 @@ setInterval(() => {
         } catch {}
         continue;
       }
-      try {
-        const promise = p.runOriginal();
-        promise.then(p.resolve).catch(p.reject);
-      } catch (e) {
-        p.reject(e);
-      }
+      armFailOpenOnNextGesture({
+        id,
+        runOriginal: p.runOriginal,
+        resolve: p.resolve,
+        reject: p.reject,
+        armedAt: Date.now(),
+      });
     }
   }
 }, 5000);
