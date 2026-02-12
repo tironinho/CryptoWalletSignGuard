@@ -31,6 +31,12 @@
     .hidden { display: none !important; }
     section.tab-panel { display: none; }
     section.tab-panel.active { display: block; }
+    .list-stat { background: rgba(15,23,42,0.6); border-radius: 8px; padding: 12px; text-align: center; }
+    .list-stat-n { display: block; font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .list-stat-l { font-size: 0.8rem; color: var(--text-muted); }
+    .list-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; margin-left: 6px; }
+    .list-badge-user { background: rgba(59,130,246,0.2); color: #93c5fd; }
+    .list-badge-feed { background: rgba(148,163,184,0.2); color: #94a3b8; }
   </style>
 </head>
 <body>
@@ -39,6 +45,7 @@
       <div class="brand">🛡️ SignGuard</div>
       <button class="nav-btn tab-btn active" data-tab="settings" type="button">⚙️ Geral</button>
       <button class="nav-btn tab-btn" data-tab="security" type="button">🔒 Segurança</button>
+      <button class="nav-btn tab-btn" data-tab="lists" type="button">📋 Listas</button>
       <button class="nav-btn tab-btn" data-tab="history" type="button">📜 Histórico</button>
       <button class="nav-btn tab-btn" data-tab="plan" type="button">⭐ Plano</button>
     </aside>
@@ -68,6 +75,57 @@
           <h3 style="margin:0 0 8px 0;">Lista de Confiança (Whitelist)</h3>
           <textarea id="whitelistInput" rows="5" placeholder="ex: app.uniswap.org"></textarea>
           <div style="margin-top:10px; text-align:right;"><button id="saveWhitelist" class="sg-btn" type="button">Salvar</button></div>
+        </div>
+      </section>
+      <section id="tab-lists" class="tab-panel hidden">
+        <h1 class="panel-title">Listas (Whitelist / Blacklist)</h1>
+        <p class="panel-desc">Domínios confiáveis/bloqueados, endereços bloqueados e tokens scam. Atualização automática a cada 6h.</p>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios confiáveis</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios bloqueados</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Endereços bloqueados</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens scam</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span id="listsLastUpdated" style="color:var(--text-muted);font-size:0.9rem;">—</span>
+            <button id="listsRefreshNow" class="sg-btn" type="button" style="background:#334155;">Atualizar agora</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Buscar</h3>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" id="listsSearchInput" placeholder="Domínio, endereço ou símbolo..." style="flex:1;min-width:180px;" />
+            <select id="listsSearchType"><option value="">Todos</option><option value="domain">Domínio</option><option value="address">Endereço</option><option value="token">Token</option></select>
+            <button id="listsSearchBtn" class="sg-btn" type="button" style="background:#334155;">Buscar</button>
+          </div>
+          <div id="listsSearchResults" style="min-height:80px;color:var(--text-muted);font-size:0.9rem;">Use a busca acima.</div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Overrides do usuário</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <input type="text" id="listsAddDomain" placeholder="ex: example.com" style="width:200px;" />
+            <select id="listsAddDomainKind"><option value="userTrustedDomains">Confiável</option><option value="userBlockedDomains">Bloquear</option></select>
+            <button id="listsAddDomainBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar domínio</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <input type="text" id="listsAddAddress" placeholder="0x..." style="width:320px;" />
+            <button id="listsAddAddressBtn" class="sg-btn" type="button" style="background:#334155;">Bloquear endereço</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" id="listsAddTokenChain" placeholder="ChainId (ex: 0x1)" style="width:100px;" />
+            <input type="text" id="listsAddTokenAddr" placeholder="Endereço do token 0x..." style="width:320px;" />
+            <button id="listsAddTokenBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar token scam</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Importar / Exportar</h3>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Apenas overrides do usuário (domínios e endereços que você adicionou).</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="listsExport" class="sg-btn" type="button" style="background:#334155;">Exportar JSON</button>
+            <label class="sg-btn" style="background:#334155;cursor:pointer;display:inline-block;"><input type="file" id="listsImportFile" accept=".json" style="display:none;">Importar JSON</label>
+          </div>
+          <p id="listsImportStatus" style="margin:10px 0 0 0;font-size:0.9rem;color:var(--text-muted);"></p>
         </div>
       </section>
       <section id="tab-history" class="tab-panel hidden">

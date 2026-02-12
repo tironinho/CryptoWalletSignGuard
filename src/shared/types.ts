@@ -75,6 +75,7 @@ export type AnalyzeRequest = {
   txCostPreview?: TxCostPreview;
   meta?: {
     chainId?: string;
+    chainIdHex?: string;
     chainIdRequested?: string;
     preflight?: {
       tx?: any;
@@ -94,6 +95,28 @@ export type ProviderKind = "EIP6963" | "METAMASK" | "RABBY" | "COINBASE" | "PHAN
 
 export type ChainIdHex = string; // ex "0x1"
 export type Address = string; // "0x..." lowercase
+
+/** Domain list decision for risk/UX (whitelist never auto-allows tx). */
+export type DomainDecision = "TRUSTED" | "BLOCKED" | "UNKNOWN";
+
+/** Cache key for scam token: chainId:tokenAddressLower */
+export type ScamTokenKey = `${string}:${string}`;
+
+export type ListSourceName = "metamask" | "scamsniffer" | "cryptoscamdb" | "dappradar" | "seed" | "user";
+
+export type ListsCacheV1 = {
+  version: 1;
+  updatedAt: number;
+  sources: Record<ListSourceName, { updatedAt?: number; etag?: string; ok?: boolean; error?: string }>;
+  trustedDomains: string[];
+  blockedDomains: string[];
+  blockedAddresses: string[];
+  scamTokens: Array<{ chainId: string; address: string; symbol?: string; name?: string; source?: ListSourceName }>;
+  userTrustedDomains: string[];
+  userBlockedDomains: string[];
+  userBlockedAddresses: string[];
+  userScamTokens: Array<{ chainId: string; address: string; symbol?: string; name?: string }>;
+};
 
 export type ThreatIntelAddress = {
   address: Address;
@@ -293,6 +316,8 @@ export type Analysis = {
   domainSignals?: string[];
   /** Intel source ids used, e.g. metamask, cryptoscamdb, scamsniffer, local_seed. */
   intelSources?: string[];
+  /** List manager domain decision: TRUSTED / BLOCKED / UNKNOWN (for site reputation badge). */
+  domainListDecision?: DomainDecision;
   /** Extras from typed-data (e.g. Permit: spender, value, deadline). */
   typedDataExtras?: { spender?: string; value?: string; deadline?: string };
   /** true when any address (to/spender/operator/tokenContract) matched address intel labels. */

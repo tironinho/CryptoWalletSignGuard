@@ -11,6 +11,7 @@ import { extractTx } from "./shared/txExtract";
 import { ingestRpc, hasRecentSwitch, newFlowState, type FlowState } from "./shared/flowTracker";
 import { hexToBigInt, weiToEthString } from "./shared/txMath";
 import { weiToEthString as weiToEthFmt } from "./format";
+import { getNativeSymbol } from "./shared/chains";
 import {
   isRuntimeUsable,
   portRequest,
@@ -407,6 +408,7 @@ type PendingRequest = {
   analysis: Analysis;
   receivedAt: number;
   rpcMeta?: any;
+  chainIdHex?: string | null;
   wallet?: { kind: string; name: string };
 };
 
@@ -420,12 +422,22 @@ let __sgSettingsLoading: Promise<void> | null = null;
 
 let __sgUsdPerEth: number | null = null;
 let __sgUsdFetchedAt = 0;
+const NATIVE_USD_TTL_MS = 120_000;
+const __sgNativeByChain: Record<string, { usd: number; symbol: string; fetchedAt: number }> = {};
+
+function toChainIdHex(chainId: string | number | null | undefined): string | null {
+  if (chainId == null || chainId === "") return null;
+  const s = String(chainId).trim();
+  if (s.toLowerCase().startsWith("0x")) return s;
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return "0x" + n.toString(16);
+}
 
 async function ensureUsdLoaded() {
   if ((__sgSettings ?? DEFAULT_SETTINGS).showUsd === false) return;
   const now = Date.now();
   if (__sgUsdPerEth != null && (now - __sgUsdFetchedAt) < 60_000) return;
-
   const resp = await safeSendMessage<any>({ type: "GET_ETH_USD" }, 2500);
   const usd = Number(resp?.usdPerEth);
   if (resp?.ok && Number.isFinite(usd) && usd > 0) {
@@ -436,19 +448,39 @@ async function ensureUsdLoaded() {
   }
 }
 
-function usdFromEth(ethStr?: string): string {
+async function ensureNativeUsdForChain(chainIdHex: string | null): Promise<{ usd: number; symbol: string } | null> {
+  if ((__sgSettings ?? DEFAULT_SETTINGS).showUsd === false) return null;
+  if (!chainIdHex) return null;
+  const key = chainIdHex.toLowerCase();
+  const now = Date.now();
+  const hit = __sgNativeByChain[key];
+  if (hit && (now - hit.fetchedAt) < NATIVE_USD_TTL_MS) return hit;
+  const resp = await safeSendMessage<any>({ type: "SG_GET_NATIVE_USD", payload: { chainIdHex } }, 4000);
+  if (resp?.ok && Number.isFinite(resp?.usdPerNative) && resp.usdPerNative > 0) {
+    const entry = { usd: resp.usdPerNative, symbol: resp.nativeSymbol ?? getNativeSymbol(chainIdHex), fetchedAt: now };
+    __sgNativeByChain[key] = entry;
+    if (__sgOverlay?.container?.isConnected) updateOverlay(__sgOverlay);
+    return entry;
+  }
+  if (hit) return hit;
+  if (__sgUsdPerEth != null) return { usd: __sgUsdPerEth, symbol: getNativeSymbol(chainIdHex) };
+  return null;
+}
+
+function usdFromEth(ethStr?: string, usdPerNative?: number | null): string {
   if ((__sgSettings ?? DEFAULT_SETTINGS).showUsd === false) return "";
-  if (__sgUsdPerEth == null) return "";
+  const rate = usdPerNative ?? __sgUsdPerEth;
+  if (rate == null) return "";
   const n = Number(String(ethStr ?? "").trim());
   if (!Number.isFinite(n)) return "";
-  const usd = n * __sgUsdPerEth;
+  const usd = n * rate;
   if (!Number.isFinite(usd)) return "";
   const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
   return ` (≈ ${fmt.format(usd)})`;
 }
 
-function usdApproxFromEthString(ethStr?: string): string {
-  return usdFromEth(ethStr);
+function usdApproxFromEthString(ethStr?: string, usdPerNative?: number | null): string {
+  return usdFromEth(ethStr, usdPerNative);
 }
 
 async function ensureSettingsLoaded() {
@@ -573,7 +605,7 @@ function ensureOverlayCss(shadow: ShadowRoot) {
 type OverlayState = {
   requestId: string;
   analysis: Analysis;
-  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any };
+  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any; chainIdHex?: string | null };
   container: HTMLDivElement;
   shadow: ShadowRoot;
   app: HTMLDivElement;
@@ -627,7 +659,9 @@ function showCurrentPending() {
     cleanupOverlay();
     return;
   }
-  showOverlay(cur.requestId, cur.analysis, { host: cur.host, method: cur.method, params: cur.params, rpcMeta: cur.rpcMeta });
+  const chainIdHex = cur.chainIdHex ?? toChainIdHex(cur.rpcMeta?.chainId);
+  void ensureNativeUsdForChain(chainIdHex ?? null);
+  showOverlay(cur.requestId, cur.analysis, { host: cur.host, method: cur.method, params: cur.params, rpcMeta: cur.rpcMeta, chainIdHex: chainIdHex ?? undefined });
 }
 
 const DECISION_ACK_FALLBACK_MS = 150;
@@ -802,6 +836,10 @@ function renderOverlay(state: OverlayState) {
   const host = meta.host;
   const method = meta.method;
   const methodNorm = normMethod(method);
+  const chainIdHex = meta.chainIdHex ?? toChainIdHex((meta as any)?.rpcMeta?.chainId);
+  const nativeSymbol = getNativeSymbol(chainIdHex) || "ETH";
+  const usdPerNative = chainIdHex ? (__sgNativeByChain[chainIdHex.toLowerCase()]?.usd ?? __sgUsdPerEth) : __sgUsdPerEth;
+  if (chainIdHex) void ensureNativeUsdForChain(chainIdHex);
 
   const stepTx = lastSendTxStep();
   const hasTxInFlow = !!stepTx;
@@ -830,6 +868,8 @@ function renderOverlay(state: OverlayState) {
   const trust = analysis.trust;
   const trustText = `${trustLabel(trust?.verdict)} • ${clamp(trust?.trustScore ?? 0, 0, 100)}/100`;
   const trustReasons = (trust?.reasons || []).slice(0, 2);
+  const domainListDecision = (analysis as any).domainListDecision as "TRUSTED" | "BLOCKED" | "UNKNOWN" | undefined;
+  const siteReputationLabel = domainListDecision === "TRUSTED" ? t("list_site_trusted") : domainListDecision === "BLOCKED" ? t("list_site_blocked") : t("list_site_unknown");
 
   const human = analysis.human;
 
@@ -1070,6 +1110,7 @@ function renderOverlay(state: OverlayState) {
           ${!knownBad && knownSafe ? `<div class="sg-banner-ok"><div class="sg-banner-ok-text">${escapeHtml(t("banner_ok_no_known_threats"))}</div>${verificationUpdatedAt ? `<div class="sg-banner-ok-sub">${escapeHtml(formatVerificationUpdated(verificationUpdatedAt))}</div>` : ""}</div>` : ""}
           ${!knownBad && !knownSafe && verificationLevel === "LOCAL" ? `<div class="sg-banner-warn">${escapeHtml(t("banner_local_verification"))}</div>` : ""}
           ${!knownBad && !knownSafe && verificationLevel === "BASIC" ? `<div class="sg-banner-warn">${escapeHtml(t("banner_basic_verification"))}</div>` : ""}
+          ${domainListDecision != null ? `<div class="sg-kv" style="margin-bottom:8px"><div class="sg-k">${escapeHtml(t("list_site_reputation"))}</div><div class="sg-v"><span class="sg-chip ${domainListDecision === "TRUSTED" ? "sg-chip-ok" : domainListDecision === "BLOCKED" ? "sg-chip-risk" : "sg-chip-warn"}">${escapeHtml(siteReputationLabel)}</span></div></div>` : ""}
           ${phishingHardBlock ? `<div class="sg-blocked-banner">${escapeHtml(t("severity_BLOCKED"))} — ${escapeHtml(t("phishing_hard_block"))}</div>` : ""}
           ${(analysis as any).simulationRevert ? `<div class="sg-simulation-revert-banner" role="alert">${escapeHtml(t("simulation_tx_will_fail"))}</div>` : ""}
           ${(analysis as any).isHoneypot ? `<div class="sg-honeypot-banner" role="alert">${escapeHtml(t("honeypot_message"))}</div>` : ""}
@@ -1078,12 +1119,12 @@ function renderOverlay(state: OverlayState) {
             displayAction === "SEND_TX"
               ? `<div class="sg-card">
                   <div class="sg-card-title">${escapeHtml(t("costs_title"))}</div>
-                  <div><b>${escapeHtml(t("label_you_send"))}</b>: <code class="sg-mono">${escapeHtml(`${valueEth} ETH${usdApproxFromEthString(valueEth)}${valueProvided ? "" : " (" + t("cost_fee_only") + ")"}`)}</code></div>
+                  <div><b>${escapeHtml(t("label_you_send"))}</b>: <code class="sg-mono">${escapeHtml(`${valueEth} ${nativeSymbol}${usdApproxFromEthString(valueEth, usdPerNative)}${valueProvided ? "" : " (" + t("cost_fee_only") + ")"}`)}</code></div>
                   ${feeEstimated
-                    ? `<div style="margin-top:8px"><b>${escapeHtml(t("label_fee_likely"))}</b>: <code class="sg-mono">${escapeHtml((feeLikelyEth ? `${feeLikelyEth} ETH${usdApproxFromEthString(feeLikelyEth)}` : t("gas_calculating")))}</code></div>
-                    <div style="margin-top:6px"><b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ETH${usdApproxFromEthString(feeMaxEth)}` : t("gas_calculating"))}</code></div>
-                    <div style="margin-top:8px"><b>${escapeHtml(t("label_total_likely"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ETH${usdApproxFromEthString(totalLikelyEth)}` : t("gas_calculating"))}</code></div>
-                    <div style="margin-top:6px"><b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ETH${usdApproxFromEthString(totalMaxEth)}` : t("gas_calculating"))}</code></div>`
+                    ? `<div style="margin-top:8px"><b>${escapeHtml(t("label_fee_likely"))}</b>: <code class="sg-mono">${escapeHtml(feeLikelyEth ? `${feeLikelyEth} ${nativeSymbol}${usdApproxFromEthString(feeLikelyEth, usdPerNative)}` : t("gas_calculating"))}</code></div>
+                    <div style="margin-top:6px"><b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ${nativeSymbol}${usdApproxFromEthString(feeMaxEth, usdPerNative)}` : t("gas_calculating"))}</code></div>
+                    <div style="margin-top:8px"><b>${escapeHtml(t("label_total_likely"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ${nativeSymbol}${usdApproxFromEthString(totalLikelyEth, usdPerNative)}` : t("gas_calculating"))}</code></div>
+                    <div style="margin-top:6px"><b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ${nativeSymbol}${usdApproxFromEthString(totalMaxEth, usdPerNative)}` : t("gas_calculating"))}</code></div>`
                     : `<div class="sg-sub" style="margin-top:8px">${escapeHtml(feeReasonKey ? resolveText(feeReasonKey) : t("fee_unknown_wallet_will_estimate"))}</div>
                     <div class="sg-sub" style="margin-top:6px">• ${escapeHtml(t("check_wallet_network_fee"))}</div>`
                   }
@@ -1145,7 +1186,7 @@ function renderOverlay(state: OverlayState) {
               }
             }
             if (cp?.feeEstimated && (feeLikelyEth || feeMaxEth)) {
-              impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px"><b>${escapeHtml(t("label_fee_likely"))}</b> / <b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeLikelyEth ? `${feeLikelyEth} ETH${usdApproxFromEthString(feeLikelyEth)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ETH${usdApproxFromEthString(feeMaxEth)}` : "—")}</code></div><div style="margin-top:6px"><b>${escapeHtml(t("label_total_likely"))}</b> / <b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ETH${usdApproxFromEthString(totalLikelyEth)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ETH${usdApproxFromEthString(totalMaxEth)}` : "—")}</code></div>`);
+              impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px"><b>${escapeHtml(t("label_fee_likely"))}</b> / <b>${escapeHtml(t("label_fee_max"))}</b>: <code class="sg-mono">${escapeHtml(feeLikelyEth ? `${feeLikelyEth} ${nativeSymbol}${usdApproxFromEthString(feeLikelyEth, usdPerNative)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(feeMaxEth ? `${feeMaxEth} ${nativeSymbol}${usdApproxFromEthString(feeMaxEth, usdPerNative)}` : "—")}</code></div><div style="margin-top:6px"><b>${escapeHtml(t("label_total_likely"))}</b> / <b>${escapeHtml(t("label_total_max"))}</b>: <code class="sg-mono">${escapeHtml(totalLikelyEth ? `${totalLikelyEth} ${nativeSymbol}${usdApproxFromEthString(totalLikelyEth, usdPerNative)}` : "—")}</code> / <code class="sg-mono">${escapeHtml(totalMaxEth ? `${totalMaxEth} ${nativeSymbol}${usdApproxFromEthString(totalMaxEth, usdPerNative)}` : "—")}</code></div>`);
             } else if (displayAction === "SEND_TX") {
               impactLines.push(`<div style="margin-top:${impactLines.length ? "8" : "0"}px" class="sg-sub">${escapeHtml(t("tx_fee_estimated_by_wallet"))}</div>`);
             }
@@ -1521,7 +1562,7 @@ async function handleSGRequest(ev: MessageEvent) {
       request: { method, params },
       wallet: wallet && typeof wallet === "object" ? wallet : undefined,
       providerHint: providerHint && typeof providerHint === "object" ? { kind: providerHint.kind || "UNKNOWN", name: providerHint.name } : undefined,
-      meta: rpcMeta ? { chainId: rpcMeta?.chainId, chainIdRequested: rpcMeta?.chainIdRequested, preflight: rpcMeta?.preflight } : undefined,
+      meta: rpcMeta ? { chainId: rpcMeta?.chainId, chainIdHex: chainIdHex ?? undefined, chainIdRequested: rpcMeta?.chainIdRequested, preflight: rpcMeta?.preflight } : (chainIdHex ? { chainId: (rpcMeta as any)?.chainId, chainIdHex } : undefined),
       txCostPreview,
     };
 
@@ -1530,6 +1571,7 @@ async function handleSGRequest(ev: MessageEvent) {
       if (receivedAt - v.ts > FLOW_TTL_MS) recentSwitchByOrigin.delete(k);
     }
 
+    const chainIdHex = (data.payload as any)?.chainIdHex ?? toChainIdHex(rpcMeta?.chainId);
     const walletDisplay = wallet && typeof wallet === "object" ? { kind: wallet.kind, name: wallet.name, walletBrand: (wallet as any).walletBrand } : undefined;
     const fallbackAnalysis = buildFallbackAnalysis(data.payload, walletDisplay);
     if (txCostPreview) fallbackAnalysis.txCostPreview = txCostPreview;
@@ -1545,6 +1587,7 @@ async function handleSGRequest(ev: MessageEvent) {
       analysis: fallbackAnalysis,
       receivedAt,
       rpcMeta,
+      chainIdHex: chainIdHex ?? undefined,
     };
 
     const newAction = classifyAction(method, params);
@@ -1567,7 +1610,7 @@ async function handleSGRequest(ev: MessageEvent) {
         dispatchDecision(current.requestId, true);
         requestQueue.shift();
         requestQueue.unshift(pending);
-        showOverlay(requestId, fallbackAnalysis, { host, method, params, rpcMeta });
+        showOverlay(requestId, fallbackAnalysis, { host, method, params, rpcMeta, chainIdHex: pending.chainIdHex ?? undefined });
         (__sgOverlay as any).analysisLoading = true;
         updateOverlay(__sgOverlay);
         markUiShownFromContent(requestId);
@@ -1638,7 +1681,7 @@ async function handleSGRequest(ev: MessageEvent) {
     requestQueue.push(pending);
     const isFirst = requestQueue.length === 1;
     if (isFirst) {
-      showOverlay(requestId, fallbackAnalysis, { host, method, params, rpcMeta });
+      showOverlay(requestId, fallbackAnalysis, { host, method, params, rpcMeta, chainIdHex: pending.chainIdHex ?? undefined });
       (__sgOverlay as any).analysisLoading = true;
       updateOverlay(__sgOverlay!);
     }

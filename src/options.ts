@@ -7,7 +7,7 @@ import { safeStorageGet, safeStorageSet, safeSendMessage } from "./runtimeSafe";
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
 const HISTORY_KEY = "sg_history_v1";
 
-type TabName = "settings" | "security" | "history" | "plan";
+type TabName = "settings" | "security" | "lists" | "history" | "plan";
 
 function showTab(name: TabName) {
   const tabs = document.querySelectorAll(".tab-btn");
@@ -25,6 +25,48 @@ function showTab(name: TabName) {
   }
   if (name === "history") loadHistory();
   if (name === "plan") loadPlan();
+  if (name === "lists") loadListsTab();
+}
+
+type ListsStatus = {
+  ok: boolean;
+  updatedAt?: number;
+  counts?: {
+    trustedDomains: number;
+    blockedDomains: number;
+    blockedAddresses: number;
+    scamTokens: number;
+    userTrustedDomains: number;
+    userBlockedDomains: number;
+    userBlockedAddresses: number;
+    userScamTokens: number;
+  };
+};
+
+async function loadListsTab() {
+  const statEls = document.querySelectorAll(".list-stat-n");
+  const lastUpdatedEl = document.getElementById("listsLastUpdated");
+  try {
+    const resp = await safeSendMessage<ListsStatus>({ type: "SG_LISTS_STATUS" }, 3000);
+    if (resp?.ok && resp?.counts) {
+      const c = resp.counts;
+      const totalTrusted = c.trustedDomains + c.userTrustedDomains;
+      const totalBlockedD = c.blockedDomains + c.userBlockedDomains;
+      const totalBlockedA = c.blockedAddresses + c.userBlockedAddresses;
+      const totalScam = c.scamTokens + c.userScamTokens;
+      if (statEls[0]) statEls[0].textContent = String(totalTrusted);
+      if (statEls[1]) statEls[1].textContent = String(totalBlockedD);
+      if (statEls[2]) statEls[2].textContent = String(totalBlockedA);
+      if (statEls[3]) statEls[3].textContent = String(totalScam);
+    }
+    if (lastUpdatedEl) {
+      lastUpdatedEl.textContent = resp?.updatedAt
+        ? "Última atualização: " + new Date(resp.updatedAt).toLocaleString()
+        : "—";
+    }
+  } catch {
+    if (lastUpdatedEl) lastUpdatedEl.textContent = "Erro ao carregar.";
+  }
 }
 
 async function loadPlan() {
@@ -115,7 +157,7 @@ function listToLines(v: string[]): string {
   if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
 
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName: TabName = hash === "security" ? "security" : hash === "history" ? "history" : hash === "plan" ? "plan" : "settings";
+  const tabName: TabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "plan" ? "plan" : "settings";
   showTab(tabName);
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -130,7 +172,7 @@ function listToLines(v: string[]): string {
 
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "history" ? "history" : h === "plan" ? "plan" : "settings");
+    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "plan" ? "plan" : "settings");
   });
 
   showUsdEl?.addEventListener("change", async () => {
@@ -206,6 +248,122 @@ function listToLines(v: string[]): string {
     } catch (e) {
       if (planActivateStatusEl) planActivateStatusEl.textContent = "Erro: " + String((e as Error)?.message ?? e);
     }
+  });
+
+  document.getElementById("listsRefreshNow")?.addEventListener("click", async () => {
+    try {
+      await safeSendMessage({ type: "SG_LISTS_REFRESH_NOW" }, 15000);
+      loadListsTab();
+    } catch {}
+  });
+
+  const listsSearchInput = document.getElementById("listsSearchInput") as HTMLInputElement | null;
+  const listsSearchType = document.getElementById("listsSearchType") as HTMLSelectElement | null;
+  const listsSearchResults = document.getElementById("listsSearchResults");
+  document.getElementById("listsSearchBtn")?.addEventListener("click", async () => {
+    const query = listsSearchInput?.value?.trim() ?? "";
+    const type = (listsSearchType?.value || "") as "" | "domain" | "address" | "token";
+    if (!listsSearchResults) return;
+    try {
+      const resp = await safeSendMessage<{ ok?: boolean; items?: Array<{ type: string; value?: string; kind?: string; source?: string; chainId?: string; address?: string; symbol?: string }>; total?: number }>({
+        type: "SG_LISTS_SEARCH",
+        payload: { query, type, page: 0, pageSize: 50 },
+      }, 3000);
+      if (!resp?.ok || !Array.isArray(resp.items)) {
+        listsSearchResults.innerHTML = "<p>Nenhum resultado.</p>";
+        return;
+      }
+      const items = resp.items;
+      const total = resp.total ?? items.length;
+      listsSearchResults.innerHTML = items.length === 0
+        ? "<p>Nenhum resultado.</p>"
+        : "<p style='margin:0 0 8px 0;color:var(--text-muted);'>" + total + " resultado(s)</p>" + items.map((it: any) => {
+            if (it.type === "domain") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.value || "")}</code><span class="list-badge ${it.source === "user" ? "list-badge-user" : "list-badge-feed"}">${it.kind === "blocked" ? "bloqueado" : "confiável"} · ${it.source || "feed"}</span></div>`;
+            if (it.type === "address") return `<div style="margin-bottom:6px;"><code class="sg-mono">${escapeHtml((it.value || "").slice(0, 20))}…</code><span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
+            if (it.type === "token") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.chainId || "")}</code> <code class="sg-mono">${escapeHtml((it.address || "").slice(0, 16))}…</code>${it.symbol ? " " + escapeHtml(it.symbol) : ""}<span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
+            return "";
+          }).join("");
+    } catch {
+      listsSearchResults.innerHTML = "<p>Erro ao buscar.</p>";
+    }
+  });
+
+  function escapeHtml(s: string): string {
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  const listsAddDomain = document.getElementById("listsAddDomain") as HTMLInputElement | null;
+  const listsAddDomainKind = document.getElementById("listsAddDomainKind") as HTMLSelectElement | null;
+  document.getElementById("listsAddDomainBtn")?.addEventListener("click", async () => {
+    const domain = listsAddDomain?.value?.trim();
+    const type = (listsAddDomainKind?.value || "userTrustedDomains") as "userTrustedDomains" | "userBlockedDomains";
+    if (!domain) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type, domain } }, 3000);
+      if (listsAddDomain) listsAddDomain.value = "";
+      loadListsTab();
+    } catch {}
+  });
+
+  const listsAddAddress = document.getElementById("listsAddAddress") as HTMLInputElement | null;
+  document.getElementById("listsAddAddressBtn")?.addEventListener("click", async () => {
+    const address = listsAddAddress?.value?.trim();
+    if (!address || !address.startsWith("0x")) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userBlockedAddresses", address } }, 3000);
+      if (listsAddAddress) listsAddAddress.value = "";
+      loadListsTab();
+    } catch {}
+  });
+
+  const listsAddTokenChain = document.getElementById("listsAddTokenChain") as HTMLInputElement | null;
+  const listsAddTokenAddr = document.getElementById("listsAddTokenAddr") as HTMLInputElement | null;
+  document.getElementById("listsAddTokenBtn")?.addEventListener("click", async () => {
+    const chainId = listsAddTokenChain?.value?.trim();
+    const tokenAddress = listsAddTokenAddr?.value?.trim();
+    if (!chainId || !tokenAddress || !tokenAddress.startsWith("0x")) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userScamTokens", chainId, tokenAddress } }, 3000);
+      if (listsAddTokenAddr) listsAddTokenAddr.value = "";
+      loadListsTab();
+    } catch {}
+  });
+
+  document.getElementById("listsExport")?.addEventListener("click", async () => {
+    try {
+      const resp = await safeSendMessage<{ ok?: boolean; data?: { userTrustedDomains?: string[]; userBlockedDomains?: string[]; userBlockedAddresses?: string[]; userScamTokens?: unknown[] } }>({ type: "SG_LISTS_EXPORT" }, 3000);
+      if (!resp?.ok || !resp?.data) return;
+      const blob = new Blob([JSON.stringify({ ...resp.data, exportedAt: Date.now() }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "signguard-lists-overrides.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {}
+  });
+
+  const listsImportFile = document.getElementById("listsImportFile") as HTMLInputElement | null;
+  const listsImportStatus = document.getElementById("listsImportStatus");
+  listsImportFile?.addEventListener("change", async () => {
+    const file = listsImportFile?.files?.[0];
+    if (!listsImportStatus) return;
+    listsImportStatus.textContent = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await safeSendMessage({ type: "SG_LISTS_IMPORT", payload: { data } }, 5000);
+      listsImportStatus.textContent = "Importado (apenas overrides).";
+      loadListsTab();
+    } catch (e) {
+      listsImportStatus.textContent = "Erro: " + String((e as Error)?.message ?? e);
+    }
+    listsImportFile.value = "";
   });
 
   loadHistory();
