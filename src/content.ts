@@ -24,6 +24,7 @@ import {
 } from "./runtimeSafe";
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
 import { renderAdToast, dismissAdToast } from "./features/adToast";
+// mainWorld.js is loaded only via manifest (world: "MAIN"). No manual injection here.
 
 function isContextInvalidated(msg: string) {
   const s = (msg || "").toLowerCase();
