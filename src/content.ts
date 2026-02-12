@@ -998,6 +998,7 @@ function renderOverlay(state: OverlayState) {
     (analysis.level === "HIGH" && displayAction === "SIGN_TYPED_DATA" && (settings.requireTypedOverride ?? true));
 
   const isLoading = !!analysisLoading;
+  const showActivateProtectionLink = !isLoading && (analysis as any).simulationOutcome?.simulated === false;
 
   state.app.innerHTML = `
     <div class="sg-backdrop">
@@ -1262,6 +1263,7 @@ function renderOverlay(state: OverlayState) {
                 <button class="sg-btn sg-btn-primary" id="sg-continue">${escapeHtml(t("btn_continue"))}</button>
               `
           }
+          ${showActivateProtectionLink ? `<div class="sg-footer-cta" style="margin-top:10px;text-align:center;"><button type="button" id="sg-activate-protection" class="sg-link" style="font-size:12px;">Ativar Proteção Máxima</button></div>` : ""}
         </div>
       </div>
     </div>
@@ -1293,14 +1295,17 @@ function renderOverlay(state: OverlayState) {
   proceedBtn && (proceedBtn.onclick = () => decideCurrentAndAdvance(true));
   cancelBtn && (cancelBtn.onclick = () => decideCurrentAndAdvance(false));
 
-  const openOpt = state.shadow.getElementById("sg-open-options") as HTMLButtonElement | null;
-  openOpt && (openOpt.onclick = () => {
+  const openOptionsPage = () => {
     try {
       if (typeof (globalThis as any).chrome !== "undefined" && (globalThis as any).chrome.runtime?.openOptionsPage) {
         (globalThis as any).chrome.runtime.openOptionsPage();
       }
     } catch {}
-  });
+  };
+  const openOpt = state.shadow.getElementById("sg-open-options") as HTMLButtonElement | null;
+  openOpt && (openOpt.onclick = openOptionsPage);
+  const activateProtectionBtn = state.shadow.getElementById("sg-activate-protection") as HTMLButtonElement | null;
+  activateProtectionBtn && (activateProtectionBtn.onclick = openOptionsPage);
   const intelRefreshBtn = state.shadow.getElementById("sg-intel-refresh") as HTMLButtonElement | null;
   intelRefreshBtn && (intelRefreshBtn.onclick = async () => {
     try {

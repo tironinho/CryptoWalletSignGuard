@@ -313,6 +313,8 @@ export type Analysis = {
     fallback?: boolean;
     gasCostWei?: string;
     isHighGas?: boolean;
+    simulated?: boolean;
+    message?: string;
   };
   /** True when simulation predicted revert (show "ESTA TRANSAÇÃO VAI FALHAR"). */
   simulationRevert?: boolean;

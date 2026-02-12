@@ -7,7 +7,7 @@
 import type { Settings } from "../shared/types";
 
 const TENDERLY_API_BASE = "https://api.tenderly.co/api/v1";
-const SIMULATE_TIMEOUT_MS = 8000;
+const SIMULATE_TIMEOUT_MS = 4000;
 
 /** Request body for Tenderly simulate endpoint. */
 export interface SimulateTransactionBody {
@@ -38,6 +38,10 @@ export type SimulationOutcome = {
   gasCostWei?: string;
   /** True when estimated gas cost > $50 and tx value < $50 (set by background). */
   isHighGas?: boolean;
+  /** False when running without API (no keys / timeout); show "Modo Estático" CTA. */
+  simulated?: boolean;
+  /** Message when simulated is false (e.g. "Modo Estático (Adicione chaves para Simulação)"). */
+  message?: string;
 };
 
 /** Raw Tenderly simulation response (relevant fields). */
@@ -86,16 +90,17 @@ export async function simulateTransaction(
   body: SimulateTransactionBody,
   settings: Settings
 ): Promise<TenderlySimulationResponse | null> {
-  const sim = settings.simulation;
-  if (!sim?.enabled || !sim?.tenderlyKey?.trim()) return null;
-
-  const url = getSimulateUrl(settings);
-  if (!url) return null;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), SIMULATE_TIMEOUT_MS);
-
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
+    const sim = settings.simulation;
+    if (!sim?.enabled || !sim?.tenderlyKey?.trim()) return null;
+
+    const url = getSimulateUrl(settings);
+    if (!url) return null;
+
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), SIMULATE_TIMEOUT_MS);
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -106,13 +111,12 @@ export async function simulateTransaction(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    if (!res.ok) {
-      return null;
-    }
+    timeoutId = undefined;
+    if (!res.ok) return null;
     const data = (await res.json()) as TenderlySimulationResponse;
     return data;
   } catch {
-    clearTimeout(timeoutId);
+    if (timeoutId != null) try { clearTimeout(timeoutId); } catch {}
     return null;
   }
 }
@@ -125,6 +129,19 @@ export function makeSkippedOutcome(): SimulationOutcome {
     incomingAssets: [],
     gasUsed: "0",
     fallback: true,
+  };
+}
+
+/** Neutral outcome when credentials missing or timeout — graceful degradation, no throw. */
+export function makeStaticModeOutcome(): SimulationOutcome {
+  return {
+    status: "SKIPPED",
+    outgoingAssets: [],
+    incomingAssets: [],
+    gasUsed: "0",
+    fallback: true,
+    simulated: false,
+    message: "Modo Estático (Adicione chaves para Simulação)",
   };
 }
 
@@ -181,6 +198,7 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
     incomingAssets,
     gasUsed,
     gasCostWei,
+    simulated: true,
   };
 }
 
@@ -197,25 +215,25 @@ export async function runSimulation(
   gas: number | undefined,
   settings: Settings
 ): Promise<SimulationOutcome | null> {
-  const sim = settings.simulation;
-  if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
-    return null;
-  }
+  try {
+    const sim = settings.simulation;
+    if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
+      return makeStaticModeOutcome();
+    }
 
-  const body: SimulateTransactionBody = {
+    const body: SimulateTransactionBody = {
     network_id: networkId,
     from,
     to,
     input: input || "0x",
     value: value || "0x0",
   };
-  if (gas != null && gas > 0) body.gas = gas;
+    if (gas != null && gas > 0) body.gas = gas;
 
-  try {
     const raw = await simulateTransaction(body, settings);
     if (raw) return parseSimulationResult(raw);
-    return makeSkippedOutcome();
+    return makeStaticModeOutcome();
   } catch {
-    return makeSkippedOutcome();
+    return makeStaticModeOutcome();
   }
 }

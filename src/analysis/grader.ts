@@ -90,7 +90,11 @@ export function gradeTransaction(
   }
 
   if (outcome.status === "SKIPPED") {
-    reasons.push("Simulação Indisponível (Análise Estática Ativa)");
+    if (outcome.simulated === false) {
+      reasons.push("⚠️ Simulação Inativa");
+    } else {
+      reasons.push("Simulação Indisponível (Análise Estática Ativa)");
+    }
     const { letter, color } = scoreToLetter(score);
     return { score, letter, color, reasons };
   }

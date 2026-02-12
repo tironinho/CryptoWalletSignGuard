@@ -15,6 +15,10 @@ export type HoneypotResult = {
   reason?: string;
   ethSpent?: string;
   ethReceived?: string;
+  /** False when running without API (no keys). */
+  simulated?: boolean;
+  /** Message when simulated is false. */
+  message?: string;
 };
 
 /**
@@ -36,19 +40,19 @@ export async function runHoneypotCheck(
 ): Promise<HoneypotResult> {
   const sim = settings.simulation;
   if (!sim?.enabled || !sim?.tenderlyAccount?.trim() || !sim?.tenderlyProject?.trim() || !sim?.tenderlyKey?.trim()) {
-    return { isHoneypot: false };
+    return { isHoneypot: false, simulated: false, message: "Modo Estático (Adicione chaves para Simulação)" };
   }
 
-  const body: SimulateTransactionBody = {
-    network_id: networkId,
-    from,
-    to,
-    input: input || "0x",
-    value: value || "0x0",
-  };
-  if (gas != null && gas > 0) body.gas = gas;
-
   try {
+    const body: SimulateTransactionBody = {
+      network_id: networkId,
+      from,
+      to,
+      input: input || "0x",
+      value: value || "0x0",
+    };
+    if (gas != null && gas > 0) body.gas = gas;
+
     const raw = await simulateTransaction(body, settings);
     if (!raw) return { isHoneypot: false };
 
@@ -80,10 +84,7 @@ export async function runHoneypotCheck(
       }
     }
 
-    // HONEYPOT HARD: would require state override from Step A to run transfer(dead, amount) with user's post-buy balance.
-    // Without state_override the transfer would run in pre-buy state (0 balance) and revert => false positive. Skip for MVP.
     const _tokenToTest = tokenAddress || incomingTokenAddress;
-
     const spendNum = parseFloat(ethSpent);
     const receivedNum = parseFloat(ethReceived);
     if (spendNum > 0 && receivedNum > 0 && receivedNum / spendNum < HONEYPOT_SOFT_THRESHOLD) {

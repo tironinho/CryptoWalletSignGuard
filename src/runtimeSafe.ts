@@ -160,11 +160,7 @@ function sendMessageOneAttempt<T>(msg: unknown, timeoutMs: number): Promise<T | 
       });
     } catch (e) {
       clearTimeout(timer);
-      if (typeof console !== "undefined" && console.warn) {
-        try {
-          console.warn(LOG_PREFIX, (e as Error)?.message ?? "sendMessage failed");
-        } catch {}
-      }
+      // Production: no console.warn; keep only console.error in critical catch blocks
       once(null);
     }
   });
