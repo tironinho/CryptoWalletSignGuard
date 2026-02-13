@@ -71,7 +71,7 @@ import type { WalletInfo, WalletKind } from "./shared/types";
 const ID_TO_NAME: Record<WalletId, WalletName> = {
   metamask: "MetaMask",
   coinbase: "Coinbase Wallet",
-  trust: "Trust Wallet",
+  trust: "Trust Wallet" as WalletName,
   okx: "OKX Wallet",
   binance: "Binance Web3",
   rabby: "Rabby",

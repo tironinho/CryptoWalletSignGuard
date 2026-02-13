@@ -1118,7 +1118,7 @@ function getPort() {
     if (!canUseRuntime() || !c?.runtime?.connect) return null;
     if (_port) return _port;
     _port = c.runtime.connect({ name: "sg_port" });
-    _port.onDisconnect.addListener(() => {
+    _port?.onDisconnect.addListener(() => {
       _port = null;
       _portListenerInit = false;
     });

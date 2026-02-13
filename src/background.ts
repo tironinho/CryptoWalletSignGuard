@@ -366,6 +366,7 @@ function getMinimalSeedIntel(): ThreatIntel {
     trustedSeed: [...TRUSTED_SEED],
     blockedDomainsList: [],
     blockedAddressesList: [],
+    trustedTokenAddresses: [],
   };
 }
 const ASSET_CACHE_KEY = "sg_asset_cache";
@@ -770,7 +771,7 @@ function domainHeuristicsLocalized(host: string): { level: "LOW" | "WARN"; reaso
     { legit: "opensea.io", typos: ["opensea-", "open-sea", "0pensea"] },
   ];
   for (const s of suspects) {
-    if (s.typos.some((tt) => h.includes(tt))) reasons.push(t("domainLookalikeReason", s.legit));
+    if (s.typos.some((tt) => h.includes(tt))) reasons.push(t("domainLookalikeReason", { domain: s.legit }));
   }
 
   return { level: reasons.length ? "WARN" : "LOW", reasons };
@@ -1240,7 +1241,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
   const inCustomTrusted = customTrusted.some((d) => hostMatches(intelHost, d));
   const intelEnabled = settings.enableIntel !== false;
   const isBlocked = inCustomBlocked || (!!intelEnabled && !!intel && hostInBlocked(intel, intelHost));
-  const isTrustedSeed = inCustomTrusted || (!!intel && (intel.trustedSeed || (intel as any).trustedDomainsSeed || intel.trustedDomains)?.some?.((d: string) => hostMatches(intelHost, d)));
+  const isTrustedSeed = inCustomTrusted || (!!intel && (intel.trustedSeed || (intel as any).trustedDomainsSeed || (intel as any).trustedDomains)?.some?.((d: string) => hostMatches(intelHost, d)));
   const safeDomain = (isTrustedSeed || listTrusted) && !isBlocked;
 
   // Strong lookalike scoring (always)
@@ -1256,7 +1257,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
         level = "HIGH";
         score = Math.max(score, 85);
         title = t("suspiciousWebsitePatterns");
-      } else if (level !== "HIGH") {
+      } else {
         level = "WARN";
         score = Math.max(score, 45);
         title = t("suspiciousWebsitePatterns");
@@ -1708,13 +1709,13 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
       for (const addr of candidates) {
         const a = addr.toLowerCase();
         if (!a || a.length < 40) continue;
-        const match = blocked.find((b) => b.address.toLowerCase() === a && (!b.chainId || b.chainId.toLowerCase() === (chainId || "")));
+        const match = blocked.find((b: any) => b.address.toLowerCase() === a && (!b.chainId || b.chainId.toLowerCase() === (chainId || "")));
         if (match) { flaggedAddr = match; reasons.unshift(t("address_flagged_reason", { label: match.label, category: match.category })); break; }
         if (listCache && isBlockedAddress(a, listCache)) {
           reasons.unshift("Address is on the blocklist.");
           level = "HIGH";
           score = Math.max(score, 95);
-          flaggedAddr = { address: a, label: "Blocklist", category: "blocklist" };
+          flaggedAddr = { address: a, label: "Blocklist", category: "blocklist" as any, sourceId: "blocklist", confidence: 1 as const, updatedAt: Date.now() };
           break;
         }
       }
@@ -1762,7 +1763,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
             recommend: addrIntelRecommend ?? (settings.blockHighRisk ? "BLOCK" : "WARN"),
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
-            tx: txSummary,
+            tx: txSummary || undefined,
             txExtras,
             intent: "APPROVAL",
             asset: asset || undefined,
@@ -1808,7 +1809,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
             recommend: addrIntelRecommend ?? "WARN",
             trust,
             suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
-            tx: txSummary,
+            tx: txSummary || undefined,
             txExtras,
             intent: "APPROVAL",
             asset: asset || undefined,
@@ -1857,7 +1858,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
           recommend: addrIntelRecommend ?? (settings.blockHighRisk ? "BLOCK" : "WARN"),
           trust,
           suggestedTrustedDomains: [...SUGGESTED_TRUSTED_DOMAINS],
-          tx: txSummary,
+          tx: txSummary || undefined,
           txExtras,
           intent: "APPROVAL",
           asset: asset || undefined,

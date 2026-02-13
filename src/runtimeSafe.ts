@@ -43,7 +43,7 @@ function getPort(): chrome.runtime.Port | null {
     if (!canUseRuntime() || !c?.runtime?.connect) return null;
     if (_port) return _port;
     _port = c.runtime.connect({ name: "sg_port" });
-    _port.onDisconnect.addListener(() => {
+    _port?.onDisconnect.addListener(() => {
       _port = null;
       _portListenerInit = false;
     });
@@ -211,7 +211,7 @@ export async function safeStorageGet<T = any>(keys: unknown): Promise<StorageRes
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.get(keys, (items: T) => {
+      chrome.storage.sync.get(keys as any, (items: T) => {
         try {
           const err = chrome.runtime.lastError;
           if (err) {

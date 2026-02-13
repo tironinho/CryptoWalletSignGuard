@@ -12,7 +12,7 @@ const refuseBtn = document.getElementById("sgOnbRefuse");
 
 async function onAccept() {
   if (!acceptBtn) return;
-  acceptBtn.disabled = true;
+  (acceptBtn as HTMLButtonElement).disabled = true;
   try {
     await new Promise<void>((resolve, reject) => {
       chrome.storage.local.set(
@@ -57,7 +57,7 @@ async function onAccept() {
 
 function onRefuse() {
   if (!refuseBtn) return;
-  refuseBtn.disabled = true;
+  (refuseBtn as HTMLButtonElement).disabled = true;
   try {
     if (typeof chrome?.runtime?.getURL === "function") {
       chrome.tabs.create?.({ url: "chrome://extensions/?id=" + chrome.runtime.id });

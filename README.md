@@ -9,14 +9,14 @@ npm i
 npm run build
 ```
 
-- **Output:** `dist/` (bundles) and **`extension/`** (ready for Load unpacked). The build flattens `dist/*` into `extension/`, writes `extension/manifest.json` from `src/manifest.template.json`, and keeps `_locales` at the root of `extension/`. **Always load the `extension/` folder** — no root or dist.
+- **Output:** `dist/` (bundles) and **`extension/`** (ready for Load unpacked). The build flattens `dist/*` into `extension/`, writes `extension/manifest.json` from `src/manifest.template.json`, and keeps `_locales` at the root of `extension/`. **Always load the `extension/` folder** — the project root and `dist/` do not contain `manifest.json`; only `extension/` is valid for "Load unpacked".
 
 ## Load unpacked (testar local)
 
 - Open `chrome://extensions`
 - Enable **Developer mode**
 - Click **Load unpacked**
-- **Select the `extension/` folder** (created by `npm run build`). It contains `manifest.json` at the root and all scripts/assets.
+- **Select the `extension/` folder** (created by `npm run build`). It contains `manifest.json` at the root and all scripts/assets. Do not select the project root or `dist/` — the Chrome unpacked loader requires the folder that contains `manifest.json` (i.e. `extension/`).
 
 ## Pack (publicar / loja)
 
