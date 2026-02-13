@@ -1878,6 +1878,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               blockedDomains: lists.blockedDomains.length,
               blockedAddresses: lists.blockedAddresses.length,
               scamTokens: lists.scamTokens.length,
+              userTrustedDomains: lists.userTrustedDomains.length,
+              userBlockedDomains: lists.userBlockedDomains.length,
+              userBlockedAddresses: lists.userBlockedAddresses.length,
+              userScamTokens: lists.userScamTokens.length,
             },
             sources: lists.sources,
           });
@@ -1894,6 +1898,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 blockedDomains: lists.blockedDomains.length,
                 blockedAddresses: lists.blockedAddresses.length,
                 scamTokens: lists.scamTokens.length,
+                userTrustedDomains: lists.userTrustedDomains.length,
+                userBlockedDomains: lists.userBlockedDomains.length,
+                userBlockedAddresses: lists.userBlockedAddresses.length,
+                userScamTokens: lists.userScamTokens.length,
               },
               sources: lists.sources,
             });

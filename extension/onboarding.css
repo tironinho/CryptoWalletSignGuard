@@ -1,0 +1,129 @@
+/* SignGuard Onboarding — Dark SaaS / Cyberpunk (same theme as Dashboard) */
+:root {
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-primary: #3b82f6;
+  --accent-neon: rgba(59, 130, 246, 0.6);
+  --accent-danger: #ef4444;
+  --border-subtle: #334155;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-main);
+  margin: 0;
+  min-height: 100vh;
+}
+
+.sg-onb {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.sg-onb-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.sg-onb-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 12px 0;
+  letter-spacing: -0.02em;
+}
+
+.sg-onb-desc {
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 0 0 28px 0;
+}
+
+.sg-onb-checklist-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sg-onb-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 28px 0;
+}
+
+.sg-onb-item {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.sg-onb-item:last-child {
+  border-bottom: none;
+}
+
+.sg-onb-item--yes {
+  color: var(--text-main);
+}
+
+.sg-onb-item--no {
+  color: var(--text-muted);
+}
+
+.sg-onb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sg-onb-btn {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 14px 24px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: opacity 0.2s, box-shadow 0.2s;
+  border: none;
+}
+
+.sg-onb-btn:hover {
+  opacity: 0.95;
+}
+
+.sg-onb-btn--primary {
+  background: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 0 20px var(--accent-neon);
+}
+
+.sg-onb-btn--primary:hover {
+  box-shadow: 0 0 28px var(--accent-neon);
+}
+
+.sg-onb-btn--secondary {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.sg-onb-btn--secondary:hover {
+  color: var(--accent-danger);
+}

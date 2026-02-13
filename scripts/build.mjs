@@ -9,6 +9,7 @@ const clean = args.has("--clean");
 const ROOT = path.resolve(process.cwd());
 const SRC = path.join(ROOT, "src");
 const DIST = path.join(ROOT, "dist");
+const EXTENSION = path.join(ROOT, "extension");
 
 function rimraf(p) {
   if (!fs.existsSync(p)) return;
@@ -106,5 +107,9 @@ for (const [name, entry] of Object.entries(extraEntryPoints)) {
   await runBuild(name, entry, "esm");
 }
 
+// Copy dist to extension/ so "Load unpacked" can point to extension/ (manifest + js/html at same level)
+rimraf(EXTENSION);
+copyDir(DIST, EXTENSION);
 console.log("Build complete:", DIST);
+console.log("Extension folder (load this in chrome://extensions):", EXTENSION);
 if (watch) console.log("Watching for changes... (reload extension after rebuilds)");

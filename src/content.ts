@@ -25,6 +25,26 @@ import {
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
 import { renderAdToast, dismissAdToast } from "./features/adToast";
 
+// Fallback: inject mainWorld only if manifest-injected MAIN script did not run (e.g. CSP). Check attribute set by mainWorld.
+(function injectMainWorldFallback() {
+  try {
+    if (document.documentElement.getAttribute("data-signguard-mainworld") === "1") return;
+    if (!isRuntimeUsable()) return;
+    const id = "sg-mainworld-injected";
+    if (document.getElementById(id)) return;
+    const href = safeGetURL("mainWorld.js");
+    if (!href) return;
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = href;
+    s.type = "text/javascript";
+    (document.documentElement || document.head).appendChild(s);
+    s.onload = () => { try { s.remove(); } catch {} };
+  } catch {
+    // CSP or other; do not break content script
+  }
+})();
+
 function isContextInvalidated(msg: string) {
   const s = (msg || "").toLowerCase();
   return s.includes("extension context invalidated") ||
@@ -1161,7 +1181,7 @@ function renderOverlay(state: OverlayState) {
                     const symbol = typeof tokenSymbol === "string" && tokenSymbol ? tokenSymbol : "";
                     const label = tokenVerified ? t("token_verified_uniswap") : t("token_unknown_unverified");
                     return `<div class="sg-token-badge-row" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                      <img class="sg-token-logo" src="${escapeHtml(imgSrc)}" alt="" width="24" height="24" loading="lazy" onerror="this.src='${placeholderSvg}'" />
+                      <img class="sg-token-logo" src="${escapeHtml(imgSrc)}" data-fallback="${escapeHtml(placeholderSvg)}" alt="" width="24" height="24" loading="lazy" />
                       ${symbol ? `<span class="sg-mono">${escapeHtml(symbol)}</span>` : ""}
                       <span class="sg-token-badge ${tokenVerified ? "sg-token-verified" : "sg-token-unknown"}">${tokenVerified ? "✅" : "⚠️"} ${escapeHtml(label)}</span>
                     </div>`;
@@ -1345,6 +1365,17 @@ function renderOverlay(state: OverlayState) {
       </div>
     </div>
   `;
+
+  // CSP: avoid inline onerror; attach fallback via JS so no inline handler runs in page context
+  try {
+    state.shadow.querySelectorAll("img.sg-token-logo[data-fallback]").forEach((img) => {
+      img.addEventListener("error", () => {
+        const el = img as HTMLImageElement;
+        const fb = el.dataset.fallback;
+        if (fb && el.src !== fb) el.src = fb;
+      }, { once: true });
+    });
+  } catch {}
 
   // Bind buttons (requestId may change on update)
   const closeBtn = state.shadow.getElementById("sg-close") as HTMLElement | null;

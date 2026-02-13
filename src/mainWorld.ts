@@ -1,5 +1,8 @@
 // Runs in the MAIN world (MV3 content script with content_scripts[].world = "MAIN").
 (window as any).__signguard_mainworld = true;
+try {
+  document.documentElement.setAttribute("data-signguard-mainworld", "1");
+} catch {}
 // Implements a correct "defer + resume" pipeline:
 import { estimateFee } from "./feeEstimate";
 import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalletBrand, listEvmProviders } from "./walletDetect";
@@ -130,6 +133,22 @@ function toChainIdHex(chainId: string | number | null | undefined): string | nul
   return "0x" + n.toString(16);
 }
 
+const CHAIN_ID_FALLBACK_MS = 800;
+/** Resolve chainIdHex from provider; if empty, fetch via eth_chainId (with timeout). */
+async function resolveChainIdHex(provider: any, rawRequest: (args: any) => Promise<any>): Promise<string | null> {
+  const fromProvider = toChainIdHex(provider?.chainId ?? null);
+  if (fromProvider && fromProvider !== "0x0") return fromProvider;
+  try {
+    const result = await Promise.race([
+      rawRequest({ method: "eth_chainId", params: [], [SG_BYPASS]: true }),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), CHAIN_ID_FALLBACK_MS)),
+    ]);
+    return toChainIdHex(result);
+  } catch {
+    return fromProvider;
+  }
+}
+
 type EIP6963Provider = { uuid: string; name: string; icon?: string; rdns?: string; providerRef: any };
 
 const SG_ANNOUNCED_PROVIDERS: EIP6963Provider[] = [];
@@ -233,31 +252,36 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
       const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
       const walletBrand = detectWalletBrand(provider, eip6963DisplayName);
       const providerKey = [providerSource || "window.ethereum", walletMeta.id, providerIndex ?? ""].filter(Boolean).join(":");
-      try {
-        window.postMessage({
-          source: "signguard-inpage",
-          type: "SG_REQUEST",
-          requestId,
-          payload: {
-            id: requestId,
-            url: location.href,
-            origin: location.origin,
-            host: location.host,
-            method,
-            params: Array.isArray(params) ? params : (params ?? null),
-            chainId: provider?.chainId ?? null,
-            chainIdHex: toChainIdHex(provider?.chainId ?? null),
-            wallet: { ...walletInfo, id: walletMeta.id, walletBrand, walletName: walletInfo.walletName || walletBrand },
-            providerKey,
-            providerSource: providerSource || "window.ethereum",
-            request: { method, params: Array.isArray(params) ? params : undefined },
-            providerTag,
-            providerHint: { kind: walletInfo.name, name: walletInfo.name },
-            meta: buildRpcMeta(method, params, provider),
-            txCostPreview,
-          }
-        }, "*");
-      } catch {}
+      (async () => {
+        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
+        const meta = buildRpcMeta(method, params, provider);
+        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
+        try {
+          window.postMessage({
+            source: "signguard-inpage",
+            type: "SG_REQUEST",
+            requestId,
+            payload: {
+              id: requestId,
+              url: location.href,
+              origin: location.origin,
+              host: location.host,
+              method,
+              params: Array.isArray(params) ? params : (params ?? null),
+              chainId: chainIdHex ?? provider?.chainId ?? null,
+              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
+              wallet: { ...walletInfo, id: walletMeta.id, walletBrand, walletName: walletInfo.walletName || walletBrand },
+              providerKey,
+              providerSource: providerSource || "window.ethereum",
+              request: { method, params: Array.isArray(params) ? params : undefined },
+              providerTag,
+              providerHint: { kind: walletInfo.name, name: walletInfo.name },
+              meta,
+              txCostPreview,
+            }
+          }, "*");
+        } catch {}
+      })();
     });
   }
 
@@ -317,6 +341,9 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
         const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
         const walletBrandInner = detectWalletBrand(provider, eip6963DisplayName);
         const providerKey = [providerSource || "window.ethereum", walletMetaInner.id, providerIndex ?? ""].filter(Boolean).join(":");
+        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
+        const meta = buildRpcMeta(method, params, provider);
+        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
         try {
           window.postMessage({
             source: "signguard-inpage",
@@ -329,15 +356,15 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
               host: location.host,
               method,
               params: Array.isArray(params) ? params : (params ?? null),
-              chainId: provider?.chainId ?? null,
-              chainIdHex: toChainIdHex(provider?.chainId ?? null),
+              chainId: chainIdHex ?? provider?.chainId ?? null,
+              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
               wallet: { ...walletInfo, id: walletMetaInner.id, walletBrand: walletBrandInner, walletName: walletInfo.walletName || walletBrandInner },
               providerKey,
               providerSource: providerSource || "window.ethereum",
               request: { method, params: Array.isArray(params) ? params : undefined },
               providerTag,
               providerHint: { kind: walletInfo.name, name: walletInfo.name },
-              meta: buildRpcMeta(method, params, provider),
+              meta,
               txCostPreview,
             }
           }, "*");
@@ -406,6 +433,9 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
         const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
         const walletBrandAsync = detectWalletBrand(provider, eip6963DisplayName);
         const providerKey = [providerSource || "window.ethereum", walletMetaAsync.id, providerIndex ?? ""].filter(Boolean).join(":");
+        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
+        const meta = buildRpcMeta(method, params, provider);
+        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
         try {
           window.postMessage({
             source: "signguard-inpage",
@@ -418,15 +448,15 @@ function wrapProvider(provider: any, providerTag?: string, providerSource?: "win
               host: location.host,
               method,
               params: Array.isArray(params) ? params : (params ?? null),
-              chainId: provider?.chainId ?? null,
-              chainIdHex: toChainIdHex(provider?.chainId ?? null),
+              chainId: chainIdHex ?? provider?.chainId ?? null,
+              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
               wallet: { ...walletInfo, id: walletMetaAsync.id, walletBrand: walletBrandAsync, walletName: walletInfo.walletName || walletBrandAsync },
               providerKey,
               providerSource: providerSource || "window.ethereum",
               request: { method, params: Array.isArray(params) ? params : undefined },
               providerTag,
               providerHint: { kind: walletInfo.name, name: walletInfo.name },
-              meta: buildRpcMeta(method, params, provider),
+              meta,
               txCostPreview,
             }
           }, "*");

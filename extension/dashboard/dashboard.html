@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SignGuard — Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <div class="sg-layout">
+    <aside class="sg-sidebar">
+      <div class="sg-sidebar-brand">
+        <span class="sg-sidebar-title">SignGuard</span>
+      </div>
+      <nav class="sg-sidebar-nav">
+        <a id="navOverview" href="#overview" class="sg-nav-item sg-nav-active">Visão geral</a>
+        <a id="navAllowances" href="#allowances" class="sg-nav-item">Aprovações</a>
+      </nav>
+      <div class="sg-sidebar-footer">
+        <a id="configLink" href="#" class="sg-nav-item">Configurações</a>
+      </div>
+    </aside>
+
+    <main class="sg-main">
+      <header class="sg-main-header">
+        <h1 class="sg-main-title">Dashboard</h1>
+      </header>
+
+      <section id="sectionOverview" class="sg-section">
+        <div class="sg-stats-grid">
+          <div class="sg-stat-card">
+            <span class="sg-stat-label">Estado</span>
+            <span id="protectionLevel" class="sg-stat-value sg-badge-active">Ativo</span>
+          </div>
+          <div class="sg-stat-card">
+            <span class="sg-stat-label">Última verificação</span>
+            <span id="lastVerification" class="sg-stat-value sg-stat-mono">—</span>
+          </div>
+          <div class="sg-stat-card sg-stat-card-highlight">
+            <span class="sg-stat-label">Riscos bloqueados</span>
+            <span id="statRisksBlocked" class="sg-stat-value">—</span>
+          </div>
+          <div class="sg-stat-card sg-stat-card-highlight">
+            <span class="sg-stat-label">Valor salvo (estim.)</span>
+            <span id="statValueSaved" class="sg-stat-value">—</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="sectionAllowances" class="sg-section">
+        <div class="sg-section-head">
+          <h2 class="sg-section-title">Token Allowances</h2>
+          <button id="refreshAllowances" type="button" class="sg-btn-link">Atualizar</button>
+        </div>
+        <p class="sg-muted sg-text-sm sg-section-desc">Aprovações de tokens ERC-20. Use Revoke.cash para revogar aprovações na carteira.</p>
+        <div id="allowancesWrap" class="sg-allowances-wrap">
+          <div id="allowancesList" class="sg-allowances-table-wrap"></div>
+          <p id="allowancesEmpty" class="sg-muted sg-text-sm hidden">Introduza um endereço e clique em Carregar aprovações.</p>
+          <p id="allowancesError" class="sg-error hidden"></p>
+        </div>
+        <div class="sg-flex-wrap">
+          <input type="text" id="walletAddress" placeholder="0x..." class="sg-input" />
+          <button id="loadAllowances" type="button" class="sg-btn">Carregar aprovações</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="./dashboard.js"></script>
+</body>
+</html>

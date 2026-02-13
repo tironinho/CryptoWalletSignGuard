@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignGuard - Configurações</title>
+  <style>
+    :root { --bg-dark: #0f172a; --bg-panel: #1e293b; --bg-hover: #334155; --text-main: #f8fafc; --text-muted: #94a3b8; --accent: #3b82f6; --accent-glow: rgba(59, 130, 246, 0.3); --danger: #ef4444; --border: rgba(148, 163, 184, 0.15); --radius: 12px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: sans-serif; background: var(--bg-dark); color: var(--text-main); display: flex; min-height: 100vh; }
+    .layout { display: flex; width: 100%; max-width: 1200px; margin: 0 auto; }
+    .sidebar { width: 260px; padding: 30px 20px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+    .brand { font-size: 1.25rem; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    .nav-btn { background: transparent; border: none; color: var(--text-muted); padding: 12px 16px; text-align: left; font-size: 0.95rem; font-weight: 500; border-radius: var(--radius); cursor: pointer; transition: all 0.2s; }
+    .nav-btn:hover { background: var(--bg-hover); color: var(--text-main); }
+    .nav-btn.active { background: rgba(59, 130, 246, 0.15); color: var(--accent); font-weight: 600; }
+    .content { flex: 1; padding: 40px; overflow-y: auto; }
+    .panel-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 10px 0; }
+    .panel-desc { color: var(--text-muted); margin-bottom: 30px; font-size: 0.95rem; }
+    .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border); }
+    .setting-row:last-child { border-bottom: none; }
+    textarea, input[type="text"] { width: 100%; background: #020617; border: 1px solid var(--border); color: var(--text-main); padding: 12px; border-radius: 8px; margin-top: 10px; }
+    .sg-btn { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .3s; border-radius: 24px; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(20px); }
+    .hidden { display: none !important; }
+    section.tab-panel { display: none; }
+    section.tab-panel.active { display: block; }
+    .list-stat { background: rgba(15,23,42,0.6); border-radius: 8px; padding: 12px; text-align: center; }
+    .list-stat-n { display: block; font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .list-stat-l { font-size: 0.8rem; color: var(--text-muted); }
+    .list-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; margin-left: 6px; }
+    .list-badge-user { background: rgba(59,130,246,0.2); color: #93c5fd; }
+    .list-badge-feed { background: rgba(148,163,184,0.2); color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">🛡️ SignGuard</div>
+      <button class="nav-btn tab-btn active" data-tab="settings" type="button">⚙️ Geral</button>
+      <button class="nav-btn tab-btn" data-tab="security" type="button">🔒 Segurança</button>
+      <button class="nav-btn tab-btn" data-tab="lists" type="button">📋 Listas</button>
+      <button class="nav-btn tab-btn" data-tab="history" type="button">📜 Histórico</button>
+    </aside>
+    <main class="content">
+      <section id="tab-settings" class="tab-panel active">
+        <h1 class="panel-title">Configurações Gerais</h1>
+        <div class="card">
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Exibir valores em USD</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Converte valores do token nativo da rede (ETH/MATIC/BNB/etc.) para Dólar. O símbolo depende da rede atual (chainId).</p></div>
+            <label class="switch"><input type="checkbox" id="showUsd"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Intel de Endereços</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Mostrar etiquetas em contratos conhecidos.</p></div>
+            <label class="switch"><input type="checkbox" id="addressIntel"><span class="slider"></span></label>
+          </div>
+        </div>
+      </section>
+      <section id="tab-security" class="tab-panel hidden">
+        <h1 class="panel-title">Segurança Avançada</h1>
+        <div class="card">
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">🛡️ Modo Fortaleza</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Bloqueia aprovações em sites desconhecidos.</p></div>
+            <label class="switch"><input type="checkbox" id="fortressMode"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 8px 0;">Lista de Confiança (Whitelist)</h3>
+          <textarea id="whitelistInput" rows="5" placeholder="ex: app.uniswap.org"></textarea>
+          <div style="margin-top:10px; text-align:right;"><button id="saveWhitelist" class="sg-btn" type="button">Salvar</button></div>
+        </div>
+      </section>
+      <section id="tab-lists" class="tab-panel hidden">
+        <h1 class="panel-title">Listas (Whitelist / Blacklist)</h1>
+        <p class="panel-desc">Domínios confiáveis/bloqueados, endereços bloqueados e tokens scam. Atualização automática a cada 6h.</p>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios confiáveis</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios bloqueados</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Endereços bloqueados</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens scam</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span id="listsLastUpdated" style="color:var(--text-muted);font-size:0.9rem;">—</span>
+            <button id="listsRefreshNow" class="sg-btn" type="button" style="background:#334155;">Atualizar agora</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Buscar</h3>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" id="listsSearchInput" placeholder="Domínio, endereço ou símbolo..." style="flex:1;min-width:180px;" />
+            <select id="listsSearchType"><option value="">Todos</option><option value="domain">Domínio</option><option value="address">Endereço</option><option value="token">Token</option></select>
+            <button id="listsSearchBtn" class="sg-btn" type="button" style="background:#334155;">Buscar</button>
+          </div>
+          <div id="listsSearchResults" style="min-height:80px;color:var(--text-muted);font-size:0.9rem;">Use a busca acima.</div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Overrides do usuário</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <input type="text" id="listsAddDomain" placeholder="ex: example.com" style="width:200px;" />
+            <select id="listsAddDomainKind"><option value="userTrustedDomains">Confiável</option><option value="userBlockedDomains">Bloquear</option></select>
+            <button id="listsAddDomainBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar domínio</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <input type="text" id="listsAddAddress" placeholder="0x..." style="width:320px;" />
+            <button id="listsAddAddressBtn" class="sg-btn" type="button" style="background:#334155;">Bloquear endereço</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" id="listsAddTokenChain" placeholder="ChainId (ex: 0x1)" style="width:100px;" />
+            <input type="text" id="listsAddTokenAddr" placeholder="Endereço do token 0x..." style="width:320px;" />
+            <button id="listsAddTokenBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar token scam</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Importar / Exportar</h3>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Apenas overrides do usuário (domínios e endereços que você adicionou).</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="listsExport" class="sg-btn" type="button" style="background:#334155;">Exportar JSON</button>
+            <label class="sg-btn" style="background:#334155;cursor:pointer;display:inline-block;"><input type="file" id="listsImportFile" accept=".json" style="display:none;">Importar JSON</label>
+          </div>
+          <p id="listsImportStatus" style="margin:10px 0 0 0;font-size:0.9rem;color:var(--text-muted);"></p>
+        </div>
+      </section>
+      <section id="tab-history" class="tab-panel hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h1 class="panel-title" style="margin:0;">Histórico</h1>
+          <div style="display:flex; gap:8px;">
+            <button id="historyExport" class="sg-btn" type="button" style="background:#334155;">Exportar</button>
+            <button id="clearHistory" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+          </div>
+        </div>
+        <div class="card"><div id="historyList">Carregando...</div></div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

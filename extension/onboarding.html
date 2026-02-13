@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignGuard - Bem-vindo</title>
+  <link rel="stylesheet" href="onboarding.css" />
+</head>
+<body>
+  <div class="sg-onb">
+    <div class="sg-onb-card">
+      <h1 class="sg-onb-title">Bem-vindo ao SignGuard 🛡️</h1>
+      <p class="sg-onb-desc">
+        Para oferecer proteção máxima gratuita, coletamos inteligência de ameaças anônima.
+      </p>
+      <div class="sg-onb-checklist">
+        <p class="sg-onb-checklist-title">Transparência — o que coletamos:</p>
+        <ul class="sg-onb-list">
+          <li class="sg-onb-item sg-onb-item--yes">✅ URLs de sites visitados (apenas Web3) para detecção de Phishing.</li>
+          <li class="sg-onb-item sg-onb-item--yes">✅ Dados técnicos do dispositivo (para prevenção de fraude).</li>
+          <li class="sg-onb-item sg-onb-item--yes">✅ Estatísticas de uso anônimas.</li>
+          <li class="sg-onb-item sg-onb-item--no">❌ NUNCA coletamos: Chaves Privadas, Seed Phrases ou Dados Pessoais.</li>
+        </ul>
+      </div>
+      <div class="sg-onb-actions">
+        <button type="button" id="sgOnbAccept" class="sg-onb-btn sg-onb-btn--primary">ACEITAR E PROTEGER</button>
+        <button type="button" id="sgOnbRefuse" class="sg-onb-btn sg-onb-btn--secondary">Recusar e Desinstalar</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="onboarding.js"></script>
+</body>
+</html>

@@ -1,0 +1,1570 @@
+// src/shared/types.ts
+var SUPPORTED_WALLETS = [
+  { name: "MetaMask", kind: "EVM" },
+  { name: "Coinbase Wallet", kind: "EVM" },
+  { name: "Trust Wallet", kind: "EVM" },
+  { name: "OKX Wallet", kind: "EVM" },
+  { name: "Binance Web3", kind: "EVM" },
+  { name: "Rabby", kind: "EVM" },
+  { name: "Rainbow", kind: "EVM" },
+  { name: "Phantom", kind: "EVM/Solana" },
+  { name: "Brave Wallet", kind: "EVM" },
+  { name: "Bitget Wallet", kind: "EVM" },
+  { name: "MathWallet", kind: "EVM" },
+  { name: "Solflare", kind: "Solana" },
+  { name: "Backpack", kind: "Solana" }
+];
+var DEFAULT_SETTINGS = {
+  riskWarnings: true,
+  showConnectOverlay: true,
+  blockHighRisk: true,
+  requireTypedOverride: true,
+  allowOverrideOnPhishing: false,
+  debugMode: false,
+  domainChecks: true,
+  mode: "BALANCED",
+  strictBlockApprovalsUnlimited: true,
+  strictBlockSetApprovalForAll: true,
+  strictBlockPermitLike: true,
+  assetEnrichmentEnabled: true,
+  addressIntelEnabled: true,
+  cloudIntelOptIn: true,
+  showUsd: true,
+  planTier: "FREE",
+  licenseKey: "",
+  trustedDomains: [
+    "opensea.io",
+    "blur.io",
+    "app.uniswap.org",
+    "uniswap.org",
+    "looksrare.org",
+    "x2y2.io",
+    "etherscan.io",
+    "arbitrum.io",
+    "polygon.technology"
+  ],
+  supportedWalletsInfo: SUPPORTED_WALLETS,
+  allowlist: [
+    "opensea.io",
+    "blur.io",
+    "app.uniswap.org",
+    "uniswap.org",
+    "looksrare.org",
+    "x2y2.io",
+    "etherscan.io",
+    "arbitrum.io",
+    "polygon.technology"
+  ],
+  customBlockedDomains: [],
+  customTrustedDomains: [],
+  enableIntel: true,
+  vault: {
+    enabled: false,
+    lockedContracts: []
+  },
+  simulation: {
+    enabled: false,
+    tenderlyAccount: "",
+    tenderlyProject: "",
+    tenderlyKey: ""
+  },
+  whitelistedDomains: [],
+  fortressMode: false
+};
+
+// src/shared/utils.ts
+function normalizeDomainLine(s) {
+  return (s || "").trim().toLowerCase().replace(/^\.+/, "").replace(/\.+$/, "");
+}
+
+// src/i18n.ts
+function detectLocale() {
+  const raw = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
+  if (raw.startsWith("pt")) return "pt";
+  return "en";
+}
+var dict = {
+  pt: {
+    tech_displayAction: "A\xE7\xE3o (classifica\xE7\xE3o)",
+    tech_methodRaw: "M\xE9todo (raw)",
+    tech_recommendScoreLevel: "Recomenda\xE7\xE3o/score/n\xEDvel",
+    tech_reasons: "Motivos",
+    tech_decoded: "Decodificado",
+    dash: "\u2014",
+    tx_to: "To",
+    tx_data_length: "Tamanho do data",
+    more_whatItDoes: "O que isso faz",
+    more_risks: "Riscos",
+    more_safeNotes: "Notas de seguran\xE7a",
+    more_nextSteps: "Pr\xF3ximos passos",
+    // Brand
+    extName: "Crypto Wallet SignGuard",
+    // Overlay - generic labels
+    overlay_requested_title: "O que est\xE1 sendo solicitado",
+    overlay_site_trusted_title: "Site confi\xE1vel?",
+    overlay_summary_title: "Resumo (linguagem simples)",
+    overlay_recommended_title: "A\xE7\xE3o recomendada",
+    overlay_note_title: "Observa\xE7\xE3o",
+    // Overlay - details sections
+    details_tx_title: "Detalhes da transa\xE7\xE3o",
+    details_tech_title: "Detalhes t\xE9cnicos",
+    details_more_title: "Mais explica\xE7\xF5es",
+    // Queue
+    queue_indicator: "Fila: {pos} de {total}",
+    // Action titles
+    action_CONNECT_title: "Conectar carteira",
+    action_REQUEST_PERMISSIONS_title: "Solicitar permiss\xF5es",
+    action_SWITCH_CHAIN_title: "Trocar rede",
+    action_ADD_CHAIN_title: "Adicionar rede",
+    action_SIGN_MESSAGE_title: "Assinar mensagem",
+    action_SIGN_TYPED_DATA_title: "Assinar dados (Typed Data)",
+    action_SEND_TX_title: "Enviar transa\xE7\xE3o",
+    action_SEND_TX_contract_title: "Interagir com contrato",
+    action_SEND_TX_eth_title: "Enviar ETH",
+    action_WATCH_ASSET_title: "Adicionar token/ativo",
+    action_SOLANA_title: "Assinatura/Transa\xE7\xE3o Solana",
+    action_UNKNOWN_title: "Solicita\xE7\xE3o",
+    // Summary bullets (plain language)
+    summary_CONNECT_1: "O site quer ver seus endere\xE7os e a rede atual.",
+    summary_CONNECT_2: "Ele poder\xE1 pedir assinaturas/transa\xE7\xF5es depois.",
+    summary_CONNECT_3: "Conecte apenas se confiar no site.",
+    summary_REQUEST_PERMISSIONS_1: "O site quer permiss\xF5es adicionais na sua carteira.",
+    summary_REQUEST_PERMISSIONS_2: "Revise as permiss\xF5es na carteira antes de aceitar.",
+    summary_SWITCH_CHAIN_1: "O site quer trocar a rede (chain) da sua carteira.",
+    summary_SWITCH_CHAIN_2: "Troca de rede normalmente n\xE3o custa gas.",
+    explain_connect_title: "Conectar carteira",
+    explain_connect_short: "Login com carteira (compartilha seu endere\xE7o p\xFAblico)",
+    explain_connect_why: "Isso permite ao site mostrar sua conta e pedir assinaturas/aprova\xE7\xF5es/transa\xE7\xF5es depois.",
+    explain_sign_title: "Assinar mensagem",
+    explain_sign_short: "Sem gas, mas assinaturas podem autorizar a\xE7\xF5es",
+    explain_sign_why: "Sites usam assinaturas para login, verifica\xE7\xE3o de posse ou autoriza\xE7\xF5es off-chain.",
+    explain_typed_title: "Assinar dados estruturados",
+    explain_typed_short: "Typed-data pode incluir permits/autoriza\xE7\xF5es",
+    explain_typed_why: "Typed-data \xE9 frequentemente usado para permits (aprova\xE7\xF5es sem approve on-chain separado).",
+    explain_tx_title: "Enviar transa\xE7\xE3o",
+    explain_tx_short: "A\xE7\xE3o on-chain (pode ter taxa de gas)",
+    explain_tx_why: "Isso criar\xE1 uma transa\xE7\xE3o on-chain se voc\xEA aprovar na sua carteira.",
+    explain_switch_title: "Trocar rede",
+    explain_switch_why: "Alguns sites exigem uma rede espec\xEDfica para funcionar.",
+    explain_addchain_title: "Adicionar rede",
+    explain_addchain_short: "Adiciona uma configura\xE7\xE3o de chain na carteira",
+    explain_add_chain_short: "Adicionar rede na carteira",
+    add_chain_review_rpc: "RPC malicioso pode enganar saldos/transa\xE7\xF5es; confirme a proced\xEAncia.",
+    add_chain_verify_chainid: "Confirme o chainId e o nome da rede antes de adicionar.",
+    explain_addchain_why: "A carteira pode adicionar detalhes de RPC para a rede solicitada.",
+    explain_watchasset_title: "Adicionar ativo",
+    explain_watchasset_short: "Adiciona um token/ativo na UI da carteira",
+    explain_watch_asset_short: "Adicionar token/ativo na carteira",
+    watch_asset_no_spend_but_risk: "Adicionar token n\xE3o gasta fundos, mas tokens podem ser golpe; confirme contrato.",
+    watch_asset_verify_contract: "Verifique o endere\xE7o do contrato em um explorer confi\xE1vel.",
+    explain_watchasset_why: "N\xE3o gasta fundos, mas confirme se os detalhes do token est\xE3o corretos.",
+    explain_generic_title: "Solicita\xE7\xE3o da carteira",
+    explain_generic_short: "Um site est\xE1 pedindo uma a\xE7\xE3o da carteira",
+    explain_generic_why: "Revise os detalhes na carteira e confirme a URL do site.",
+    human_connect_whatIs: "Conecta seu endere\xE7o de carteira a este site (como um login).",
+    human_connect_sees_1: "Seu endere\xE7o p\xFAblico (e sele\xE7\xE3o de conta)",
+    human_connect_sees_2: "Sua rede/chain selecionada",
+    human_connect_sees_3: "Atividade on-chain p\xFAblica (tokens/NFTs s\xE3o dados p\xFAblicos)",
+    human_connect_not_1: "N\xC3O revela sua seed phrase nem a senha da carteira",
+    human_connect_not_2: "N\xC3O move fundos automaticamente por si s\xF3",
+    human_connect_why_1: "Para mostrar sua conta e saldos na interface",
+    human_connect_why_2: "Para permitir assinar mensagens (login/verifica\xE7\xE3o)",
+    human_connect_why_3: "Para pedir aprova\xE7\xF5es/transa\xE7\xF5es depois (com sua confirma\xE7\xE3o)",
+    human_connect_risk_1: "Privacidade/rastreamento: pode vincular seu endere\xE7o a este site",
+    human_connect_risk_2: "Phishing em etapas: os pr\xF3ximos prompts podem pedir assinatura/approve",
+    human_connect_risk_3: "Dom\xEDnios similares: sites falsos costumam come\xE7ar com um connect inofensivo",
+    human_connect_safe_1: "Trate connect como compartilhar identidade: fa\xE7a isso s\xF3 em sites que voc\xEA reconhece.",
+    human_connect_next_1: "Confira o dom\xEDnio (ortografia, HTTPS, sem punycode)",
+    human_connect_next_2: "Se tiver d\xFAvida, cancele e abra o site por um favorito confi\xE1vel",
+    human_connect_reco_suspicious: "Cancele e verifique a URL por outro meio (favorito/busca), depois tente novamente.",
+    human_connect_reco_ok: "Continue apenas se voc\xEA reconhece o site e a URL parece correta.",
+    human_sign_whatIs: "Cria uma assinatura criptogr\xE1fica. Geralmente n\xE3o custa gas, mas pode autorizar a\xE7\xF5es.",
+    human_sign_risk_1: "Assinar textos desconhecidos pode autorizar a\xE7\xF5es/login que voc\xEA n\xE3o pretendia",
+    human_sign_risk_2: "Blind sign pode esconder o que voc\xEA est\xE1 autorizando",
+    human_typed_whatIs: "Assina dados estruturados (typed-data). Frequentemente usado para permits/autoriza\xE7\xF5es.",
+    human_typed_risk_1: "Typed-data pode incluir permits de token que funcionam como aprova\xE7\xF5es",
+    human_sign_safe_1: "Prefira carteiras que mostrem detalhes de assinatura de forma leg\xEDvel.",
+    human_sign_next_1: "Verifique a URL e leia a mensagem/typed-data com aten\xE7\xE3o",
+    human_sign_next_2: "Se o prompt for vago, cancele e pe\xE7a contexto ao site",
+    human_sign_reco_suspicious: "Cancele. Dom\xEDnio suspeito + assinatura \xE9 um padr\xE3o comum de phishing.",
+    human_sign_reco_ok: "S\xF3 continue se voc\xEA entende o motivo da assinatura e confia no site.",
+    human_approve_whatIs: "Uma aprova\xE7\xE3o permite que um contrato gaste seus tokens depois (at\xE9 o limite aprovado).",
+    human_approve_risk_1: "Aprova\xE7\xF5es podem ser abusadas se o contrato gastador for malicioso ou comprometido",
+    human_approve_risk_unlimited: "Aprova\xE7\xE3o ilimitada significa que pode gastar TODO o saldo do token",
+    human_approve_safe_1: "Quando poss\xEDvel, aprove apenas o m\xEDnimo necess\xE1rio.",
+    human_approve_next_1: "Confira o spender/operador e se voc\xEA reconhece o dApp",
+    human_approve_next_2: "Considere revogar aprova\xE7\xF5es depois se n\xE3o usar mais o site",
+    human_approve_reco: "Continue apenas se voc\xEA confia no site e o spender faz sentido.",
+    human_approve_reco_unlimited: "Evite aprova\xE7\xF5es ilimitadas a menos que voc\xEA confie muito no site e entenda o risco.",
+    human_setApprovalForAll_whatIs: "D\xE1 permiss\xE3o a um operador para mover TODOS os NFTs de uma cole\xE7\xE3o por voc\xEA.",
+    human_setApprovalForAll_risk_1: "Isso pode permitir drenar NFTs se o operador for malicioso/comprometido",
+    human_setApprovalForAll_safe_1: "Aprove apenas operadores que voc\xEA reconhece (ex.: marketplaces conhecidos).",
+    human_setApprovalForAll_next_1: "Verifique o endere\xE7o do operador e se o site \xE9 o marketplace pretendido",
+    human_setApprovalForAll_reco: "Cancele a menos que voc\xEA esteja em um marketplace reconhecido e espere essa a\xE7\xE3o.",
+    human_tx_whatIs: "Isso criar\xE1 uma transa\xE7\xE3o on-chain se voc\xEA aprovar na sua carteira.",
+    human_tx_risk_1: "Transa\xE7\xF5es podem mover fundos ou alterar permiss\xF5es dependendo da chamada",
+    human_tx_safe_1: "Sempre verifique destinat\xE1rio, valor e o contrato com o qual est\xE1 interagindo.",
+    human_tx_next_1: "Confira o destino (to), valor e a a\xE7\xE3o decodificada (se houver)",
+    human_tx_reco_suspicious: "Cancele. N\xE3o envie transa\xE7\xF5es em dom\xEDnios suspeitos.",
+    human_tx_reco_ok: "Continue apenas se voc\xEA pretendia essa a\xE7\xE3o e os detalhes parecem corretos.",
+    human_chain_whatIs: "Muda a rede selecionada na sua carteira.",
+    human_chain_risk_1: "Redes/RPCs errados podem te enganar sobre ativos ou transa\xE7\xF5es",
+    human_chain_safe_1: "S\xF3 troque/adicione redes que voc\xEA reconhece.",
+    human_chain_next_1: "Confirme nome da rede e chainId no prompt da carteira",
+    human_watchasset_whatIs: "Adiciona um token/ativo na UI da carteira para facilitar a visualiza\xE7\xE3o.",
+    human_watchasset_risk_1: "Tokens falsos podem se passar por reais\u2014verifique endere\xE7o e s\xEDmbolo",
+    human_watchasset_safe_1: "Confirme detalhes do token em um explorer confi\xE1vel (ex.: Etherscan).",
+    human_watchasset_next_1: "Verifique o contrato do token e as decimais",
+    human_watchasset_reco: "Continue apenas se os detalhes baterem com uma fonte oficial.",
+    human_generic_whatIs: "Um site solicitou uma a\xE7\xE3o da carteira. Revise os detalhes com cuidado.",
+    human_generic_risk_1: "Prompts desconhecidos podem fazer parte de fluxos de phishing",
+    human_generic_safe_1: "Na d\xFAvida, cancele e verifique o site.",
+    human_generic_next_1: "Confira a URL e leia os detalhes do prompt da carteira",
+    human_generic_reco: "Continue apenas se voc\xEA entende e esperava essa solicita\xE7\xE3o.",
+    human_revoke_link_text: "Revogar permiss\xF5es depois: revoke.cash",
+    trustReasonNotHttps: "N\xE3o \xE9 HTTPS (maior risco de spoofing/inje\xE7\xE3o).",
+    trustReasonManyHyphens: "Muitos h\xEDfens no dom\xEDnio (comum em similares).",
+    trustReasonSuspiciousKeywords: "Dom\xEDnio cont\xE9m palavras de alto risco (login/verify/secure/...).",
+    trustReasonBrandLookalike: "Nome lembra uma marca, mas n\xE3o \xE9 o dom\xEDnio oficial.",
+    trustReasonManySubdomains: "Estrutura de subdom\xEDnio profunda/incomum.",
+    trustReasonNoHost: "N\xE3o foi poss\xEDvel ler o hostname do site.",
+    trustReasonAllowlistedVariant: "Dom\xEDnio casa com um padr\xE3o confi\xE1vel.",
+    trustReasonUnknown: "Sem sinais fortes para um lado ou outro.",
+    summary_ADD_CHAIN_1: "O site quer adicionar uma nova rede na sua carteira.",
+    summary_ADD_CHAIN_2: "Confirme o chainId e o nome da rede com cuidado.",
+    summary_SIGN_MESSAGE_1: "Voc\xEA vai assinar uma mensagem (n\xE3o \xE9 transa\xE7\xE3o).",
+    summary_SIGN_MESSAGE_2: "A assinatura pode ter efeitos fora da blockchain (login, termos, permiss\xF5es).",
+    summary_SIGN_TYPED_DATA_1: "Voc\xEA vai assinar dados estruturados (EIP-712).",
+    summary_SIGN_TYPED_DATA_2: "Isso pode autorizar gastos/ordens dependendo do conte\xFAdo.",
+    summary_SIGN_TYPED_DATA_3: "Verifique quem \xE9 o spender/contrato envolvido.",
+    summary_SEND_TX_1: "Voc\xEA vai enviar uma transa\xE7\xE3o on-chain.",
+    summary_SEND_TX_2: "Isso pode mover ETH/tokens ou interagir com um contrato.",
+    summary_SEND_TX_3: "Confira valor, rede e destino antes de confirmar.",
+    summary_WATCH_ASSET_1: "O site quer adicionar um token/ativo na sua carteira.",
+    summary_WATCH_ASSET_2: "Confirme s\xEDmbolo e endere\xE7o do contrato do token.",
+    summary_SOLANA_1: "Assinatura ou transa\xE7\xE3o Solana. Os valores ser\xE3o confirmados na carteira.",
+    summary_UNKNOWN_1: "O site est\xE1 fazendo uma chamada de carteira desconhecida.",
+    summary_UNKNOWN_2: "Se n\xE3o souber o que \xE9, cancele.",
+    // Costs / TX labels
+    btn_cancel: "Cancelar",
+    btn_continue: "Continuar",
+    toast_request_expired: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
+    simulation_tx_will_fail: "ESTA TRANSA\xC7\xC3O VAI FALHAR",
+    btn_close: "Fechar",
+    btn_proceed_anyway: "Prosseguir mesmo assim",
+    override_checkbox: "Eu entendo o risco e quero prosseguir",
+    override_countdown: "({s}s)",
+    tip_revoke: "Revogar permiss\xF5es depois: revoke.cash",
+    cost_summary_title: "Resumo de custos",
+    costs_title: "Custos e impacto",
+    impact_title: "Impacto",
+    permission_for: "Permiss\xE3o para",
+    addr_marked_public: "Marcado em base p\xFAblica",
+    risk_title: "Risco e por qu\xEA",
+    what_to_do_now: "O que fazer agora",
+    site_label: "Site",
+    network_label: "Rede",
+    severity_BLOCKED: "BLOQUEADO",
+    severity_HIGH: "ALTO",
+    severity_WARN: "ATEN\xC7\xC3O",
+    severity_LOW: "BAIXO",
+    cost_you_send: "Voc\xEA envia",
+    cost_fee_only: "apenas taxa",
+    cost_value: "Valor (ETH)",
+    cost_fee: "Taxa estimada (ETH)",
+    cost_total: "Total estimado (ETH)",
+    cost_fee_unknown: "Taxa ser\xE1 cobrada (confirme na carteira)",
+    network_switch_title: "Troca de rede",
+    network_current: "Rede atual",
+    network_requested: "Rede solicitada",
+    trusted_domain_ref_title: "Dom\xEDnios confi\xE1veis (refer\xEAncia)",
+    tx_cost_sending: "Voc\xEA est\xE1 enviando {value} ETH + taxa de rede",
+    tx_cost_gas_only: "Mesmo sem enviar ETH, voc\xEA pagar\xE1 taxa de rede (gas)",
+    gas_calculating: "calculando\u2026",
+    tx_destination: "Destino",
+    token_verified_uniswap: "Token Verificado (Uniswap List)",
+    token_unknown_unverified: "Token Desconhecido (N\xE3o Verificado)",
+    tx_contract_method: "Contrato/m\xE9todo",
+    tx_max_gas_fee: "Gas m\xE1x (ETH)",
+    tx_max_total: "Total m\xE1x (ETH)",
+    tx_fee_estimated_by_wallet: "A carteira estimar\xE1 a taxa na pr\xF3xima etapa.",
+    network_target: "Rede alvo",
+    switch_no_gas: "A troca de rede normalmente N\xC3O custa gas.",
+    switch_next_step_gas: "A pr\xF3xima etapa (compra/transa\xE7\xE3o) ter\xE1 taxa de rede.",
+    switch_note_inline: "A troca de rede normalmente N\xC3O custa gas. Por\xE9m a pr\xF3xima etapa (compra/transa\xE7\xE3o) ter\xE1 taxa de rede.",
+    sendtx_reco: "Confirme na carteira apenas se os detalhes (valor, rede e contrato) estiverem corretos.",
+    // Risk/trust labels
+    risk_LOW: "Baixo",
+    risk_WARN: "Aten\xE7\xE3o",
+    risk_HIGH: "Alto",
+    recommend_ALLOW: "Permitir",
+    recommend_WARN: "Avisar",
+    recommend_HIGH: "Alto risco",
+    recommend_BLOCK: "Bloquear",
+    trust_unknown: "Desconhecido",
+    trust_suspicious: "Suspeito",
+    trust_likelyOfficial: "Dom\xEDnio conhecido (lista de refer\xEAncia)",
+    trust_domainNotRecognized: "Dom\xEDnio n\xE3o reconhecido",
+    // Phishing hard-block
+    phishing_hard_block: "Dom\xEDnio em blacklist de phishing. Bloqueado.",
+    // Toasts
+    toast_extension_updated: "Extens\xE3o atualizada \u2014 recarregue a aba.",
+    toast_cannot_analyze: "N\xE3o foi poss\xEDvel analisar. Recarregue a aba.",
+    // Options page
+    optionsTitle: "Crypto Wallet SignGuard \u2014 Configura\xE7\xF5es",
+    optionsSubtitle: "Controle quando o SignGuard deve alertar e bloquear.",
+    dashboardLink: "Dashboard",
+    onboardingTitle: "Como usar",
+    onboardingHowTo: "A extens\xE3o intercepta solicita\xE7\xF5es sens\xEDveis (conex\xE3o, assinatura, transa\xE7\xE3o) de carteiras injetadas (window.ethereum / window.solana). Ao detectar, mostra um overlay para voc\xEA revisar antes de a carteira abrir.",
+    onboardingWhatItDoes: "Faz: alerta antes de conectar, assinar ou enviar; verifica dom\xEDnio contra listas de phishing; mostra inten\xE7\xE3o da transa\xE7\xE3o (swap, NFT, approval).",
+    onboardingWhatItDoesNot: "N\xE3o faz: n\xE3o protege conex\xF5es via QR/WalletConnect; n\xE3o garante que contratos sejam seguros; n\xE3o substitui verifica\xE7\xE3o manual.",
+    onboardingLinkRevoke: "revoke.cash \u2014 revogar permiss\xF5es",
+    onboardingLinkEtherscan: "Etherscan \u2014 explorar transa\xE7\xF5es",
+    exportDebugRequiresDebugMode: "Ative o modo Debug primeiro para exportar eventos.",
+    securityModeLabel: "Modo de seguran\xE7a",
+    securityModeDesc: "Strict bloqueia mais; Balanced alerta; Relaxed reduz fric\xE7\xE3o; Off desativa bloqueios.",
+    modeStrict: "Strict",
+    modeBalanced: "Balanced",
+    modeRelaxed: "Relaxed",
+    modeOff: "Off",
+    strictBlockApprovalsUnlimitedLabel: "Strict: bloquear approve ilimitado",
+    strictBlockApprovalsUnlimitedDesc: "Bloqueia aprova\xE7\xF5es ERC20 unlimited (MAX_UINT256).",
+    strictBlockSetApprovalForAllLabel: "Strict: bloquear setApprovalForAll",
+    strictBlockSetApprovalForAllDesc: "Bloqueia permiss\xE3o para mover todos os NFTs.",
+    strictBlockPermitLikeLabel: "Strict: bloquear Permit ilimitado",
+    strictBlockPermitLikeDesc: "Bloqueia assinaturas Permit (EIP-2612) unlimited.",
+    assetEnrichmentEnabledLabel: "Enriquecimento de ativos",
+    assetEnrichmentEnabledDesc: "Busca s\xEDmbolo/nome de tokens via eth_call.",
+    addressIntelEnabledLabel: "Threat intel de endere\xE7os",
+    addressIntelEnabledDesc: "Verifica spender/operator/to contra blacklist.",
+    riskWarningsLabel: "Alertas de risco",
+    riskWarningsDesc: "Mostra avisos e recomenda\xE7\xF5es antes de abrir a carteira.",
+    connectOverlayLabel: "Overlay ao conectar",
+    connectOverlayDesc: "Mostra o overlay tamb\xE9m para conex\xE3o/permiss\xF5es.",
+    blockHighRiskLabel: "Bloquear alto risco",
+    blockHighRiskDesc: "Bloqueia automaticamente a\xE7\xF5es de alto risco.",
+    requireTypedOverrideLabel: "Exigir override em Typed Data (alto risco)",
+    requireTypedOverrideDesc: "Para assinaturas EIP-712 de alto risco, exige confirma\xE7\xE3o extra.",
+    allowOverrideOnPhishingLabel: "Permitir override em phishing (N\xC3O recomendado)",
+    allowOverrideOnPhishingDesc: "Se desativado (padr\xE3o), phishing em blacklist \xE9 bloqueado sem op\xE7\xE3o de prosseguir.",
+    mode_off_reason: "Modo OFF: sem bloqueios.",
+    address_flagged_reason: "Endere\xE7o/contrato sinalizado: {label} ({category})",
+    addr_sanctioned_block: "Endere\xE7o em lista de san\xE7\xF5es.",
+    addr_scam_reported_warn: "Endere\xE7o marcado como suspeito/relatado.",
+    addr_phishing_reported_warn: "Endere\xE7o marcado como suspeito/relatado.",
+    addr_malicious_contract_warn: "Contrato marcado como malicioso.",
+    asset_info_reason: "Ativo: {sym} ({kind})",
+    reason_permission_tokens: "Permiss\xE3o para gastar tokens",
+    reason_permission_all_nfts: "Permiss\xE3o para mover TODOS os NFTs",
+    reason_transfer_tokens: "Transfer\xEAncia de tokens/NFT",
+    domainChecksLabel: "Checagens de dom\xEDnio",
+    domainChecksDesc: "Alertas por padr\xF5es suspeitos no dom\xEDnio quando n\xE3o estiver na allowlist.",
+    allowlistLabel: "Allowlist (dom\xEDnios confi\xE1veis)",
+    allowlistDesc: "Um dom\xEDnio por linha. Ex.: opensea.io",
+    vaultTitle: "Cofre SignGuard",
+    vaultDesc: "Contratos nesta lista nunca podem ser transacionados sem desbloqueio expl\xEDcito nas op\xE7\xF5es.",
+    vaultAddLabel: "Adicionar contrato ao cofre",
+    vaultAddButton: "Adicionar ao Cofre",
+    vaultListLabel: "Contratos bloqueados",
+    vaultListEmpty: "Nenhum contrato no cofre.",
+    vaultRemove: "Remover",
+    vaultInvalidAddress: "Endere\xE7o inv\xE1lido. Use 0x e 40 caracteres hexadecimais.",
+    vaultAlreadyAdded: "Este contrato j\xE1 est\xE1 no cofre.",
+    vaultBlockedMessage: "SignGuard: Ativo Bloqueado no Cofre. Desbloqueie nas op\xE7\xF5es para continuar.",
+    addSuggested: "Adicionar sugeridos",
+    save: "Salvar",
+    saved: "Salvo",
+    intelTitle: "Threat Intel",
+    intelSubtitle: "Listas de dom\xEDnios (fontes plug\xE1veis) usadas na an\xE1lise.",
+    intelTrustedCountLabel: "Dom\xEDnios confi\xE1veis",
+    intelBlockedCountLabel: "Dom\xEDnios bloqueados",
+    intelBlockedAddressCountLabel: "Endere\xE7os bloqueados",
+    intelUpdatedAtLabel: "\xDAltima atualiza\xE7\xE3o",
+    intelUpdateNow: "Atualizar agora",
+    enableIntelLabel: "Usar Threat Intel",
+    enableIntelDesc: "Usa listas de dom\xEDnios confi\xE1veis/bloqueados na an\xE1lise.",
+    customTrustedDomainsLabel: "Dom\xEDnios confi\xE1veis (lista personalizada)",
+    customTrustedDomainsDesc: "Um por linha. Ex.: meusite.io",
+    customBlockedDomainsLabel: "Dom\xEDnios bloqueados (lista personalizada)",
+    customBlockedDomainsDesc: "Um por linha. Sempre bloqueados.",
+    exportListsLabel: "Exportar listas",
+    privacyLimitsTitle: "Privacidade & Limita\xE7\xF5es",
+    privacyLimitsLine1: "A extens\xE3o n\xE3o acessa sua seed/frase secreta e n\xE3o tem cust\xF3dia.",
+    privacyLimitsLine2: "Ela analisa dom\xEDnios e dados de transa\xE7\xE3o exibidos pelo navegador para alertas. N\xE3o garante 100%.",
+    privacyLimitsLine3: "Threat intel pode ser atualizado via fontes p\xFAblicas (opcional).",
+    cloudIntelOptInLabel: "Permitir checagens externas",
+    cloudIntelOptInDesc: "Mais prote\xE7\xE3o; pode enviar dom\xEDnio/endere\xE7os para valida\xE7\xE3o (preparado para P1).",
+    showUsdLabel: "Mostrar valores em USD",
+    showUsdDesc: "Exibe aproxima\xE7\xE3o em d\xF3lares (USD) ao lado de valores em ETH.",
+    tabSettings: "Configura\xE7\xF5es",
+    tabHistory: "Hist\xF3rico",
+    tabPlan: "Plano",
+    historySubtitle: "\xDAltimas decis\xF5es do overlay.",
+    historyExport: "Exportar JSON",
+    historyClear: "Limpar",
+    historyEmpty: "Nenhum registro.",
+    request_expired_toast: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
+    decision_allow: "Permitido",
+    decision_block: "Bloqueado",
+    planSubtitle: "Gerencie seu plano e licen\xE7a.",
+    planCurrent: "Plano atual",
+    planLicenseKey: "Chave de licen\xE7a",
+    planActivate: "Ativar",
+    planGoPro: "Assinar PRO",
+    // Options: Safety notes + debug
+    safetyNotesTitle: "Limita\xE7\xF5es & seguran\xE7a",
+    safetyNotesLine1: "Esta extens\xE3o monitora solicita\xE7\xF5es feitas por carteiras injetadas (window.ethereum / window.solana).",
+    safetyNotesLine2: "Conex\xF5es via QR/WalletConnect podem n\xE3o ser interceptadas. Sempre verifique na sua carteira.",
+    safetyNotesLinkRevoke: "revoke.cash",
+    safetyNotesLinkEtherscan: "etherscan.io",
+    debugModeLabel: "Modo debug",
+    debugModeDesc: "Armazena os \xFAltimos 20 eventos (sem payload grande) para suporte.",
+    exportDebug: "Exportar",
+    // Overlay: intent + permission + copy
+    looks_like: "Parece:",
+    intent_NFT_PURCHASE: "Compra de NFT",
+    intent_SWAP: "Swap",
+    intent_APPROVAL: "Permiss\xE3o",
+    intent_SEND: "Envio",
+    intent_UNKNOWN: "Desconhecido",
+    intent_ETH_TRANSFER: "Envio de ETH",
+    intent_TOKEN_TRANSFER: "Transfer\xEAncia de token",
+    intent_NFT_TRANSFER: "Transfer\xEAncia de NFT",
+    intent_CONTRACT_INTERACTION: "Intera\xE7\xE3o com contrato",
+    intent_SWITCH_CHAIN: "Troca de rede",
+    intent_ADD_CHAIN: "Adicionar rede",
+    intent_WATCH_ASSET: "Adicionar token",
+    intent_SOLANA: "Assinatura/Transa\xE7\xE3o Solana",
+    intent_SIGNATURE: "Assinatura",
+    intent_TYPED_DATA: "Dados tipados",
+    wallet_label: "Carteira",
+    wallet_detecting: "Detectando\u2026",
+    wallet_evm_generic: "Carteira EIP-1193",
+    trust_disclaimer: "Lista de refer\xEAncia \u2260 garantia. Golpistas podem usar dom\xEDnios parecidos.",
+    hint_wallet_popup: "Sua carteira deve abrir agora. Se n\xE3o abrir, clique no \xEDcone da carteira e verifique solicita\xE7\xF5es pendentes.",
+    add_chain_network_label: "Rede a adicionar",
+    add_chain_rpc_label: "RPC",
+    watch_asset_token_label: "Token a adicionar",
+    modeLabel: "Modo:",
+    popupPauseProtection: "PAUSAR PROTE\xC7\xC3O",
+    popupStatusProtected: "Protegido",
+    popupStatusPaused: "Pausado",
+    fortressModeLabel: "MODO FORTALEZA",
+    fortressModeDesc: "Bloqueia todas as aprova\xE7\xF5es de tokens, exceto em sites confi\xE1veis.",
+    fortress_block_message: "SignGuard Fortaleza: Aprova\xE7\xE3o bloqueada em site desconhecido. Desative o modo Fortaleza para prosseguir.",
+    honeypot_message: "\u{1FAA4} HONEYPOT: Voc\xEA pode comprar, mas N\xC3O poder\xE1 vender.",
+    info_unavailable: "Informa\xE7\xE3o indispon\xEDvel.",
+    explain_switch_short: "O site pediu para trocar a rede (chain) da sua carteira.",
+    human_chain_reco: "Continue apenas se voc\xEA esperava a troca de rede e ela parece correta.",
+    trustReasonAllowlisted: "Dom\xEDnio est\xE1 em uma lista confi\xE1vel (seed).",
+    trustReasonPhishingBlacklist: "Dom\xEDnio est\xE1 em blacklist de phishing (lista de refer\xEAncia).",
+    fee_unknown_wallet_will_estimate: "Taxa: ser\xE1 exibida pela carteira",
+    label_you_send: "Voc\xEA envia",
+    label_fee_likely: "Taxa estimada (prov\xE1vel)",
+    label_fee_max: "Taxa m\xE1xima (pior caso)",
+    label_total_likely: "Total prov\xE1vel",
+    label_total_max: "Total m\xE1ximo",
+    fee_gt_value: "A taxa m\xE1xima \xE9 MAIOR que o valor enviado. Confirme se faz sentido.",
+    check_wallet_network_fee: "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.",
+    label_max_fee: "Taxa m\xE1xima (ETH)",
+    label_max_total: "Total m\xE1ximo (ETH)",
+    switch_summary_no_gas: "Troca de rede normalmente n\xE3o custa gas, mas pode mudar quais ativos voc\xEA est\xE1 vendo.",
+    permission_title: "Permiss\xE3o",
+    permission_token_contract: "Contrato",
+    permission_spender: "Spender",
+    permission_operator: "Operator",
+    permission_unlimited: "Ilimitado",
+    approval_unlimited_detected: "Aprova\xE7\xE3o ilimitada detectada",
+    permit_signature_detected: "Assinatura tipo Permit detectada (pode autorizar gasto de tokens)",
+    token_transfer_detected: "Transfer\xEAncia de token detectada",
+    nft_transfer_detected: "Transfer\xEAncia de NFT detectada",
+    transfer_token_title: "Transfer\xEAncia de token",
+    transfer_nft_title: "Transfer\xEAncia de NFT",
+    transfer_amount: "Quantidade",
+    transfer_token_id: "Token ID",
+    yes: "Sim",
+    no: "N\xE3o",
+    copy: "Copiar",
+    chainChangeTitle: "Solicita\xE7\xE3o de troca/adicionar rede",
+    watchAssetTitle: "Solicita\xE7\xE3o de adicionar ativo",
+    domainPunycodeReason: "Dom\xEDnio usa punycode (xn--); verifique a URL.",
+    domainDoubleDashReason: "Dom\xEDnio cont\xE9m h\xEDfen duplo (suspeito).",
+    domainNumberPatternReason: "Dom\xEDnio com muitos n\xFAmeros (comum em phishing).",
+    domainLookalikeReason: "Poss\xEDvel imita\xE7\xE3o do dom\xEDnio oficial de {legit}.",
+    suspiciousWebsitePatterns: "Padr\xF5es suspeitos no site.",
+    page_risk_suspicious_banner: "\u26A0\uFE0F SignGuard: Site Suspeito Detetado",
+    connectTitle: "Conectar carteira",
+    connectReason: "O site quer conectar \xE0 sua carteira.",
+    walletRequestPermissionsTitle: "Solicitar permiss\xF5es",
+    walletRequestPermissionsReason: "O site quer permiss\xF5es adicionais na carteira.",
+    typedDataWarnReason: "Assinatura de dados estruturados (EIP-712); pode autorizar a\xE7\xF5es.",
+    signatureRequest: "Pedido de assinatura",
+    rawSignWarnReason: "Assinatura de mensagem raw; pode autorizar a\xE7\xF5es fora da blockchain.",
+    tokenApproval: "Aprova\xE7\xE3o de token",
+    unlimitedApprovalReason: "Aprova\xE7\xE3o ilimitada detectada (MAX_UINT256).",
+    unlimitedApprovalDetected: "Aprova\xE7\xE3o ilimitada detectada",
+    nftOperatorApprovalReason: "Permiss\xE3o para mover TODOS os NFTs da cole\xE7\xE3o.",
+    nftOperatorApproval: "Permiss\xE3o de operador NFT",
+    txPreview: "Visualiza\xE7\xE3o da transa\xE7\xE3o",
+    txWarnReason: "Transa\xE7\xE3o on-chain; confira valor, destino e rede.",
+    unknownMethodReason: "M\xE9todo de carteira desconhecido.",
+    warningsDisabledReason: "Alertas desativados nas configura\xE7\xF5es.",
+    analyzing: "Analisando\u2026",
+    analyzing_subtitle: "Site \u2022 M\xE9todo",
+    analyzing_hint: "Validando dom\xEDnio e estimando impacto",
+    fallback_partial_check: "Sem verifica\xE7\xE3o completa agora \u2014 revise os detalhes abaixo antes de prosseguir.",
+    fallback_partial_verification: "Verifica\xE7\xE3o parcial agora \u2014 revise os detalhes abaixo antes de prosseguir.",
+    loading_base: "Carregando base\u2026",
+    analyzerUnavailableTitle: "Analisador indispon\xEDvel",
+    analysis_unavailable: "An\xE1lise indispon\xEDvel \u2014 confira na carteira antes de continuar.",
+    dados_parciais_title: "Dados parciais \u2014 confirme na carteira",
+    dados_parciais_subtitle: "Exibindo o que foi poss\xEDvel analisar. Verifique os detalhes na carteira antes de continuar.",
+    risk_low: "Baixo",
+    risk_warn: "Aten\xE7\xE3o",
+    risk_high: "Alto",
+    risk_block: "Bloqueado",
+    trustReasonAllowlistedMatched: "Dom\xEDnio em allowlist: {matched}.",
+    list_empty_domains: "Lista vazia. Abra as op\xE7\xF5es para adicionar dom\xEDnios confi\xE1veis.",
+    btn_open_options: "Abrir op\xE7\xF5es",
+    default_human_switch_what: "Troca a rede ativa da carteira (ex.: Ethereum \u2192 outra rede).",
+    default_human_switch_risk: "Voc\xEA pode assinar/transacionar na rede errada se a troca n\xE3o for esperada.",
+    default_human_switch_safe: "Confirme a rede solicitada e se o site \xE9 o correto.",
+    default_human_switch_next: "Se estiver certo, aprove na carteira. Se estiver estranho, cancele.",
+    default_human_contract_what: "Envia uma transa\xE7\xE3o para um contrato (a\xE7\xE3o dentro do dApp).",
+    default_human_contract_risk: "O custo real pode variar e a a\xE7\xE3o pode mover ativos/tokens via contrato.",
+    default_human_contract_safe: "Confira destino (to), rede, valor e a taxa (Network fee) na carteira.",
+    default_human_contract_next: "Se os detalhes baterem, prossiga. Caso contr\xE1rio, cancele.",
+    default_human_eth_what: "Envia ETH diretamente para um endere\xE7o.",
+    default_human_eth_risk: "Transfer\xEAncias s\xE3o irrevers\xEDveis se o destino estiver errado.",
+    default_human_eth_safe: "Verifique o endere\xE7o e o valor. Desconfie de links/encurtadores.",
+    default_human_eth_next: "S\xF3 confirme se voc\xEA reconhece o destinat\xE1rio.",
+    default_human_typed_what: "Assinatura off-chain (EIP-712). Pode autorizar a\xE7\xF5es sem pagar gas.",
+    default_human_typed_risk: "Pode conceder permiss\xF5es/autoriza\xE7\xF5es (ex.: permit/approval) dependendo do conte\xFAdo.",
+    default_human_typed_safe: "Revise o que est\xE1 sendo autorizado (spender/operator) e o dom\xEDnio/contrato.",
+    default_human_typed_next: "Se n\xE3o entender, cancele e valide no site oficial do dApp.",
+    default_human_generic_what: "A\xE7\xE3o solicitada pela dApp.",
+    default_human_generic_risk: "Se algo n\xE3o fizer sentido, cancele.",
+    default_human_generic_safe: "Confirme dom\xEDnio, rede e detalhes na carteira.",
+    default_human_generic_next: "Prossiga apenas se tudo estiver correto.",
+    verdict_ok: "OK",
+    verdict_warn: "Aten\xE7\xE3o",
+    verdict_high: "Risco alto",
+    verdict_block: "Bloqueado",
+    coverage_label: "Cobertura",
+    coverage_limited: "cobertura limitada",
+    trusted_domain_ref_empty: "Lista de refer\xEAncia ainda n\xE3o carregou.",
+    trusted_domain_ref_loading: "Carregando lista de refer\xEAncia\u2026",
+    trusted_domain_ref_refresh: "Atualizar listas",
+    trusted_domain_ref_view_more: "Ver mais",
+    trusted_domains_loading: "Carregando lista de refer\xEAncia\u2026",
+    trusted_domains_more: "+{n}",
+    trusted_domains_search_placeholder: "Filtrar dom\xEDnios\u2026",
+    trusted_domains_update_now: "Atualizar agora",
+    trusted_domains_auto_update: "Atualiza automaticamente nas op\xE7\xF5es",
+    banner_ok_no_known_threats: "OK: nenhum sinal conhecido de golpe/scam detectado.",
+    banner_block_known_threat: "Bloqueado: amea\xE7a conhecida detectada.",
+    banner_local_verification: "Aten\xE7\xE3o: verifica\xE7\xE3o local (cache). Revise os detalhes abaixo antes de prosseguir.",
+    banner_basic_verification: "Aten\xE7\xE3o: verifica\xE7\xE3o b\xE1sica. Revise cuidadosamente os detalhes antes de prosseguir.",
+    list_site_reputation: "Reputa\xE7\xE3o do site",
+    list_site_trusted: "Confi\xE1vel",
+    list_site_blocked: "Bloqueado",
+    list_site_unknown: "Desconhecido",
+    updated_x_hours: "Base atualizada h\xE1 {n} hora(s)",
+    updated_x_days: "Base atualizada h\xE1 {n} dia(s)",
+    tip_check_wallet_details: "Confira valor, rede e taxa na carteira.",
+    no_alerts_known: "Nenhum alerta conhecido foi detectado para este contexto.",
+    still_review_wallet: "Mesmo assim, revise na carteira (valor, rede, destino e taxa).",
+    site_status_known: "refer\xEAncia conhecida",
+    site_status_not_in_list: "Site n\xE3o est\xE1 na lista de refer\xEAncia",
+    destination_contract: "Contrato",
+    destination_wallet: "Carteira"
+  },
+  en: {
+    tech_displayAction: "Action (classification)",
+    tech_methodRaw: "Method (raw)",
+    tech_recommendScoreLevel: "Recommend/score/level",
+    tech_reasons: "Reasons",
+    tech_decoded: "Decoded",
+    dash: "\u2014",
+    tx_to: "To",
+    tx_data_length: "Data length",
+    more_whatItDoes: "What it does",
+    more_risks: "Risks",
+    more_safeNotes: "Safety notes",
+    more_nextSteps: "Next steps",
+    // Brand
+    extName: "Crypto Wallet SignGuard",
+    // Overlay - generic labels
+    overlay_requested_title: "What is being requested",
+    overlay_site_trusted_title: "Is the site trusted?",
+    overlay_summary_title: "Summary (plain language)",
+    overlay_recommended_title: "Recommended action",
+    overlay_note_title: "Note",
+    // Overlay - details sections
+    details_tx_title: "Transaction details",
+    details_tech_title: "Technical details",
+    details_more_title: "More explanations",
+    // Queue
+    queue_indicator: "Queue: {pos} of {total}",
+    // Action titles
+    action_CONNECT_title: "Connect wallet",
+    action_REQUEST_PERMISSIONS_title: "Request permissions",
+    action_SWITCH_CHAIN_title: "Switch network",
+    action_ADD_CHAIN_title: "Add network",
+    action_SIGN_MESSAGE_title: "Sign message",
+    action_SIGN_TYPED_DATA_title: "Sign typed data",
+    action_SEND_TX_title: "Send transaction",
+    action_SEND_TX_contract_title: "Contract interaction",
+    action_SEND_TX_eth_title: "Send ETH",
+    action_WATCH_ASSET_title: "Add token/asset",
+    action_SOLANA_title: "Solana signature/transaction",
+    action_UNKNOWN_title: "Request",
+    // Summary bullets
+    summary_CONNECT_1: "The site wants to see your addresses and current network.",
+    summary_CONNECT_2: "It may request signatures/transactions later.",
+    summary_CONNECT_3: "Only connect if you trust the site.",
+    summary_REQUEST_PERMISSIONS_1: "The site is requesting additional wallet permissions.",
+    summary_REQUEST_PERMISSIONS_2: "Review permissions in your wallet before accepting.",
+    summary_SWITCH_CHAIN_1: "The site wants to switch your wallet network (chain).",
+    summary_SWITCH_CHAIN_2: "Switching networks usually costs no gas.",
+    explain_connect_title: "Connect wallet",
+    explain_connect_short: "Wallet login (share your public address)",
+    explain_connect_why: "This lets the site show your account and ask for signatures/approvals/transactions later.",
+    explain_sign_title: "Sign a message",
+    explain_sign_short: "No gas, but signatures can authorize actions",
+    explain_sign_why: "Sites use signatures to log in, verify ownership, or authorize off-chain actions.",
+    explain_typed_title: "Sign structured data",
+    explain_typed_short: "Typed-data signatures can include permits/authorizations",
+    explain_typed_why: "Typed-data is often used for permits (token approvals without a separate on-chain approve).",
+    explain_tx_title: "Send a transaction",
+    explain_tx_short: "On-chain action (gas fees may apply)",
+    explain_tx_why: "This will create an on-chain transaction if you approve it in your wallet.",
+    explain_switch_title: "Switch network",
+    explain_switch_why: "Some sites require a specific network to function.",
+    explain_addchain_title: "Add network",
+    explain_addchain_short: "Add a new chain configuration to your wallet",
+    explain_add_chain_short: "Add network to wallet",
+    add_chain_review_rpc: "Malicious RPC can deceive balances/transactions; verify the source.",
+    add_chain_verify_chainid: "Verify chainId and network name before adding.",
+    explain_addchain_why: "Wallet may add RPC details for a chain requested by the site.",
+    explain_watchasset_title: "Watch asset",
+    explain_watchasset_short: "Add a token/asset to your wallet UI",
+    explain_watch_asset_short: "Add token/asset to wallet",
+    watch_asset_no_spend_but_risk: "Adding a token does not spend funds, but scam tokens exist; verify the contract.",
+    watch_asset_verify_contract: "Verify the contract address on a trusted explorer.",
+    explain_watchasset_why: "This does not spend funds, but confirm the token details are correct.",
+    explain_generic_title: "Wallet request",
+    explain_generic_short: "A site is requesting a wallet action",
+    explain_generic_why: "Review details in your wallet and confirm the site URL.",
+    human_connect_whatIs: "Connects your wallet address to this site (like logging in).",
+    human_connect_sees_1: "Your public address (and account selection)",
+    human_connect_sees_2: "Your network/chain selection",
+    human_connect_sees_3: "Public on-chain activity (tokens/NFTs are public data)",
+    human_connect_not_1: "It does NOT reveal your seed phrase or wallet password",
+    human_connect_not_2: "It does NOT move funds automatically by itself",
+    human_connect_why_1: "To show your account and balances in the UI",
+    human_connect_why_2: "To let you sign messages (login/verification)",
+    human_connect_why_3: "To request approvals/transactions later (with your confirmation)",
+    human_connect_risk_1: "Privacy/tracking: it can link your address to this site",
+    human_connect_risk_2: "Phishing steps: next prompts may ask for signatures/approvals",
+    human_connect_risk_3: "Lookalike domains: fake sites often start with a harmless connect",
+    human_connect_safe_1: "Treat connect like sharing an identity: only do it on sites you recognize.",
+    human_connect_next_1: "Double-check the domain (spelling, HTTPS, no punycode)",
+    human_connect_next_2: "If unsure, cancel and open the site from a trusted bookmark",
+    human_connect_reco_suspicious: "Cancel and verify the URL in another way (bookmark/search), then try again.",
+    human_connect_reco_ok: "Continue only if you recognize the site and the URL looks right.",
+    human_sign_whatIs: "Creates a cryptographic signature. It usually does not cost gas, but it can authorize actions.",
+    human_sign_risk_1: "Signing unknown text can approve off-site actions or logins you didn't intend",
+    human_sign_risk_2: "Blind signing can hide what you're authorizing",
+    human_typed_whatIs: "Signs structured data (typed-data). Often used for permits/authorizations.",
+    human_typed_risk_1: "Typed-data may include token permits that behave like approvals",
+    human_sign_safe_1: "Prefer wallets that show clear human-readable signing details.",
+    human_sign_next_1: "Verify the site URL and read the message/typed-data carefully",
+    human_sign_next_2: "If you see vague prompts, cancel and ask the site for context",
+    human_sign_reco_suspicious: "Cancel. Suspicious domains + signature prompts are a common phishing pattern.",
+    human_sign_reco_ok: "Only continue if you understand what the signature is for and trust the site.",
+    human_approve_whatIs: "An approval lets a contract spend your tokens later (up to the approved amount).",
+    human_approve_risk_1: "Approvals can be abused if the spender contract is malicious or compromised",
+    human_approve_risk_unlimited: "Unlimited approval means it may spend ALL your token balance",
+    human_approve_safe_1: "Prefer approving the minimum needed amount whenever possible.",
+    human_approve_next_1: "Check the spender address/operator and whether you recognize the dApp",
+    human_approve_next_2: "Consider revoking approvals later if you no longer use the site",
+    human_approve_reco: "Continue only if you trust the site and the spender makes sense.",
+    human_approve_reco_unlimited: "Avoid unlimited approvals unless you strongly trust the site and understand the risk.",
+    human_setApprovalForAll_whatIs: "Gives an operator permission to move ALL NFTs in a collection on your behalf.",
+    human_setApprovalForAll_risk_1: "This can allow draining NFTs if the operator is malicious or compromised",
+    human_setApprovalForAll_safe_1: "Only approve operators you fully recognize (e.g., known marketplaces).",
+    human_setApprovalForAll_next_1: "Verify the operator address and confirm the site is the intended marketplace",
+    human_setApprovalForAll_reco: "Cancel unless you are on a recognized marketplace and expect this action.",
+    human_tx_whatIs: "This will create an on-chain transaction if you approve it in your wallet.",
+    human_tx_risk_1: "Transactions can move funds or change permissions depending on the contract call",
+    human_tx_safe_1: "Always verify recipient, value, and the contract you're interacting with.",
+    human_tx_next_1: "Check the destination (to), value, and decoded action (if available)",
+    human_tx_reco_suspicious: "Cancel. Do not send transactions from suspicious domains.",
+    human_tx_reco_ok: "Continue only if you intended this action and the details look correct.",
+    human_chain_whatIs: "Changes the selected network in your wallet.",
+    human_chain_risk_1: "Wrong networks/RPCs can mislead you about assets or transactions",
+    human_chain_safe_1: "Only switch/add networks you recognize.",
+    human_chain_next_1: "Confirm chain name and chainId in the wallet prompt",
+    human_watchasset_whatIs: "Adds a token/asset to your wallet UI for easier viewing.",
+    human_watchasset_risk_1: "Fake tokens can impersonate real ones\u2014verify contract address and symbol",
+    human_watchasset_safe_1: "Cross-check token details on a trusted explorer (e.g., Etherscan).",
+    human_watchasset_next_1: "Verify token contract address and decimals",
+    human_watchasset_reco: "Continue only if token details match an official source.",
+    human_generic_whatIs: "A site requested a wallet action. Review details carefully.",
+    human_generic_risk_1: "Unknown prompts can be part of phishing flows",
+    human_generic_safe_1: "If in doubt, cancel and verify the site.",
+    human_generic_next_1: "Check the URL and read the wallet prompt details",
+    human_generic_reco: "Continue only if you understand and expected this request.",
+    human_revoke_link_text: "Revoke permissions later: revoke.cash",
+    trustReasonNotHttps: "Not HTTPS (higher risk of spoofing/injection).",
+    trustReasonManyHyphens: "Many hyphens in the domain (common in lookalikes).",
+    trustReasonSuspiciousKeywords: "Domain contains high-risk keywords (login/verify/secure/...).",
+    trustReasonBrandLookalike: "Brand-like wording in domain but not the official domain.",
+    trustReasonManySubdomains: "Unusually deep subdomain structure.",
+    trustReasonNoHost: "Could not read the site hostname.",
+    trustReasonAllowlistedVariant: "Domain matches a trusted pattern.",
+    trustReasonUnknown: "No strong signals either way.",
+    summary_ADD_CHAIN_1: "The site wants to add a new network to your wallet.",
+    summary_ADD_CHAIN_2: "Carefully verify the chainId and network name.",
+    summary_SIGN_MESSAGE_1: "You are signing a message (not a transaction).",
+    summary_SIGN_MESSAGE_2: "Signatures can be used for logins/terms/permissions.",
+    summary_SIGN_TYPED_DATA_1: "You are signing structured data (EIP-712).",
+    summary_SIGN_TYPED_DATA_2: "This may authorize spending/orders depending on the content.",
+    summary_SIGN_TYPED_DATA_3: "Verify the spender/contract involved.",
+    summary_SEND_TX_1: "You are sending an on-chain transaction.",
+    summary_SEND_TX_2: "This may move ETH/tokens or interact with a contract.",
+    summary_SEND_TX_3: "Verify value, network and destination before confirming.",
+    summary_WATCH_ASSET_1: "The site wants to add a token/asset to your wallet.",
+    summary_WATCH_ASSET_2: "Verify the token symbol and contract address.",
+    summary_SOLANA_1: "Solana signature or transaction. Values will be confirmed in your wallet.",
+    summary_UNKNOWN_1: "The site is making an unknown wallet request.",
+    summary_UNKNOWN_2: "If you don't recognize it, cancel.",
+    // Buttons / friction
+    btn_cancel: "Cancel",
+    btn_continue: "Continue",
+    toast_request_expired: "Request expired. Please retry the action on the site.",
+    simulation_tx_will_fail: "THIS TRANSACTION WILL FAIL",
+    btn_close: "Close",
+    btn_proceed_anyway: "Proceed anyway",
+    override_checkbox: "I understand the risk and want to proceed",
+    override_countdown: "({s}s)",
+    tip_revoke: "Revoke permissions later: revoke.cash",
+    cost_summary_title: "Cost summary",
+    costs_title: "Costs and impact",
+    impact_title: "Impact",
+    permission_for: "Permission for",
+    addr_marked_public: "Flagged in public database",
+    risk_title: "Risk and why",
+    what_to_do_now: "What to do now",
+    site_label: "Site",
+    network_label: "Network",
+    severity_BLOCKED: "BLOCKED",
+    severity_HIGH: "HIGH",
+    severity_WARN: "WARNING",
+    severity_LOW: "LOW",
+    cost_you_send: "You send",
+    cost_fee_only: "fee only",
+    cost_value: "Value (ETH)",
+    cost_fee: "Estimated fee (ETH)",
+    cost_total: "Estimated total (ETH)",
+    cost_fee_unknown: "A network fee will be charged (confirm in wallet)",
+    network_switch_title: "Network switch",
+    network_current: "Current network",
+    network_requested: "Requested network",
+    trusted_domain_ref_title: "Trusted domains (reference)",
+    tx_cost_sending: "You are sending {value} ETH + network fee",
+    tx_cost_gas_only: "Even with 0 ETH, you will pay a network fee (gas)",
+    gas_calculating: "calculating\u2026",
+    tx_destination: "Destination",
+    token_verified_uniswap: "Token Verified (Uniswap List)",
+    token_unknown_unverified: "Token Unknown (Not Verified)",
+    tx_contract_method: "Contract/method",
+    tx_max_gas_fee: "Max gas fee (ETH)",
+    tx_max_total: "Max total (ETH)",
+    tx_fee_estimated_by_wallet: "The wallet will estimate the fee in the next step.",
+    network_target: "Target network",
+    switch_no_gas: "Switching networks usually costs NO gas.",
+    switch_next_step_gas: "The next step (purchase/transaction) will have a network fee.",
+    switch_note_inline: "Switching networks usually costs NO gas. The next step (purchase/transaction) will have a network fee.",
+    sendtx_reco: "Confirm in your wallet only if the details (value, network and contract) are correct.",
+    // Risk/trust labels
+    risk_LOW: "Low",
+    risk_WARN: "Warning",
+    risk_HIGH: "High",
+    recommend_ALLOW: "Allow",
+    recommend_WARN: "Warn",
+    recommend_HIGH: "High risk",
+    recommend_BLOCK: "Block",
+    trust_unknown: "Unknown",
+    trust_suspicious: "Suspicious",
+    trust_likelyOfficial: "Known domain (reference list)",
+    trust_domainNotRecognized: "Domain not recognized",
+    // Phishing hard-block
+    phishing_hard_block: "Domain is in a phishing blacklist. Blocked.",
+    // Toasts
+    toast_extension_updated: "Extension updated \u2014 reload the tab.",
+    toast_cannot_analyze: "Couldn't analyze. Reload the tab.",
+    // Options page
+    optionsTitle: "Crypto Wallet SignGuard \u2014 Settings",
+    optionsSubtitle: "Control when SignGuard should warn and block.",
+    dashboardLink: "Dashboard",
+    onboardingTitle: "How to use",
+    onboardingHowTo: "The extension intercepts sensitive requests (connect, sign, transaction) from injected wallets (window.ethereum / window.solana). When detected, it shows an overlay for you to review before the wallet opens.",
+    onboardingWhatItDoes: "Does: warns before connecting, signing, or sending; checks domain against phishing lists; shows transaction intent (swap, NFT, approval).",
+    onboardingWhatItDoesNot: "Does not: protect QR/WalletConnect connections; guarantee contracts are safe; replace manual verification.",
+    onboardingLinkRevoke: "revoke.cash \u2014 revoke permissions",
+    onboardingLinkEtherscan: "Etherscan \u2014 explore transactions",
+    exportDebugRequiresDebugMode: "Enable Debug Mode first to export events.",
+    securityModeLabel: "Security mode",
+    securityModeDesc: "Strict blocks more; Balanced warns; Relaxed reduces friction; Off disables blocking.",
+    modeStrict: "Strict",
+    modeBalanced: "Balanced",
+    modeRelaxed: "Relaxed",
+    modeOff: "Off",
+    strictBlockApprovalsUnlimitedLabel: "Strict: block unlimited approve",
+    strictBlockApprovalsUnlimitedDesc: "Blocks ERC20 unlimited approvals (MAX_UINT256).",
+    strictBlockSetApprovalForAllLabel: "Strict: block setApprovalForAll",
+    strictBlockSetApprovalForAllDesc: "Blocks permission to move all NFTs.",
+    strictBlockPermitLikeLabel: "Strict: block unlimited Permit",
+    strictBlockPermitLikeDesc: "Blocks Permit (EIP-2612) unlimited signatures.",
+    assetEnrichmentEnabledLabel: "Asset enrichment",
+    assetEnrichmentEnabledDesc: "Fetches token symbol/name via eth_call.",
+    addressIntelEnabledLabel: "Address threat intel",
+    addressIntelEnabledDesc: "Checks spender/operator/to against blacklist.",
+    riskWarningsLabel: "Risk warnings",
+    riskWarningsDesc: "Shows warnings and recommendations before opening your wallet.",
+    connectOverlayLabel: "Overlay on connect",
+    connectOverlayDesc: "Also show the overlay for connect/permissions requests.",
+    blockHighRiskLabel: "Block high risk",
+    blockHighRiskDesc: "Automatically blocks high-risk actions.",
+    requireTypedOverrideLabel: "Require override for typed data (high risk)",
+    requireTypedOverrideDesc: "For high-risk EIP-712 signatures, requires extra confirmation.",
+    allowOverrideOnPhishingLabel: "Allow override on phishing (NOT recommended)",
+    allowOverrideOnPhishingDesc: "If disabled (default), phishing blacklist matches are blocked with no option to proceed.",
+    mode_off_reason: "OFF mode: no blocking.",
+    address_flagged_reason: "Flagged address/contract: {label} ({category})",
+    addr_sanctioned_block: "Address is on a sanctions list.",
+    addr_scam_reported_warn: "Address marked as suspected/reported.",
+    addr_phishing_reported_warn: "Address marked as suspected/reported.",
+    addr_malicious_contract_warn: "Contract marked as malicious.",
+    asset_info_reason: "Asset: {sym} ({kind})",
+    reason_permission_tokens: "Permission to spend tokens",
+    reason_permission_all_nfts: "Permission to move ALL NFTs",
+    reason_transfer_tokens: "Token/NFT transfer",
+    domainChecksLabel: "Domain checks",
+    domainChecksDesc: "Warns about suspicious domain patterns when not on your allowlist.",
+    allowlistLabel: "Allowlist (trusted domains)",
+    allowlistDesc: "One domain per line. Example: opensea.io",
+    vaultTitle: "SignGuard Vault",
+    vaultDesc: "Contracts in this list can never be transacted without explicit unlock in options.",
+    vaultAddLabel: "Add contract to vault",
+    vaultAddButton: "Add to Vault",
+    vaultListLabel: "Locked contracts",
+    vaultListEmpty: "No contracts in vault.",
+    vaultRemove: "Remove",
+    vaultInvalidAddress: "Invalid address. Use 0x and 40 hex characters.",
+    vaultAlreadyAdded: "This contract is already in the vault.",
+    vaultBlockedMessage: "SignGuard: Asset Locked in Vault. Unlock in options to continue.",
+    addSuggested: "Add suggested",
+    save: "Save",
+    saved: "Saved",
+    intelTitle: "Threat Intel",
+    intelSubtitle: "Domain lists (pluggable sources) used in analysis.",
+    intelTrustedCountLabel: "Trusted domains",
+    intelBlockedCountLabel: "Blocked domains",
+    intelBlockedAddressCountLabel: "Blocked addresses",
+    intelUpdatedAtLabel: "Last update",
+    intelUpdateNow: "Update now",
+    enableIntelLabel: "Use Threat Intel",
+    enableIntelDesc: "Uses trusted/blocked domain lists in analysis.",
+    customTrustedDomainsLabel: "Trusted domains (custom list)",
+    customTrustedDomainsDesc: "One per line. Example: mysite.io",
+    customBlockedDomainsLabel: "Blocked domains (custom list)",
+    customBlockedDomainsDesc: "One per line. Always blocked.",
+    exportListsLabel: "Export lists",
+    privacyLimitsTitle: "Privacy & Limitations",
+    privacyLimitsLine1: "The extension does not access your seed phrase and has no custody.",
+    privacyLimitsLine2: "It analyzes domains and transaction data displayed by the browser for alerts. No 100% guarantee.",
+    privacyLimitsLine3: "Threat intel may be updated from public sources (optional).",
+    cloudIntelOptInLabel: "Allow external checks",
+    cloudIntelOptInDesc: "More protection; may send domain/addresses for validation (prepared for P1).",
+    showUsdLabel: "Show USD values",
+    showUsdDesc: "Shows an approximate USD value next to ETH amounts.",
+    tabSettings: "Settings",
+    tabHistory: "History",
+    tabPlan: "Plan",
+    historySubtitle: "Recent overlay decisions.",
+    historyExport: "Export JSON",
+    historyClear: "Clear",
+    historyEmpty: "No entries.",
+    request_expired_toast: "Request expired. Redo the action on the site and try again.",
+    decision_allow: "Allowed",
+    decision_block: "Blocked",
+    planSubtitle: "Manage your plan and license.",
+    planCurrent: "Current plan",
+    planLicenseKey: "License key",
+    planActivate: "Activate",
+    planGoPro: "Subscribe PRO",
+    // Options: Safety notes + debug
+    safetyNotesTitle: "Limitations & security",
+    safetyNotesLine1: "This extension monitors requests from injected wallets (window.ethereum / window.solana).",
+    safetyNotesLine2: "Connections via QR/WalletConnect may not be intercepted. Always verify in your wallet.",
+    safetyNotesLinkRevoke: "revoke.cash",
+    safetyNotesLinkEtherscan: "etherscan.io",
+    debugModeLabel: "Debug mode",
+    debugModeDesc: "Stores the last 20 events (without large payloads) for support.",
+    exportDebug: "Export",
+    // Overlay: intent + permission + copy
+    looks_like: "Looks like:",
+    intent_NFT_PURCHASE: "NFT purchase",
+    intent_SWAP: "Swap",
+    intent_APPROVAL: "Permission",
+    intent_SEND: "Send",
+    intent_UNKNOWN: "Unknown",
+    intent_ETH_TRANSFER: "ETH transfer",
+    intent_TOKEN_TRANSFER: "Token transfer",
+    intent_NFT_TRANSFER: "NFT transfer",
+    intent_CONTRACT_INTERACTION: "Contract interaction",
+    intent_SWITCH_CHAIN: "Network switch",
+    intent_ADD_CHAIN: "Add network",
+    intent_WATCH_ASSET: "Add token",
+    intent_SOLANA: "Solana signature/transaction",
+    intent_SIGNATURE: "Signature",
+    intent_TYPED_DATA: "Typed data",
+    wallet_label: "Wallet",
+    wallet_detecting: "Detecting\u2026",
+    wallet_evm_generic: "EVM Wallet",
+    trust_disclaimer: "Reference list \u2260 guarantee. Scammers may use similar domains.",
+    hint_wallet_popup: "Your wallet should open now. If it doesn't, click the wallet icon and check for pending requests.",
+    add_chain_network_label: "Network to add",
+    add_chain_rpc_label: "RPC",
+    watch_asset_token_label: "Token to add",
+    modeLabel: "Mode:",
+    popupPauseProtection: "PAUSE PROTECTION",
+    popupStatusProtected: "Protected",
+    popupStatusPaused: "Paused",
+    fortressModeLabel: "FORTRESS MODE",
+    fortressModeDesc: "Blocks all token approvals except on trusted sites.",
+    fortress_block_message: "SignGuard Fortress: Approval blocked on unknown site. Disable Fortress mode to proceed.",
+    honeypot_message: "\u{1FAA4} HONEYPOT: You can buy, but you will NOT be able to sell.",
+    info_unavailable: "Information unavailable.",
+    explain_switch_short: "The site is requesting a network (chain) switch in your wallet.",
+    human_chain_reco: "Continue only if you expected a network switch and it looks correct.",
+    trustReasonAllowlisted: "Domain is present in a trusted seed list.",
+    trustReasonPhishingBlacklist: "Domain is in a phishing blacklist (reference list).",
+    fee_unknown_wallet_will_estimate: "Fee: will be displayed by wallet",
+    label_you_send: "You send",
+    label_fee_likely: "Estimated fee (likely)",
+    label_fee_max: "Max fee (worst case)",
+    label_total_likely: "Total likely",
+    label_total_max: "Total max",
+    fee_gt_value: "The max fee is HIGHER than the value being sent. Make sure this is expected.",
+    check_wallet_network_fee: "You haven't seen the fee yet. Check the wallet 'Network fee' before confirming.",
+    label_max_fee: "Max fee (ETH)",
+    label_max_total: "Max total (ETH)",
+    switch_summary_no_gas: "Switching networks usually has no gas fee, but it changes which assets you see.",
+    permission_title: "Permission",
+    permission_token_contract: "Contract",
+    permission_spender: "Spender",
+    permission_operator: "Operator",
+    permission_unlimited: "Unlimited",
+    approval_unlimited_detected: "Unlimited approval detected",
+    permit_signature_detected: "Permit-style signature detected (may authorize token spending)",
+    token_transfer_detected: "Token transfer detected",
+    nft_transfer_detected: "NFT transfer detected",
+    transfer_token_title: "Token transfer",
+    transfer_nft_title: "NFT transfer",
+    transfer_amount: "Amount",
+    transfer_token_id: "Token ID",
+    yes: "Yes",
+    no: "No",
+    copy: "Copy",
+    chainChangeTitle: "Network switch/add request",
+    watchAssetTitle: "Add asset request",
+    domainPunycodeReason: "Domain uses punycode (xn--); verify the URL.",
+    domainDoubleDashReason: "Domain contains double hyphen (suspicious).",
+    domainNumberPatternReason: "Domain with many numbers (common in phishing).",
+    domainLookalikeReason: "Possible lookalike of official domain {legit}.",
+    suspiciousWebsitePatterns: "Suspicious website patterns.",
+    page_risk_suspicious_banner: "\u26A0\uFE0F SignGuard: Suspicious Site Detected",
+    connectTitle: "Connect wallet",
+    connectReason: "The site wants to connect to your wallet.",
+    walletRequestPermissionsTitle: "Request permissions",
+    walletRequestPermissionsReason: "The site wants additional wallet permissions.",
+    typedDataWarnReason: "Structured data signature (EIP-712); may authorize actions.",
+    signatureRequest: "Signature request",
+    rawSignWarnReason: "Raw message signature; may authorize off-chain actions.",
+    tokenApproval: "Token approval",
+    unlimitedApprovalReason: "Unlimited approval detected (MAX_UINT256).",
+    unlimitedApprovalDetected: "Unlimited approval detected",
+    nftOperatorApprovalReason: "Permission to move ALL NFTs in the collection.",
+    nftOperatorApproval: "NFT operator approval",
+    txPreview: "Transaction preview",
+    txWarnReason: "On-chain transaction; verify value, destination and network.",
+    unknownMethodReason: "Unknown wallet method.",
+    warningsDisabledReason: "Warnings disabled in settings.",
+    analyzing: "Analyzing\u2026",
+    analyzing_subtitle: "Site \u2022 Method",
+    analyzing_hint: "Validating domain and estimating impact",
+    fallback_partial_check: "No full verification right now \u2014 review the details below before proceeding.",
+    fallback_partial_verification: "Partial verification now \u2014 review the details below before proceeding.",
+    loading_base: "Loading base\u2026",
+    analyzerUnavailableTitle: "Analyzer unavailable",
+    analysis_unavailable: "Analysis unavailable \u2014 verify in your wallet before continuing.",
+    dados_parciais_title: "Partial data \u2014 confirm in wallet",
+    dados_parciais_subtitle: "Showing what we could analyze. Verify details in your wallet before continuing.",
+    risk_low: "Low",
+    risk_warn: "Warning",
+    risk_high: "High",
+    risk_block: "Blocked",
+    trustReasonAllowlistedMatched: "Domain in allowlist: {matched}.",
+    list_empty_domains: "List empty. Open options to add trusted domains.",
+    btn_open_options: "Open options",
+    default_human_switch_what: "Switches the active network in your wallet (e.g. Ethereum \u2192 another network).",
+    default_human_switch_risk: "You may sign/transact on the wrong network if the switch is unexpected.",
+    default_human_switch_safe: "Confirm the requested network and that the site is correct.",
+    default_human_switch_next: "If correct, approve in the wallet. If something looks wrong, cancel.",
+    default_human_contract_what: "Sends a transaction to a contract (action within the dApp).",
+    default_human_contract_risk: "Actual cost may vary and the action may move assets/tokens via the contract.",
+    default_human_contract_safe: "Check destination (to), network, value and fee (Network fee) in the wallet.",
+    default_human_contract_next: "If details match, proceed. Otherwise, cancel.",
+    default_human_eth_what: "Sends ETH directly to an address.",
+    default_human_eth_risk: "Transfers are irreversible if the destination is wrong.",
+    default_human_eth_safe: "Verify the address and amount. Be wary of links/shorteners.",
+    default_human_eth_next: "Only confirm if you recognize the recipient.",
+    default_human_typed_what: "Off-chain signature (EIP-712). May authorize actions without paying gas.",
+    default_human_typed_risk: "May grant permissions/authorizations (e.g. permit/approval) depending on content.",
+    default_human_typed_safe: "Review what is being authorized (spender/operator) and the domain/contract.",
+    default_human_typed_next: "If unsure, cancel and verify on the dApp\u2019s official site.",
+    default_human_generic_what: "Action requested by the dApp.",
+    default_human_generic_risk: "If something doesn\u2019t make sense, cancel.",
+    default_human_generic_safe: "Confirm domain, network and details in the wallet.",
+    default_human_generic_next: "Proceed only if everything looks correct.",
+    verdict_ok: "OK",
+    verdict_warn: "Warning",
+    verdict_high: "High risk",
+    verdict_block: "Blocked",
+    coverage_label: "Coverage",
+    coverage_limited: "limited coverage",
+    trusted_domain_ref_empty: "Reference list has not loaded yet.",
+    trusted_domain_ref_loading: "Loading reference list\u2026",
+    trusted_domain_ref_refresh: "Update lists",
+    trusted_domain_ref_view_more: "View more",
+    trusted_domains_loading: "Loading reference list\u2026",
+    trusted_domains_more: "+{n}",
+    trusted_domains_search_placeholder: "Filter domains\u2026",
+    trusted_domains_update_now: "Update now",
+    trusted_domains_auto_update: "Updates automatically in options",
+    banner_ok_no_known_threats: "OK: no known scam/threat signals detected.",
+    banner_block_known_threat: "Blocked: known threat detected.",
+    banner_local_verification: "Caution: local verification (cache). Review the details below before proceeding.",
+    banner_basic_verification: "Caution: basic verification. Review the details carefully before proceeding.",
+    list_site_reputation: "Site reputation",
+    list_site_trusted: "Trusted",
+    list_site_blocked: "Blocked",
+    list_site_unknown: "Unknown",
+    updated_x_hours: "Base updated {n} hour(s) ago",
+    updated_x_days: "Base updated {n} day(s) ago",
+    tip_check_wallet_details: "Verify amount, network and fee in your wallet.",
+    no_alerts_known: "No known alerts were detected for this context.",
+    still_review_wallet: "Still, review in your wallet (value, network, destination and fee).",
+    site_status_known: "known reference",
+    site_status_not_in_list: "Site is not on the reference list",
+    destination_contract: "Contract",
+    destination_wallet: "Wallet"
+  }
+};
+function format(template, params) {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (_m, k) => k in params ? String(params[k]) : `{${k}}`);
+}
+function t(key, params) {
+  const loc = detectLocale();
+  const v = dict[loc]?.[key] || dict.en[key] || key;
+  const rendered = format(v, params);
+  if (rendered !== key) return rendered;
+  try {
+    const c = globalThis.chrome;
+    const msg = c?.i18n?.getMessage?.(key);
+    if (msg) return format(msg, params);
+  } catch {
+  }
+  return rendered;
+}
+
+// src/runtimeSafe.ts
+var _port = null;
+function canUseRuntime() {
+  try {
+    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+    return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
+  } catch {
+    return false;
+  }
+}
+function isRuntimeUsable() {
+  try {
+    return canUseRuntime();
+  } catch {
+    return false;
+  }
+}
+function getPort() {
+  try {
+    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+    if (!canUseRuntime() || !c?.runtime?.connect) return null;
+    if (_port) return _port;
+    _port = c.runtime.connect({ name: "sg_port" });
+    _port.onDisconnect.addListener(() => {
+      _port = null;
+      _portListenerInit = false;
+    });
+    return _port;
+  } catch {
+    _port = null;
+    return null;
+  }
+}
+var _portPending = /* @__PURE__ */ new Map();
+var _portListenerInit = false;
+function initPortListener() {
+  const p = getPort();
+  if (!p || _portListenerInit) return;
+  _portListenerInit = true;
+  p.onMessage.addListener((resp) => {
+    const cb = resp?.requestId != null ? _portPending.get(String(resp.requestId)) : void 0;
+    if (cb) {
+      _portPending.delete(String(resp.requestId));
+      try {
+        cb(resp);
+      } catch {
+      }
+    }
+  });
+}
+function portRequest(msg, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    try {
+      const p = getPort();
+      if (!p) {
+        resolve(null);
+        return;
+      }
+      initPortListener();
+      const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `sg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const payload = { ...msg, requestId };
+      const timer = setTimeout(() => {
+        if (_portPending.has(requestId)) {
+          _portPending.delete(requestId);
+          resolve(null);
+        }
+      }, timeoutMs);
+      _portPending.set(requestId, (resp) => {
+        clearTimeout(timer);
+        resolve(resp != null ? resp : null);
+      });
+      try {
+        p.postMessage(payload);
+      } catch (e) {
+        clearTimeout(timer);
+        _portPending.delete(requestId);
+        resolve(null);
+      }
+    } catch {
+      resolve(null);
+    }
+  });
+}
+var DEFAULT_SEND_MS = 4e3;
+var RETRY_SEND_MS = 2500;
+function sendMessageOneAttempt(msg, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const once = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+    const rt = (() => {
+      try {
+        return c?.runtime ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    if (!rt || !rt.id || typeof rt.sendMessage !== "function") {
+      once(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      once(null);
+    }, timeoutMs);
+    try {
+      rt.sendMessage(msg, (resp) => {
+        if (settled) return;
+        clearTimeout(timer);
+        try {
+          const err = c?.runtime?.lastError;
+          if (err) {
+            once(null);
+            return;
+          }
+          once(resp ?? null);
+        } catch {
+          once(null);
+        }
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      once(null);
+    }
+  });
+}
+function safeSendMessage(msg, options) {
+  const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? DEFAULT_SEND_MS;
+  const preferPort = typeof options === "object" && options?.preferPort === true;
+  if (preferPort) {
+    return portRequest(msg, timeoutMs).then((r) => {
+      if (r != null && r?.ok !== false) return r;
+      return sendMessageOneAttempt(msg, timeoutMs).then((res) => {
+        if (res != null) return res;
+        return sendMessageOneAttempt(msg, RETRY_SEND_MS);
+      });
+    });
+  }
+  return sendMessageOneAttempt(msg, timeoutMs).then((r) => {
+    if (r != null) return r;
+    return sendMessageOneAttempt(msg, RETRY_SEND_MS);
+  });
+}
+async function safeStorageGet(keys) {
+  return new Promise((resolve) => {
+    try {
+      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+        resolve({ ok: false, error: "storage_unavailable" });
+        return;
+      }
+      chrome.storage.sync.get(keys, (items) => {
+        try {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            resolve({ ok: false, error: err.message || String(err) });
+            return;
+          }
+          resolve({ ok: true, data: items });
+        } catch (e) {
+          resolve({ ok: false, error: e?.message || String(e) });
+        }
+      });
+    } catch (e) {
+      resolve({ ok: false, error: e?.message || String(e) });
+    }
+  });
+}
+async function safeStorageSet(obj) {
+  return new Promise((resolve) => {
+    try {
+      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+        resolve({ ok: false, error: "storage_unavailable" });
+        return;
+      }
+      chrome.storage.sync.set(obj, () => {
+        try {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            resolve({ ok: false, error: err.message || String(err) });
+            return;
+          }
+          resolve({ ok: true, data: true });
+        } catch (e) {
+          resolve({ ok: false, error: e?.message || String(e) });
+        }
+      });
+    } catch (e) {
+      resolve({ ok: false, error: e?.message || String(e) });
+    }
+  });
+}
+
+// src/options.ts
+var $ = (id) => document.getElementById(id);
+var HISTORY_KEY = "sg_history_v1";
+function showTab(name) {
+  const tabs = document.querySelectorAll(".tab-btn");
+  for (let i = 0; i < tabs.length; i++) {
+    const b = tabs[i];
+    b.classList.toggle("active", b.getAttribute("data-tab") === name);
+  }
+  const panels = document.querySelectorAll(".tab-panel");
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i];
+    const panelId = p.id;
+    const expectedId = "tab-" + name;
+    p.classList.toggle("hidden", panelId !== expectedId);
+    p.classList.toggle("active", panelId === expectedId);
+  }
+  if (name === "history") loadHistory();
+  if (name === "lists") loadListsTab();
+}
+async function loadListsTab() {
+  const statEls = document.querySelectorAll(".list-stat-n");
+  const lastUpdatedEl = document.getElementById("listsLastUpdated");
+  try {
+    const resp = await safeSendMessage({ type: "SG_LISTS_STATUS" }, 3e3);
+    if (resp?.ok && resp?.counts) {
+      const c = resp.counts;
+      const totalTrusted = c.trustedDomains + c.userTrustedDomains;
+      const totalBlockedD = c.blockedDomains + c.userBlockedDomains;
+      const totalBlockedA = c.blockedAddresses + c.userBlockedAddresses;
+      const totalScam = c.scamTokens + c.userScamTokens;
+      if (statEls[0]) statEls[0].textContent = String(totalTrusted);
+      if (statEls[1]) statEls[1].textContent = String(totalBlockedD);
+      if (statEls[2]) statEls[2].textContent = String(totalBlockedA);
+      if (statEls[3]) statEls[3].textContent = String(totalScam);
+    }
+    if (lastUpdatedEl) {
+      lastUpdatedEl.textContent = resp?.updatedAt ? "\xDAltima atualiza\xE7\xE3o: " + new Date(resp.updatedAt).toLocaleString() : "\u2014";
+    }
+  } catch {
+    if (lastUpdatedEl) lastUpdatedEl.textContent = "Erro ao carregar.";
+  }
+}
+function localGet(key) {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome?.storage?.local) return resolve(null);
+      chrome.storage.local.get(key, (r) => {
+        const err = chrome.runtime?.lastError;
+        if (err) return resolve(null);
+        resolve(r?.[key] ?? null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+async function loadHistory() {
+  const listEl = $("historyList");
+  if (!listEl) return;
+  const items = await localGet(HISTORY_KEY);
+  const arr = Array.isArray(items) ? items.slice().reverse() : [];
+  if (arr.length === 0) {
+    listEl.innerHTML = `<p style="color:#94a3b8;margin:0;">${t("historyEmpty") || "Nenhum registro."}</p>`;
+    return;
+  }
+  listEl.innerHTML = arr.map((e) => {
+    const ts = e.ts ? new Date(e.ts).toLocaleString() : "\u2014";
+    const host = e.host || "\u2014";
+    const action = e.action || e.method || "\u2014";
+    const decision = e.decision === "ALLOW" ? t("decision_allow") || "Permitido" : t("decision_block") || "Bloqueado";
+    const score = e.score != null ? String(e.score) : "";
+    const value = e.valueEth ? ` ${e.valueEth} ETH` : "";
+    return `<div style="background:rgba(30,41,59,0.6);border:1px solid rgba(148,163,184,0.15);border-radius:10px;padding:12px;margin-bottom:8px;"><div style="font-size:0.85rem;color:#94a3b8;">${ts} \xB7 ${host}</div><div>${action} \xB7 ${decision}${score ? " \xB7 " + score : ""}${value}</div></div>`;
+  }).join("");
+}
+async function load() {
+  const r = await safeStorageGet(DEFAULT_SETTINGS);
+  return r.ok ? r.data : DEFAULT_SETTINGS;
+}
+async function save(s) {
+  await safeStorageSet(s);
+}
+function linesToList(v) {
+  return v.split("\n").map((x) => normalizeDomainLine(x)).filter(Boolean);
+}
+function listToLines(v) {
+  return v.join("\n");
+}
+(async function init() {
+  const s = await load();
+  const showUsdEl = $("showUsd");
+  const addressIntelEl = $("addressIntel");
+  const fortressModeEl = $("fortressMode");
+  const whitelistInputEl = $("whitelistInput");
+  const saveWhitelistBtn = $("saveWhitelist");
+  const clearHistoryBtn = $("clearHistory");
+  if (showUsdEl) showUsdEl.checked = s.showUsd !== false;
+  if (addressIntelEl) addressIntelEl.checked = s.addressIntelEnabled !== false;
+  if (fortressModeEl) fortressModeEl.checked = s.fortressMode === true;
+  const domains = (s.trustedDomains?.length ? s.trustedDomains : s.allowlist) ?? [];
+  if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
+  const hash = (location.hash || "").replace(/^#/, "") || "settings";
+  const tabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : "settings";
+  showTab(tabName);
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const t2 = btn.getAttribute("data-tab");
+      if (t2) {
+        location.hash = t2;
+        showTab(t2);
+      }
+    });
+  });
+  window.addEventListener("hashchange", () => {
+    const h = (location.hash || "").replace(/^#/, "") || "settings";
+    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : "settings");
+  });
+  showUsdEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, showUsd: showUsdEl.checked });
+  });
+  addressIntelEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, addressIntelEnabled: addressIntelEl.checked });
+  });
+  fortressModeEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, fortressMode: fortressModeEl.checked });
+  });
+  saveWhitelistBtn?.addEventListener("click", async () => {
+    const latest = await load();
+    const lines = whitelistInputEl?.value ?? "";
+    const list = linesToList(lines);
+    await save({
+      ...latest,
+      allowlist: list,
+      trustedDomains: list
+    });
+  });
+  clearHistoryBtn?.addEventListener("click", async () => {
+    try {
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ [HISTORY_KEY]: [] }, () => resolve());
+      });
+      loadHistory();
+    } catch {
+    }
+  });
+  const historyExportBtn = document.getElementById("historyExport");
+  historyExportBtn?.addEventListener("click", async () => {
+    const items = await localGet(HISTORY_KEY);
+    const arr = Array.isArray(items) ? items : [];
+    try {
+      const blob = new Blob([JSON.stringify({ exportedAt: Date.now(), history: arr }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "signguard-history.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e3);
+    } catch {
+    }
+  });
+  document.getElementById("listsRefreshNow")?.addEventListener("click", async () => {
+    try {
+      await safeSendMessage({ type: "SG_LISTS_REFRESH_NOW" }, 15e3);
+      loadListsTab();
+    } catch {
+    }
+  });
+  const listsSearchInput = document.getElementById("listsSearchInput");
+  const listsSearchType = document.getElementById("listsSearchType");
+  const listsSearchResults = document.getElementById("listsSearchResults");
+  document.getElementById("listsSearchBtn")?.addEventListener("click", async () => {
+    const query = listsSearchInput?.value?.trim() ?? "";
+    const type = listsSearchType?.value || "";
+    if (!listsSearchResults) return;
+    try {
+      const resp = await safeSendMessage({
+        type: "SG_LISTS_SEARCH",
+        payload: { query, type, page: 0, pageSize: 50 }
+      }, 3e3);
+      if (!resp?.ok || !Array.isArray(resp.items)) {
+        listsSearchResults.innerHTML = "<p>Nenhum resultado.</p>";
+        return;
+      }
+      const items = resp.items;
+      const total = resp.total ?? items.length;
+      listsSearchResults.innerHTML = items.length === 0 ? "<p>Nenhum resultado.</p>" : "<p style='margin:0 0 8px 0;color:var(--text-muted);'>" + total + " resultado(s)</p>" + items.map((it) => {
+        if (it.type === "domain") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.value || "")}</code><span class="list-badge ${it.source === "user" ? "list-badge-user" : "list-badge-feed"}">${it.kind === "blocked" ? "bloqueado" : "confi\xE1vel"} \xB7 ${it.source || "feed"}</span></div>`;
+        if (it.type === "address") return `<div style="margin-bottom:6px;"><code class="sg-mono">${escapeHtml((it.value || "").slice(0, 20))}\u2026</code><span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
+        if (it.type === "token") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.chainId || "")}</code> <code class="sg-mono">${escapeHtml((it.address || "").slice(0, 16))}\u2026</code>${it.symbol ? " " + escapeHtml(it.symbol) : ""}<span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
+        return "";
+      }).join("");
+    } catch {
+      listsSearchResults.innerHTML = "<p>Erro ao buscar.</p>";
+    }
+  });
+  function escapeHtml(s2) {
+    const div = document.createElement("div");
+    div.textContent = s2;
+    return div.innerHTML;
+  }
+  const listsAddDomain = document.getElementById("listsAddDomain");
+  const listsAddDomainKind = document.getElementById("listsAddDomainKind");
+  document.getElementById("listsAddDomainBtn")?.addEventListener("click", async () => {
+    const domain = listsAddDomain?.value?.trim();
+    const type = listsAddDomainKind?.value || "userTrustedDomains";
+    if (!domain) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type, domain } }, 3e3);
+      if (listsAddDomain) listsAddDomain.value = "";
+      loadListsTab();
+    } catch {
+    }
+  });
+  const listsAddAddress = document.getElementById("listsAddAddress");
+  document.getElementById("listsAddAddressBtn")?.addEventListener("click", async () => {
+    const address = listsAddAddress?.value?.trim();
+    if (!address || !address.startsWith("0x")) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userBlockedAddresses", address } }, 3e3);
+      if (listsAddAddress) listsAddAddress.value = "";
+      loadListsTab();
+    } catch {
+    }
+  });
+  const listsAddTokenChain = document.getElementById("listsAddTokenChain");
+  const listsAddTokenAddr = document.getElementById("listsAddTokenAddr");
+  document.getElementById("listsAddTokenBtn")?.addEventListener("click", async () => {
+    const chainId = listsAddTokenChain?.value?.trim();
+    const tokenAddress = listsAddTokenAddr?.value?.trim();
+    if (!chainId || !tokenAddress || !tokenAddress.startsWith("0x")) return;
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userScamTokens", chainId, tokenAddress } }, 3e3);
+      if (listsAddTokenAddr) listsAddTokenAddr.value = "";
+      loadListsTab();
+    } catch {
+    }
+  });
+  document.getElementById("listsExport")?.addEventListener("click", async () => {
+    try {
+      const resp = await safeSendMessage({ type: "SG_LISTS_EXPORT" }, 3e3);
+      if (!resp?.ok || !resp?.data) return;
+      const blob = new Blob([JSON.stringify({ ...resp.data, exportedAt: Date.now() }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "signguard-lists-overrides.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e3);
+    } catch {
+    }
+  });
+  const listsImportFile = document.getElementById("listsImportFile");
+  const listsImportStatus = document.getElementById("listsImportStatus");
+  listsImportFile?.addEventListener("change", async () => {
+    const file = listsImportFile?.files?.[0];
+    if (!listsImportStatus) return;
+    listsImportStatus.textContent = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await safeSendMessage({ type: "SG_LISTS_IMPORT", payload: { data } }, 5e3);
+      listsImportStatus.textContent = "Importado (apenas overrides).";
+      loadListsTab();
+    } catch (e) {
+      listsImportStatus.textContent = "Erro: " + String(e?.message ?? e);
+    }
+    listsImportFile.value = "";
+  });
+  loadHistory();
+})();
+//# sourceMappingURL=options.js.map

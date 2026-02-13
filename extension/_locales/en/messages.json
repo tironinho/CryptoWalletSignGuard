@@ -1,0 +1,4 @@
+{
+  "extName": { "message": "Crypto Wallet SignGuard" },
+  "extDescription": { "message": "Security prompts that explain wallet connections, signatures and transactions in plain language before you confirm in your wallet." }
+}

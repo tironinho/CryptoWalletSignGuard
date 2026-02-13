@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignGuard</title>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --accent: #3b82f6; --success: #10b981; --danger: #ef4444; --border: #334155; }
+    body { font-family: sans-serif; background: var(--bg); color: var(--text); margin: 0; width: 320px; height: 400px; display: flex; flex-direction: column; }
+    .header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(15,23,42,0.95); }
+    .status-badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 20px; background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.2); }
+    .main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+    .hero-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+    .pause-btn { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .pause-btn:hover { background: rgba(255,255,255,0.1); }
+    .footer { padding: 12px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: var(--card); }
+    .nav-link { text-align: center; padding: 10px; border-radius: 8px; font-size: 0.85rem; color: #94a3b8; text-decoration: none; }
+    .nav-link:hover { background: rgba(255,255,255,0.05); color: white; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div style="font-weight:700;">🛡️ SignGuard</div>
+    <div id="popupStatus" class="status-badge">Protegido</div>
+  </header>
+  <main class="main">
+    <div class="hero-card">
+      <div style="font-size:2.5rem; margin-bottom:10px;">✅</div>
+      <h3 style="margin:0;">Sistema Ativo</h3>
+      <p style="margin:5px 0 0 0; font-size:0.8rem; color:#94a3b8;">Sua carteira está segura.</p>
+    </div>
+    <div id="popupPauseWrap">
+      <button id="popupPause15m" class="pause-btn" type="button"><span>⏸️</span> <span>Pausar (15m)</span></button>
+    </div>
+    <div id="popupPausedBlock" class="hero-card hidden" style="border-color:var(--danger);">
+      <h3 style="color:var(--danger); margin:0;">Pausado</h3>
+      <button id="popupResume" class="pause-btn" type="button" style="margin-top:10px; border-color:var(--success);">▶️ Retomar</button>
+    </div>
+  </main>
+  <footer class="footer" style="grid-template-columns: 1fr 1fr;">
+    <a href="#" id="linkSettings" class="nav-link">⚙️ Configurações</a>
+    <a href="#" id="linkHistory" class="nav-link">📜 Histórico</a>
+  </footer>
+  <div style="display:none;"><input type="checkbox" id="popupShowUsd"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

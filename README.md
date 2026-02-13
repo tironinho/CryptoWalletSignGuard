@@ -9,14 +9,24 @@ npm i
 npm run build
 ```
 
-Output: `dist/` (load this folder in Chrome/Brave).
+- **Output:** `dist/` (intermediate) and **`extension/`** (final). The build copies everything from `dist/` into `extension/` so that `manifest.json`, `background.js`, `content.js`, `mainWorld.js`, and HTML/icons all live in one folder.
 
-## Load unpacked
+## Load unpacked (testar local)
 
 - Open `chrome://extensions`
 - Enable **Developer mode**
 - Click **Load unpacked**
-- Select the folder `extension/dist`
+- **Select the folder `extension/`** (not the repo root and not `dist/`). The extension only works when the folder you load contains `manifest.json` and the built JS/HTML at the same level.
+
+## Pack (publicar / loja)
+
+```bash
+npm run pack
+```
+
+- Produces **`crypto-wallet-signguard.zip`** in the repo root.
+- The ZIP contains the **contents** of `extension/` (e.g. `manifest.json` at the **root of the ZIP**), as required for the Chrome Web Store and side-load installs.
+- Run `npm run build` before `npm run pack`.
 
 ## Quick test checklist
 
@@ -47,6 +57,9 @@ Output: `dist/` (load this folder in Chrome/Brave).
   - Change browser language (pt-BR / en / es)
   - Reload the extension + refresh the page
   - Overlay and Options should follow the browser language automatically
+
+- **CSP / console**
+  - On strict-CSP sites (e.g. Uniswap, OpenSea), the overlay should not trigger CSP errors for inline handlers (token logo fallback is attached via JS, not `onerror="..."`).
 
 - **After any change**
   - Go to `chrome://extensions`
