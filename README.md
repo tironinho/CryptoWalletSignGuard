@@ -9,7 +9,7 @@ npm i
 npm run build
 ```
 
-- **Output:** `dist/` (bundles and assets) and **`extension/`** (ready for Load unpacked). The build copies `dist/**` + `manifest.json` + `_locales/**` into `extension/` with paths adjusted so a single folder can be loaded.
+- **Output:** `dist/` (bundles) and **`extension/`** (ready for Load unpacked). The build flattens `dist/*` into `extension/`, writes `extension/manifest.json` from `src/manifest.template.json`, and keeps `_locales` at the root of `extension/`. **Always load the `extension/` folder** — no root or dist.
 
 ## Load unpacked (testar local)
 

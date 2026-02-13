@@ -46,7 +46,7 @@ if (clean) {
 rimraf(DIST);
 fs.mkdirSync(DIST, { recursive: true });
 
-// Do NOT copy manifest.json to dist — extension is loaded from project ROOT (manifest points to dist/*)
+// Do NOT copy manifest.json to dist — build-extension.mjs uses src/manifest.template.json and assembles extension/
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
 copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
 copyFile(path.join(SRC, "onboarding.html"), path.join(DIST, "onboarding.html"));
@@ -107,7 +107,7 @@ for (const [name, entry] of Object.entries(extraEntryPoints)) {
   await runBuild(name, entry, "esm");
 }
 
-// Validate required dist artifacts (extension is loaded from ROOT; manifest references dist/*)
+// Validate required dist artifacts (build-extension copies dist -> extension with flat manifest)
 const required = [
   "background.js",
   "content.js",

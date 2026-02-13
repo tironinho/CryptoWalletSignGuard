@@ -1,18 +1,18 @@
 /**
  * Assembles extension/ for "Load unpacked":
- * - dist/** -> extension/** (bundles at extension root)
- * - manifest.json -> extension/manifest.json (paths rewritten: dist/ -> removed)
- * - _locales/** -> extension/_locales/**
- * Fails if extension/manifest.json is missing or invalid.
+ * - dist/* -> extension/* (flatten; no extension/dist)
+ * - manifest from src/manifest.template.json -> extension/manifest.json
+ * - dist/_locales -> extension/_locales (included in copyDir dist->extension)
+ * Validates required files and manifest JSON. Fails build if anything is missing.
  */
 import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(process.cwd());
+const SRC = path.join(ROOT, "src");
 const DIST = path.join(ROOT, "dist");
 const EXTENSION = path.join(ROOT, "extension");
-const MANIFEST_SRC = path.join(ROOT, "manifest.json");
-const LOCALES_SRC = path.join(ROOT, "_locales");
+const MANIFEST_TEMPLATE = path.join(SRC, "manifest.template.json");
 
 function rimraf(p) {
   if (!fs.existsSync(p)) return;
@@ -34,66 +34,68 @@ function copyDir(srcDir, dstDir) {
   }
 }
 
-/** Recursively strip "dist/" prefix from string values so extension root = bundle root. */
-function stripDistPaths(obj) {
-  if (typeof obj === "string" && obj.startsWith("dist/")) return obj.slice(5);
-  if (obj === null || typeof obj !== "object") return obj;
-  if (Array.isArray(obj)) return obj.map((item) => stripDistPaths(item));
-  const out = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (typeof v === "string" && v.startsWith("dist/")) {
-      out[k] = v.slice(5);
-    } else if (typeof v === "object" && v !== null) {
-      out[k] = stripDistPaths(v);
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
-}
-
 // 1) Clean extension
 rimraf(EXTENSION);
 ensureDir(EXTENSION);
 
-// 2) Copy dist/** -> extension/**
+// 2) Copy dist/* -> extension/* (flatten)
 if (!fs.existsSync(DIST)) {
   console.error("build-extension: dist/ not found. Run the main build first.");
   process.exit(1);
 }
 copyDir(DIST, EXTENSION);
 
-// 3) Manifest: copy and rewrite paths (dist/ -> removed)
-if (!fs.existsSync(MANIFEST_SRC)) {
-  console.error("build-extension: manifest.json not found in project root.");
+// 3) extension/manifest.json (from template; template has flat paths)
+if (!fs.existsSync(MANIFEST_TEMPLATE)) {
+  console.error("build-extension: src/manifest.template.json not found.");
   process.exit(1);
 }
-const manifestRaw = fs.readFileSync(MANIFEST_SRC, "utf8");
+let manifestRaw;
+try {
+  manifestRaw = fs.readFileSync(MANIFEST_TEMPLATE, "utf8");
+} catch (e) {
+  console.error("build-extension: failed to read manifest template:", (e && e.message) || e);
+  process.exit(1);
+}
 let manifest;
 try {
   manifest = JSON.parse(manifestRaw);
 } catch (e) {
-  console.error("build-extension: invalid JSON in manifest.json:", (e && e.message) || e);
+  console.error("build-extension: src/manifest.template.json is invalid JSON:", (e && e.message) || e);
   process.exit(1);
 }
-const manifestForExtension = stripDistPaths(manifest);
-fs.writeFileSync(
-  path.join(EXTENSION, "manifest.json"),
-  JSON.stringify(manifestForExtension, null, 0),
-  "utf8"
-);
-
-// 4) _locales
-if (fs.existsSync(LOCALES_SRC)) {
-  copyDir(LOCALES_SRC, path.join(EXTENSION, "_locales"));
-}
-
-// 5) Validate extension/manifest.json exists and is valid JSON
 const extManifestPath = path.join(EXTENSION, "manifest.json");
-if (!fs.existsSync(extManifestPath)) {
-  console.error("build-extension: extension/manifest.json was not created.");
+fs.writeFileSync(extManifestPath, JSON.stringify(manifest, null, 0), "utf8");
+
+// 4) _locales: already in dist (build.mjs copies root _locales -> dist). copyDir(dist, extension) put extension/_locales.
+//    If dist has no _locales, copy from root as fallback.
+const extLocales = path.join(EXTENSION, "_locales");
+if (!fs.existsSync(extLocales) && fs.existsSync(path.join(ROOT, "_locales"))) {
+  copyDir(path.join(ROOT, "_locales"), extLocales);
+}
+
+// 5) Validate required files
+const requiredFiles = [
+  "manifest.json",
+  "background.js",
+  "content.js",
+  "mainWorld.js",
+  "popup.html",
+  "options.html",
+  "overlay.css",
+];
+const missing = requiredFiles.filter((name) => !fs.existsSync(path.join(EXTENSION, name)));
+if (missing.length) {
+  console.error("build-extension: missing in extension/:", missing.join(", "));
   process.exit(1);
 }
+const iconsDir = path.join(EXTENSION, "icons");
+if (!fs.existsSync(iconsDir) || !fs.readdirSync(iconsDir).length) {
+  console.error("build-extension: extension/icons/ missing or empty.");
+  process.exit(1);
+}
+
+// 6) Validate extension/manifest.json is valid JSON
 try {
   JSON.parse(fs.readFileSync(extManifestPath, "utf8"));
 } catch (e) {
