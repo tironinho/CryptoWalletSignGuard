@@ -1,84 +1,89 @@
 "use strict";
 (() => {
   // src/mainWorld.ts
-  try {
-    document.documentElement.dataset.sgMainworld = "1";
-    window.postMessage({ source: "signguard-inpage", type: "SG_MAINWORLD_READY", version: "1.0.0" }, "*");
-  } catch {
+  var DEBUG_PREFIX = "\u{1F680} [SignGuard MainWorld]";
+  function log(msg, ...args) {
+    console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
   }
-  function log(...args) {
-  }
+  log("Script injected and started.");
   function patchProvider(provider) {
     if (!provider || provider._sg_patched) return;
-    log("Patching Provider:", provider);
+    log("Patching found provider:", provider);
     const originalRequest = provider.request.bind(provider);
-    provider.request = async (args) => {
-      const method = args?.method;
-      const criticalMethods = [
-        "eth_sendTransaction",
-        "eth_signTypedData_v4",
-        "eth_signTypedData_v3",
-        "personal_sign",
-        "wallet_switchEthereumChain"
-      ];
-      if (!criticalMethods.includes(method)) {
-        return originalRequest(args);
-      }
-      log("Intercepted:", method);
-      const requestId = crypto.randomUUID();
-      window.postMessage(
-        {
+    Object.defineProperty(provider, "request", {
+      value: async (args) => {
+        const method = args?.method;
+        log(`Intercepted call to: ${method}`, args);
+        const methodsToIntercept = [
+          "eth_sendTransaction",
+          "eth_signTypedData",
+          "eth_signTypedData_v3",
+          "eth_signTypedData_v4",
+          "personal_sign",
+          "wallet_switchEthereumChain"
+        ];
+        if (!methodsToIntercept.includes(method)) {
+          log(`Passthrough method: ${method}`);
+          return originalRequest(args);
+        }
+        log(`\u{1F6D1} HOLDING Request: ${method}. Sending to Content Script...`);
+        const requestId = crypto.randomUUID();
+        window.postMessage({
           source: "signguard",
           type: "SG_REQUEST",
           requestId,
           payload: {
             method,
-            params: args?.params,
+            params: args.params,
             host: window.location.hostname,
             url: window.location.href
           }
-        },
-        "*"
-      );
-      return new Promise((resolve, reject) => {
-        const handler = (ev) => {
-          const d = ev?.data;
-          if (d?.requestId !== requestId || d?.type !== "SG_DECISION") return;
-          if (d?.source !== "signguard-content") return;
-          window.removeEventListener("message", handler);
-          if (d.allow) {
-            originalRequest(args).then(resolve).catch(reject);
-          } else {
-            reject({ code: 4001, message: "SignGuard: Blocked by user" });
-          }
-        };
-        window.addEventListener("message", handler);
-      });
-    };
+        }, "*");
+        return new Promise((resolve, reject) => {
+          const handler = (ev) => {
+            if (ev.data?.source === "signguard-content" && ev.data?.type === "SG_DECISION" && ev.data?.requestId === requestId) {
+              log(`\u2705 Decision received for ${requestId}: ${ev.data.allow}`);
+              window.removeEventListener("message", handler);
+              if (ev.data.allow) {
+                log("Executing original request...");
+                originalRequest(args).then(resolve).catch(reject);
+              } else {
+                log("Rejecting request (User Blocked).");
+                reject({ code: 4001, message: "SignGuard: Blocked by user" });
+              }
+            }
+          };
+          window.addEventListener("message", handler);
+        });
+      },
+      configurable: true,
+      writable: true
+    });
     provider._sg_patched = true;
+    log("Provider patched successfully.");
   }
   function init() {
+    log("Initializing...");
     if (window.ethereum) {
       patchProvider(window.ethereum);
     }
     let storedEth = window.ethereum;
-    try {
-      Object.defineProperty(window, "ethereum", {
-        get: () => storedEth,
-        set: (val) => {
-          storedEth = val;
-          patchProvider(val);
-        },
-        configurable: true
-      });
-    } catch {
-    }
+    Object.defineProperty(window, "ethereum", {
+      get: () => storedEth,
+      set: (val) => {
+        log("window.ethereum was set externally!");
+        storedEth = val;
+        patchProvider(val);
+      },
+      configurable: true
+    });
     setInterval(() => {
       const eth = window.ethereum;
       if (eth && !eth._sg_patched) {
+        log("Polling found unpatched provider. Patching now...");
         patchProvider(eth);
       }
-    }, 100);
+    }, 1e3);
   }
   init();
 })();

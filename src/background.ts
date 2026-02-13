@@ -1,3 +1,5 @@
+console.log("🚨 [SignGuard Background] Service Worker LOADED via " + new Date().toISOString());
+
 import type { AnalyzeRequest, Analysis, Settings, AssetInfo, DecodedAction, SecurityMode, ThreatIntelAddress, CheckResult, CheckKey, PlanState } from "./shared/types";
 import type { TxSummary } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
@@ -43,13 +45,274 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
   return false;
 });
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "sg_port") return;
-  port.onMessage.addListener((msg: any) => {
-    if (msg?.type === "PING" && msg?.requestId != null) {
-      try { port.postMessage({ requestId: msg.requestId, ok: true, ts: Date.now() }); } catch {}
+  if (!port || port.name !== "sg_port") return;
+  port.onMessage.addListener(async (msg: any) => {
+    const requestId = msg?.requestId;
+    const payload = msg ? { ...msg } : {};
+    delete payload.requestId;
+    try {
+      const resp = await handleBgRequest(payload, port.sender);
+      port.postMessage({ requestId, ...(resp ?? { ok: true }) });
+    } catch (e: any) {
+      port.postMessage({ requestId, ok: false, error: String(e?.message || e) });
     }
   });
 });
+
+/** Single handler for all background requests (onMessage and Port). Used by options/content via sg_port. */
+async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender): Promise<any> {
+  if (!msg || typeof msg !== "object" || !msg.type) return { ok: false, error: "INVALID_MESSAGE" };
+  if (msg.type === "PING") return { ok: true, ts: Date.now() };
+  try {
+    switch (msg.type) {
+      case "AD_TRACK_CLICK": {
+        const campaignId = msg.payload?.campaignId;
+        if (campaignId) trackAdEvent(campaignId, "CLICK").catch(() => {});
+        return { ok: true };
+      }
+      case "GET_ETH_USD":
+      case "SG_GET_PRICE": {
+        const usdPerEth = await getEthUsdPriceCached();
+        if (usdPerEth != null) return { ok: true, usdPerEth, ethUsd: usdPerEth, updatedAt: __ethUsdCache?.fetchedAt ?? Date.now() };
+        return { ok: false };
+      }
+      case "SG_GET_NATIVE_USD": {
+        const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+        const result = await getNativeUsd(chainIdHex);
+        if (result?.ok && result.usdPerNative != null) return { ok: true, usdPerNative: result.usdPerNative, nativeSymbol: result.nativeSymbol };
+        return { ok: false };
+      }
+      case "SG_GET_TOKEN_USD": {
+        const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+        const tokenAddress = msg.payload?.tokenAddress;
+        if (!tokenAddress) return { ok: false };
+        const result = await getTokenUsd(chainIdHex, tokenAddress);
+        if (result) return { ok: true, priceUsd: result.priceUsd, source: "dexscreener" };
+        return { ok: false };
+      }
+      case "SG_GET_TOKEN_META": {
+        const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
+        const tokenAddress = msg.payload?.tokenAddress;
+        if (!tokenAddress) return { ok: false };
+        const result = await getTokenMeta(chainIdHex, tokenAddress);
+        if (result) return { ok: true, symbol: result.symbol, decimals: result.decimals, name: result.name };
+        return { ok: false };
+      }
+      case "SG_LISTS_STATUS": {
+        const lists = await getLists();
+        return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length }, sources: lists.sources };
+      }
+      case "SG_LISTS_REFRESH_NOW": {
+        try {
+          const lists = await refreshLists(true);
+          return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length }, sources: lists.sources };
+        } catch (e) {
+          return { ok: false, error: String((e as Error)?.message ?? e) };
+        }
+      }
+      case "SG_LISTS_DECIDE_DOMAIN": {
+        const host = msg.payload?.host;
+        const lists = await getLists();
+        const decision = getDomainDecision(host ?? "", lists);
+        return { ok: true, decision };
+      }
+      case "SG_LISTS_SEARCH": {
+        const lists = await getLists();
+        const q = (msg.payload?.q ?? "").toString().toLowerCase().trim();
+        const type = (msg.payload?.type ?? "domain").toString().toLowerCase();
+        const page = Math.max(0, parseInt(msg.payload?.page, 10) || 0);
+        const pageSize = Math.min(50, Math.max(10, parseInt(msg.payload?.pageSize, 10) || 20));
+        let items: Array<{ value: string; source?: string; kind?: string }> = [];
+        if (type === "domain" && q) {
+          const all = [...lists.trustedDomains, ...lists.blockedDomains];
+          const filtered = all.filter((d) => d.includes(q));
+          items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((d) => ({ value: d, kind: lists.trustedDomains.includes(d) ? "trusted" : "blocked" }));
+        } else if (type === "address" && q) {
+          const all = [...lists.blockedAddresses];
+          const filtered = all.filter((a) => a.includes(q));
+          items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((a) => ({ value: a, kind: "blocked" }));
+        } else if (type === "token" && q) {
+          const filtered = lists.scamTokens.filter((t) => t.address.includes(q) || (t.symbol || "").toLowerCase().includes(q));
+          items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((t) => ({ value: t.address, source: t.source, kind: "scam", chainId: t.chainId }));
+        }
+        return { ok: true, items, page, pageSize };
+      }
+      case "SG_LISTS_OVERRIDE_ADD": {
+        const overrideType = msg.payload?.type;
+        const payload = msg.payload?.payload ?? {};
+        try {
+          await upsertUserOverride(overrideType, payload);
+          const lists = await getLists();
+          return { ok: true, updatedAt: lists.updatedAt };
+        } catch (e) {
+          return { ok: false, error: String((e as Error)?.message ?? e) };
+        }
+      }
+      case "SG_LISTS_OVERRIDE_REMOVE": {
+        const overrideType = msg.payload?.type;
+        const payload = msg.payload?.payload ?? {};
+        try {
+          await deleteUserOverride(overrideType, payload);
+          const lists = await getLists();
+          return { ok: true, updatedAt: lists.updatedAt };
+        } catch (e) {
+          return { ok: false, error: String((e as Error)?.message ?? e) };
+        }
+      }
+      case "SG_LISTS_EXPORT": {
+        const lists = await getLists();
+        return { ok: true, data: lists };
+      }
+      case "SG_LISTS_IMPORT": {
+        const data = msg.payload?.data;
+        if (!data || typeof data !== "object") return { ok: false, error: "invalid_data" };
+        try {
+          const { importUserOverrides } = await import("./services/listManager");
+          const lists = await importUserOverrides(data);
+          return { ok: true, updatedAt: lists.updatedAt };
+        } catch (e) {
+          return { ok: false, error: String((e as Error)?.message ?? e) };
+        }
+      }
+      case "SG_INTEL_SUMMARY": {
+        const intel = await getIntelFresh();
+        return { ok: true, updatedAt: intel.updatedAt, trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length, blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length, blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length, sources: intel.sources || [] };
+      }
+      case "SG_INTEL_UPDATE_NOW":
+      case "UPDATE_INTEL_NOW": {
+        let intel: ThreatIntel;
+        try { intel = await updateIntelNow(); } catch { intel = await getIntelFresh(); }
+        return { ok: true, updatedAt: intel.updatedAt, trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length, blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length, blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length, sources: intel.sources || [] };
+      }
+      case "SG_LOG_HISTORY": {
+        const evt = msg.payload;
+        if (evt && typeof evt === "object") pushHistoryEvent(evt as HistoryEvent);
+        return { ok: true };
+      }
+      case "SG_TELEMETRY_THREAT": {
+        const p = msg.payload;
+        if (p && typeof p === "object") {
+          const url = typeof p.url === "string" ? p.url : "";
+          const score = typeof p.riskScore === "number" ? p.riskScore : 100;
+          const reasons = Array.isArray(p.reasons) ? p.reasons : [typeof p.reason === "string" ? p.reason : "HIGH_RISK"];
+          const metadata = (p.metadata && typeof p.metadata === "object") ? p.metadata as Record<string, unknown> : {};
+          telemetry.trackThreat(url, score, reasons, metadata).catch(() => {});
+        }
+        return { ok: true };
+      }
+      case "SG_TELEMETRY_USAGE": {
+        const p = msg.payload;
+        if (p && typeof p === "object" && typeof p.event === "string") telemetry.trackEvent(p.event, (p.props && typeof p.props === "object") ? p.props as Record<string, unknown> : undefined).catch(() => {});
+        return { ok: true };
+      }
+      case "TELEMETRY_WALLETS_DETECTED": {
+        const p = msg.payload;
+        if (p && typeof p === "object" && Array.isArray(p.wallets)) telemetry.syncUserWallets(p.wallets).catch(() => {});
+        return { ok: true };
+      }
+      case "SG_TELEMETRY_INTERACTION": {
+        const p = msg.payload;
+        if (p && typeof p === "object" && typeof p.domain === "string") telemetry.trackInteraction({ domain: p.domain, kind: p.kind ?? "click", props: (p.props && typeof p.props === "object") ? (p.props as Record<string, unknown>) : undefined }).catch(() => {});
+        return { ok: true };
+      }
+      case "SG_GET_PLAN": {
+        try {
+          const got = await new Promise<Record<string, PlanState>>((resolve) => {
+            chrome.storage.local.get(PLAN_KEY, (r) => { resolve((r as Record<string, PlanState>) ?? {}); });
+          });
+          const plan = got[PLAN_KEY] ?? { tier: "FREE" };
+          return { ok: true, plan };
+        } catch {
+          return { ok: false, plan: { tier: "FREE" } };
+        }
+      }
+      case "SG_ACTIVATE_LICENSE": {
+        const key = String(msg.payload?.key ?? "").trim();
+        const valid = key.startsWith("CSG-") && key.length > 15;
+        try {
+          if (valid) {
+            const plan: PlanState = { tier: "PRO", keyMasked: key ? key.slice(0, 6) + "…" + key.slice(-4) : undefined, activatedAt: Date.now() };
+            await new Promise<void>((resolve, reject) => {
+              chrome.storage.local.set({ [PLAN_KEY]: plan }, () => (chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()));
+            });
+            return { ok: true, tier: "PRO", invalid: false };
+          }
+          return { ok: true, tier: "FREE", invalid: true };
+        } catch (e) {
+          return { ok: false, error: String((e as Error)?.message ?? e) };
+        }
+      }
+      case "SG_ADDR_INTEL_SUMMARY": {
+        const { intel: addrIntel, isMissing, isStale } = await loadAddressIntelCachedFast();
+        const labeledCount = Object.keys(addrIntel.labelsByAddress || {}).length;
+        return { ok: true, updatedAt: addrIntel.updatedAt, labeledCount, sources: addrIntel.sources || [], isMissing, isStale };
+      }
+      case "SG_ADDR_INTEL_UPDATE_NOW": {
+        const fresh = await refreshAddressIntel();
+        await saveAddressIntel(fresh);
+        const labeledCount = Object.keys(fresh.labelsByAddress || {}).length;
+        return { ok: true, updatedAt: fresh.updatedAt, labeledCount, sources: fresh.sources || [] };
+      }
+      case "ANALYZE": {
+        const settings = await getSettings();
+        const req = msg.payload as AnalyzeRequest;
+        if (isVaultLockedContract(settings, req)) return { ok: true, vaultBlocked: true, vaultMessage: t("vaultBlockedMessage") };
+        const intel = await getIntelCachedFast();
+        const isStale = intel.updatedAt === 0 || (Date.now() - intel.updatedAt >= INTEL_TTL_MS);
+        if (isStale) ensureIntelRefreshSoon("analyze_path");
+        const { intel: addrIntel, isMissing: addrMissing, isStale: addrStale } = await loadAddressIntelCachedFast();
+        if (addrMissing || addrStale) ensureAddressIntelRefreshSoon("analyze_path");
+        const tabId = sender?.tab?.id;
+        const analysis = await analyze(req, settings, intel, tabId, addrIntel);
+        if (req.wallet) analysis.wallet = req.wallet;
+        if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
+        await enrichWithSimulation(req, analysis, settings);
+        applyPolicy(analysis, settings);
+        if (!settings.riskWarnings) {
+          analysis.recommend = "ALLOW";
+          analysis.level = "LOW";
+          analysis.score = 0;
+          analysis.reasons = [t("warningsDisabledReason")];
+          analysis.title = t("analyzerUnavailableTitle");
+        }
+        addChecksAndVerdict(analysis, { req, settings, intel });
+        const host = hostFromUrl(req.url);
+        const matchedBad = !!(analysis.isPhishing || (analysis.recommend === "BLOCK" && (analysis.reasons || []).some((r) => String(r).toLowerCase().includes("phishing") || String(r).toLowerCase().includes("blacklist"))));
+        const matchedSeed = !!analysis.safeDomain;
+        const signals: string[] = [];
+        if (matchedSeed) signals.push("SEED_MATCH");
+        if (matchedBad) signals.push("BLACKLIST_HIT");
+        if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike"))) signals.push("LOOKALIKE");
+        if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
+        if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
+        Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
+        if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
+          const chainId = String(req?.meta?.chainId ?? (req as any)?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
+          const to = (analysis.tx as any)?.to;
+          if (to && typeof to === "string" && to.startsWith("0x")) {
+            let valueUsd: number | undefined;
+            const valueEth = (analysis.tx as any)?.valueEth;
+            if (typeof valueEth === "string" && parseFloat(valueEth) > 0) {
+              const usdPerEth = await getEthUsdPriceCached();
+              if (usdPerEth != null) valueUsd = parseFloat(valueEth) * usdPerEth;
+            }
+            telemetry.trackTx({ chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId, contractAddress: to.toLowerCase(), method: (analysis.intent as string) || "unknown", valueUsd }).catch(() => {});
+          }
+        }
+        if (settings.debugMode) {
+          try {
+            pushDebugEvent({ ts: Date.now(), kind: "ANALYZE", url: truncateStr(req?.url, 300), host: truncateStr(hostFromUrl(req?.url || ""), 120), method: truncateStr(req?.request?.method, 120), level: analysis.level, score: analysis.score, recommend: analysis.recommend, intent: analysis.intent, isPhishing: !!analysis.isPhishing, reasons: (analysis.reasons || []).slice(0, 8).map((r) => truncateStr(r, 240)), tx: analysis.tx ? { to: truncateStr((analysis.tx as any).to, 120), valueEth: truncateStr((analysis.tx as any).valueEth, 64), maxGasFeeEth: truncateStr((analysis.tx as any).maxGasFeeEth, 64), maxTotalEth: truncateStr((analysis.tx as any).maxTotalEth, 64), selector: truncateStr((analysis.tx as any).selector, 16) } : undefined, txExtras: analysis.txExtras ? { approvalType: (analysis.txExtras as any).approvalType, tokenContract: truncateStr((analysis.txExtras as any).tokenContract, 120), spender: truncateStr((analysis.txExtras as any).spender, 120), operator: truncateStr((analysis.txExtras as any).operator, 120), unlimited: !!(analysis.txExtras as any).unlimited } : undefined });
+          } catch {}
+        }
+        return { ok: true, analysis };
+      }
+      default:
+        return { ok: false, error: "UNKNOWN_MESSAGE_TYPE" };
+    }
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) };
+  }
+}
 
 const INTEL_KEY = "sg_threat_intel_v2";
 const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
@@ -197,6 +460,7 @@ function ensureAddressIntelRefreshSoon(reason: string): void {
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
+  console.log("🚨 [SignGuard Background] Installed/Updated event fired");
   if (details.reason === "install") {
     try {
       chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
@@ -1707,119 +1971,6 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
   };
 }
 
-// Port-based messaging (avoids runtime.lastError / SW sleep issues). Always respond to every message.
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "sg_port") return;
-  port.onMessage.addListener((msg: any) => {
-    if (msg?.type === "PING") return;
-    const requestId = msg?.requestId;
-    let settled = false;
-    const reply = (payload: any) => {
-      if (settled) return;
-      settled = true;
-      try { port.postMessage({ requestId, ...payload }); } catch {}
-    };
-    (async () => {
-      try {
-        if (msg?.type === "GET_ETH_USD" || msg?.type === "SG_GET_PRICE") {
-          const usdPerEth = await getEthUsdPriceCached();
-          if (usdPerEth != null) {
-            reply({ ok: true, usdPerEth, ethUsd: usdPerEth, updatedAt: __ethUsdCache?.fetchedAt ?? Date.now() });
-          } else {
-            reply({ ok: false });
-          }
-          return;
-        }
-        if (msg?.type === "SG_INTEL_SUMMARY") {
-          const intel = await getIntelFresh();
-          reply({
-            ok: true,
-            updatedAt: intel.updatedAt,
-            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
-            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
-            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
-            sources: intel.sources || [],
-          });
-          return;
-        }
-        if (msg?.type === "SG_INTEL_UPDATE_NOW" || msg?.type === "UPDATE_INTEL_NOW") {
-          let intel: ThreatIntel;
-          try { intel = await updateIntelNow(); } catch { intel = await getIntelFresh(); }
-          reply({
-            ok: true,
-            updatedAt: intel.updatedAt,
-            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
-            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
-            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
-            sources: intel.sources || [],
-          });
-          return;
-        }
-        if (msg?.type === "ANALYZE") {
-          const settings = await getSettings();
-          const req = msg.payload as AnalyzeRequest;
-          if (isVaultLockedContract(settings, req)) {
-            reply({ ok: true, vaultBlocked: true, vaultMessage: t("vaultBlockedMessage") });
-            return;
-          }
-          const intel = await getIntelCachedFast();
-          const isStale = intel.updatedAt === 0 || (Date.now() - intel.updatedAt >= INTEL_TTL_MS);
-          if (isStale) ensureIntelRefreshSoon("analyze_path");
-          const { intel: addrIntel, isMissing: addrMissing, isStale: addrStale } = await loadAddressIntelCachedFast();
-          if (addrMissing || addrStale) ensureAddressIntelRefreshSoon("analyze_path");
-          const tabId = port.sender?.tab?.id;
-          const analysis = await analyze(req, settings, intel, tabId, addrIntel);
-          if (req.wallet) analysis.wallet = req.wallet;
-          if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
-          await enrichWithSimulation(req, analysis, settings);
-          applyPolicy(analysis, settings);
-          if (!settings.riskWarnings) {
-            analysis.recommend = "ALLOW";
-            analysis.level = "LOW";
-            analysis.score = 0;
-            analysis.reasons = [t("warningsDisabledReason")];
-            analysis.title = t("analyzerUnavailableTitle");
-          }
-          addChecksAndVerdict(analysis, { req, settings, intel });
-          const host = hostFromUrl(req.url);
-          const matchedBad = !!(analysis.isPhishing || (analysis.recommend === "BLOCK" && (analysis.reasons || []).some((r) => String(r).toLowerCase().includes("phishing") || String(r).toLowerCase().includes("blacklist"))));
-          const matchedSeed = !!analysis.safeDomain;
-          const signals: string[] = [];
-          if (matchedSeed) signals.push("SEED_MATCH");
-          if (matchedBad) signals.push("BLACKLIST_HIT");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike"))) signals.push("LOOKALIKE");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
-          Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
-          reply({ ok: true, analysis });
-          if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
-            const chainId = String(req?.meta?.chainId ?? (req as any)?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
-            const to = (analysis.tx as any)?.to;
-            if (to && typeof to === "string" && to.startsWith("0x")) {
-              let valueUsd: number | undefined;
-              const valueEth = (analysis.tx as any)?.valueEth;
-              if (typeof valueEth === "string" && parseFloat(valueEth) > 0) {
-                const usdPerEth = await getEthUsdPriceCached();
-                if (usdPerEth != null) valueUsd = parseFloat(valueEth) * usdPerEth;
-              }
-              telemetry.trackTx({
-                chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId,
-                contractAddress: to.toLowerCase(),
-                method: (analysis.intent as string) || "unknown",
-                valueUsd,
-              }).catch(() => {});
-            }
-          }
-          return;
-        }
-        reply({ ok: false, error: "unknown_type" });
-      } catch (e) {
-        reply({ ok: false, error: String((e as Error)?.message || e) });
-      }
-    })();
-  });
-});
-
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("⚙️ [SignGuard Background] Message received:", msg?.type, msg);
   if (!msg || typeof msg !== "object" || !msg.type) {
@@ -1827,412 +1978,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg.type === "PING") return false;
-  let responded = false;
-  const reply = (payload: any) => {
-    if (responded) return;
-    responded = true;
-    try { sendResponse(payload); } catch {}
-  };
-  (async () => {
-    try {
-      switch (msg.type) {
-        case "AD_TRACK_CLICK": {
-          const campaignId = msg.payload?.campaignId;
-          if (campaignId) {
-            trackAdEvent(campaignId, "CLICK").catch(() => {});
-          }
-          reply({ ok: true });
-          return;
-        }
-        case "GET_ETH_USD":
-        case "SG_GET_PRICE": {
-          const usdPerEth = await getEthUsdPriceCached();
-          if (usdPerEth != null) {
-            reply({ ok: true, usdPerEth, ethUsd: usdPerEth, updatedAt: __ethUsdCache?.fetchedAt ?? Date.now() });
-          } else {
-            reply({ ok: false });
-          }
-          return;
-        }
-        case "SG_GET_NATIVE_USD": {
-          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
-          const result = await getNativeUsd(chainIdHex);
-          if (result) {
-            reply({ ok: true, usdPerNative: result.usd, nativeSymbol: result.nativeSymbol });
-          } else {
-            reply({ ok: false });
-          }
-          return;
-        }
-        case "SG_GET_TOKEN_USD": {
-          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
-          const tokenAddress = msg.payload?.tokenAddress;
-          if (!tokenAddress) { reply({ ok: false }); return; }
-          const result = await getTokenUsd(chainIdHex, tokenAddress);
-          if (result) {
-            reply({ ok: true, priceUsd: result.priceUsd, source: "dexscreener" });
-          } else {
-            reply({ ok: false });
-          }
-          return;
-        }
-        case "SG_GET_TOKEN_META": {
-          const chainIdHex = msg.payload?.chainIdHex ?? "0x1";
-          const tokenAddress = msg.payload?.tokenAddress;
-          if (!tokenAddress) { reply({ ok: false }); return; }
-          const result = await getTokenMeta(chainIdHex, tokenAddress);
-          if (result) {
-            reply({ ok: true, symbol: result.symbol, decimals: result.decimals, name: result.name });
-          } else {
-            reply({ ok: false });
-          }
-          return;
-        }
-        case "SG_LISTS_STATUS": {
-          const lists = await getLists();
-          reply({
-            ok: true,
-            updatedAt: lists.updatedAt,
-            counts: {
-              trustedDomains: lists.trustedDomains.length,
-              blockedDomains: lists.blockedDomains.length,
-              blockedAddresses: lists.blockedAddresses.length,
-              scamTokens: lists.scamTokens.length,
-              userTrustedDomains: lists.userTrustedDomains.length,
-              userBlockedDomains: lists.userBlockedDomains.length,
-              userBlockedAddresses: lists.userBlockedAddresses.length,
-              userScamTokens: lists.userScamTokens.length,
-            },
-            sources: lists.sources,
-          });
-          return;
-        }
-        case "SG_LISTS_REFRESH_NOW": {
-          try {
-            const lists = await refreshLists(true);
-            reply({
-              ok: true,
-              updatedAt: lists.updatedAt,
-              counts: {
-                trustedDomains: lists.trustedDomains.length,
-                blockedDomains: lists.blockedDomains.length,
-                blockedAddresses: lists.blockedAddresses.length,
-                scamTokens: lists.scamTokens.length,
-                userTrustedDomains: lists.userTrustedDomains.length,
-                userBlockedDomains: lists.userBlockedDomains.length,
-                userBlockedAddresses: lists.userBlockedAddresses.length,
-                userScamTokens: lists.userScamTokens.length,
-              },
-              sources: lists.sources,
-            });
-          } catch (e) {
-            reply({ ok: false, error: String((e as Error)?.message ?? e) });
-          }
-          return;
-        }
-        case "SG_LISTS_DECIDE_DOMAIN": {
-          const host = msg.payload?.host;
-          const lists = await getLists();
-          const decision = getDomainDecision(host ?? "", lists);
-          reply({ ok: true, decision });
-          return;
-        }
-        case "SG_LISTS_SEARCH": {
-          const lists = await getLists();
-          const q = (msg.payload?.q ?? "").toString().toLowerCase().trim();
-          const type = (msg.payload?.type ?? "domain").toString().toLowerCase();
-          const page = Math.max(0, parseInt(msg.payload?.page, 10) || 0);
-          const pageSize = Math.min(50, Math.max(10, parseInt(msg.payload?.pageSize, 10) || 20));
-          let items: Array<{ value: string; source?: string; kind?: string }> = [];
-          if (type === "domain" && q) {
-            const all = [...lists.trustedDomains, ...lists.blockedDomains];
-            const filtered = all.filter((d) => d.includes(q));
-            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((d) => ({
-              value: d,
-              kind: lists.trustedDomains.includes(d) ? "trusted" : "blocked",
-            }));
-          } else if (type === "address" && q) {
-            const all = [...lists.blockedAddresses];
-            const filtered = all.filter((a) => a.includes(q));
-            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((a) => ({ value: a, kind: "blocked" }));
-          } else if (type === "token" && q) {
-            const filtered = lists.scamTokens.filter((t) => t.address.includes(q) || (t.symbol || "").toLowerCase().includes(q));
-            items = filtered.slice(page * pageSize, (page + 1) * pageSize).map((t) => ({ value: t.address, source: t.source, kind: "scam", chainId: t.chainId }));
-          }
-          reply({ ok: true, items, page, pageSize });
-          return;
-        }
-        case "SG_LISTS_OVERRIDE_ADD": {
-          const overrideType = msg.payload?.type;
-          const payload = msg.payload?.payload ?? {};
-          try {
-            await upsertUserOverride(overrideType, payload);
-            const lists = await getLists();
-            reply({ ok: true, updatedAt: lists.updatedAt });
-          } catch (e) {
-            reply({ ok: false, error: String((e as Error)?.message ?? e) });
-          }
-          return;
-        }
-        case "SG_LISTS_OVERRIDE_REMOVE": {
-          const overrideType = msg.payload?.type;
-          const payload = msg.payload?.payload ?? {};
-          try {
-            await deleteUserOverride(overrideType, payload);
-            const lists = await getLists();
-            reply({ ok: true, updatedAt: lists.updatedAt });
-          } catch (e) {
-            reply({ ok: false, error: String((e as Error)?.message ?? e) });
-          }
-          return;
-        }
-        case "SG_LISTS_EXPORT": {
-          const lists = await getLists();
-          reply({ ok: true, data: lists });
-          return;
-        }
-        case "SG_LISTS_IMPORT": {
-          const data = msg.payload?.data;
-          if (!data || typeof data !== "object") { reply({ ok: false, error: "invalid_data" }); return; }
-          try {
-            const { importUserOverrides } = await import("./services/listManager");
-            const lists = await importUserOverrides(data);
-            reply({ ok: true, updatedAt: lists.updatedAt });
-          } catch (e) {
-            reply({ ok: false, error: String((e as Error)?.message ?? e) });
-          }
-          return;
-        }
-        case "SG_INTEL_SUMMARY": {
-          const intel = await getIntelFresh();
-          reply({
-            ok: true,
-            updatedAt: intel.updatedAt,
-            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
-            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
-            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
-            sources: intel.sources || [],
-          });
-          return;
-        }
-        case "SG_INTEL_UPDATE_NOW":
-        case "UPDATE_INTEL_NOW": {
-          let intel: ThreatIntel;
-          try { intel = await updateIntelNow(); } catch { intel = await getIntelFresh(); }
-          reply({
-            ok: true,
-            updatedAt: intel.updatedAt,
-            trustedSeedCount: (intel.trustedSeed || (intel as any).trustedDomainsSeed || []).length,
-            blockedCount: (intel.blockedDomainsList || (intel as any).blockedDomains || []).length,
-            blockedAddressCount: (intel.blockedAddressesList || (intel as any).blockedAddresses || []).length,
-            sources: intel.sources || [],
-          });
-          return;
-        }
-        case "SG_LOG_HISTORY": {
-          const evt = msg.payload;
-          if (evt && typeof evt === "object") pushHistoryEvent(evt as HistoryEvent);
-          reply({ ok: true });
-          return;
-        }
-        case "SG_TELEMETRY_THREAT": {
-          const p = msg.payload;
-          if (p && typeof p === "object") {
-            const url = typeof p.url === "string" ? p.url : "";
-            const score = typeof p.riskScore === "number" ? p.riskScore : 100;
-            const reasons = Array.isArray(p.reasons) ? p.reasons : [typeof p.reason === "string" ? p.reason : "HIGH_RISK"];
-            const metadata = (p.metadata && typeof p.metadata === "object") ? p.metadata as Record<string, unknown> : {};
-            telemetry.trackThreat(url, score, reasons, metadata).catch(() => {});
-          }
-          reply({ ok: true });
-          return;
-        }
-        case "SG_TELEMETRY_USAGE": {
-          const p = msg.payload;
-          if (p && typeof p === "object" && typeof p.event === "string") {
-            telemetry.trackEvent(p.event, (p.props && typeof p.props === "object") ? p.props as Record<string, unknown> : undefined).catch(() => {});
-          }
-          reply({ ok: true });
-          return;
-        }
-        case "TELEMETRY_WALLETS_DETECTED": {
-          const p = msg.payload;
-          if (p && typeof p === "object" && Array.isArray(p.wallets)) {
-            telemetry.syncUserWallets(p.wallets).catch(() => {});
-          }
-          reply({ ok: true });
-          return;
-        }
-        case "SG_TELEMETRY_INTERACTION": {
-          const p = msg.payload;
-          if (p && typeof p === "object" && typeof p.domain === "string") {
-            telemetry.trackInteraction({
-              domain: p.domain,
-              kind: p.kind ?? "click",
-              props: (p.props && typeof p.props === "object") ? (p.props as Record<string, unknown>) : undefined,
-            }).catch(() => {});
-          }
-          reply({ ok: true });
-          return;
-        }
-        case "SG_GET_PLAN": {
-          try {
-            const got = await new Promise<Record<string, PlanState>>((resolve) => {
-              chrome.storage.local.get(PLAN_KEY, (r) => {
-                resolve((r as Record<string, PlanState>) ?? {});
-              });
-            });
-            const plan = got[PLAN_KEY] ?? { tier: "FREE" };
-            reply({ ok: true, plan });
-          } catch {
-            reply({ ok: false, plan: { tier: "FREE" } });
-          }
-          return;
-        }
-        case "SG_ACTIVATE_LICENSE": {
-          const key = String(msg.payload?.key ?? "").trim();
-          const valid = key.startsWith("CSG-") && key.length > 15;
-          try {
-            if (valid) {
-              const plan: PlanState = {
-                tier: "PRO",
-                keyMasked: key ? key.slice(0, 6) + "…" + key.slice(-4) : undefined,
-                activatedAt: Date.now(),
-              };
-              await new Promise<void>((resolve, reject) => {
-                chrome.storage.local.set({ [PLAN_KEY]: plan }, () => (chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()));
-              });
-              reply({ ok: true, tier: "PRO", invalid: false });
-            } else {
-              reply({ ok: true, tier: "FREE", invalid: true });
-            }
-          } catch (e) {
-            reply({ ok: false, error: String((e as Error)?.message ?? e) });
-          }
-          return;
-        }
-        case "SG_ADDR_INTEL_SUMMARY": {
-          const { intel: addrIntel, isMissing, isStale } = await loadAddressIntelCachedFast();
-          const labeledCount = Object.keys(addrIntel.labelsByAddress || {}).length;
-          reply({
-            ok: true,
-            updatedAt: addrIntel.updatedAt,
-            labeledCount,
-            sources: addrIntel.sources || [],
-            isMissing,
-            isStale,
-          });
-          return;
-        }
-        case "SG_ADDR_INTEL_UPDATE_NOW": {
-          const fresh = await refreshAddressIntel();
-          await saveAddressIntel(fresh);
-          const labeledCount = Object.keys(fresh.labelsByAddress || {}).length;
-          reply({
-            ok: true,
-            updatedAt: fresh.updatedAt,
-            labeledCount,
-            sources: fresh.sources || [],
-          });
-          return;
-        }
-        case "ANALYZE": {
-          const settings = await getSettings();
-          const req = msg.payload as AnalyzeRequest;
-          if (isVaultLockedContract(settings, req)) {
-            reply({ ok: true, vaultBlocked: true, vaultMessage: t("vaultBlockedMessage") });
-            return;
-          }
-          const intel = await getIntelCachedFast();
-          const isStale = intel.updatedAt === 0 || (Date.now() - intel.updatedAt >= INTEL_TTL_MS);
-          if (isStale) ensureIntelRefreshSoon("analyze_path");
-          const { intel: addrIntel, isMissing: addrMissing, isStale: addrStale } = await loadAddressIntelCachedFast();
-          if (addrMissing || addrStale) ensureAddressIntelRefreshSoon("analyze_path");
-          const tabId = sender?.tab?.id;
-          const analysis = await analyze(req, settings, intel, tabId, addrIntel);
-          if (req.wallet) analysis.wallet = req.wallet;
-          if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
-          await enrichWithSimulation(req, analysis, settings);
-          applyPolicy(analysis, settings);
-          if (!settings.riskWarnings) {
-            analysis.recommend = "ALLOW";
-            analysis.level = "LOW";
-            analysis.score = 0;
-            analysis.reasons = [t("warningsDisabledReason")];
-            analysis.title = t("analyzerUnavailableTitle");
-          }
-          addChecksAndVerdict(analysis, { req, settings, intel });
-          const host = hostFromUrl(req.url);
-          const matchedBad = !!(analysis.isPhishing || (analysis.recommend === "BLOCK" && (analysis.reasons || []).some((r) => String(r).toLowerCase().includes("phishing") || String(r).toLowerCase().includes("blacklist"))));
-          const matchedSeed = !!analysis.safeDomain;
-          const signals: string[] = [];
-          if (matchedSeed) signals.push("SEED_MATCH");
-          if (matchedBad) signals.push("BLACKLIST_HIT");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("lookalike"))) signals.push("LOOKALIKE");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
-          if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
-          Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
-          reply({ ok: true, analysis });
-          if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
-            const chainId = String(req?.meta?.chainId ?? (req as any)?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
-            const to = (analysis.tx as any)?.to;
-            if (to && typeof to === "string" && to.startsWith("0x")) {
-              let valueUsd: number | undefined;
-              const valueEth = (analysis.tx as any)?.valueEth;
-              if (typeof valueEth === "string" && parseFloat(valueEth) > 0) {
-                const usdPerEth = await getEthUsdPriceCached();
-                if (usdPerEth != null) valueUsd = parseFloat(valueEth) * usdPerEth;
-              }
-              telemetry.trackTx({
-                chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId,
-                contractAddress: to.toLowerCase(),
-                method: (analysis.intent as string) || "unknown",
-                valueUsd,
-              }).catch(() => {});
-            }
-          }
-          if (settings.debugMode) {
-            try {
-              pushDebugEvent({
-                ts: Date.now(),
-                kind: "ANALYZE",
-                url: truncateStr(req?.url, 300),
-                host: truncateStr(hostFromUrl(req?.url || ""), 120),
-                method: truncateStr(req?.request?.method, 120),
-                level: analysis.level,
-                score: analysis.score,
-                recommend: analysis.recommend,
-                intent: analysis.intent,
-                isPhishing: !!analysis.isPhishing,
-                reasons: (analysis.reasons || []).slice(0, 8).map((r) => truncateStr(r, 240)),
-                tx: analysis.tx ? {
-                  to: truncateStr((analysis.tx as any).to, 120),
-                  valueEth: truncateStr((analysis.tx as any).valueEth, 64),
-                  maxGasFeeEth: truncateStr((analysis.tx as any).maxGasFeeEth, 64),
-                  maxTotalEth: truncateStr((analysis.tx as any).maxTotalEth, 64),
-                  selector: truncateStr((analysis.tx as any).selector, 16),
-                } : undefined,
-                txExtras: analysis.txExtras ? {
-                  approvalType: (analysis.txExtras as any).approvalType,
-                  tokenContract: truncateStr((analysis.txExtras as any).tokenContract, 120),
-                  spender: truncateStr((analysis.txExtras as any).spender, 120),
-                  operator: truncateStr((analysis.txExtras as any).operator, 120),
-                  unlimited: !!(analysis.txExtras as any).unlimited,
-                } : undefined,
-              });
-            } catch {}
-          }
-          return;
-        }
-        default:
-          reply({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
-          return;
-      }
-    } catch (e) {
-      reply({ ok: false, error: String((e as Error)?.message || e) });
-    }
-  })().catch((e) => {
-    reply({ ok: false, error: String((e as Error)?.message || e) });
+  handleBgRequest(msg, sender).then(sendResponse).catch((err) => {
+    try { sendResponse({ ok: false, error: String((err as Error)?.message || err) }); } catch {}
   });
-  return true; // keep channel open for async sendResponse
+  return true;
 });

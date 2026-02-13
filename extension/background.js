@@ -16673,6 +16673,7 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log("\u2699\uFE0F [SignGuard Background] Message received:", msg?.type, msg);
   if (!msg || typeof msg !== "object" || !msg.type) {
     try {
       sendResponse({ ok: false, error: "INVALID_MESSAGE" });

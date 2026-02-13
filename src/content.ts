@@ -41,20 +41,6 @@ function sgDebugLog(message: string) {
   } catch {}
 }
 
-function injectMainWorldFallback() {
-  try {
-    const url = safeGetURL("dist/mainWorld.js");
-    if (!url) return;
-    const script = document.createElement("script");
-    script.src = url;
-    script.onload = () => sgDebugLog("mainWorld fallback injection completed");
-    script.onerror = () => sgDebugLog("mainWorld fallback injection failed");
-    (document.documentElement || document.head).appendChild(script);
-  } catch (e) {
-    sgDebugLog("mainWorld fallback injection error: " + (e as Error)?.message);
-  }
-}
-
 window.addEventListener("message", (ev: MessageEvent) => {
   try {
     const d = ev.data;
@@ -63,13 +49,6 @@ window.addEventListener("message", (ev: MessageEvent) => {
     sgDebugLog("SG_MAINWORLD_READY received");
   } catch {}
 });
-
-setTimeout(() => {
-  if (!mainWorldReady) {
-    sgDebugLog("mainWorld not ready after 300ms, attempting fallback injection");
-    injectMainWorldFallback();
-  }
-}, 300);
 
 // Log content start (async so we don't block)
 chrome.storage?.local?.get("debugLogs", (r) => {
@@ -663,13 +642,15 @@ function handlePageRpcMessage(ev: MessageEvent) {
 function ensureOverlayCss(shadow: ShadowRoot) {
   try {
     const href = safeGetURL("overlay.css");
-    const existing = shadow.querySelector(`link[rel="stylesheet"][href="${href}"]`);
-    if (existing || !href) return;
+    console.log("🎨 [SignGuard UI] Injecting CSS from:", href);
+    if (!href) return;
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = href;
     shadow.appendChild(link);
-  } catch {}
+  } catch (e) {
+    console.error("🎨 [SignGuard UI] Failed to inject CSS:", e);
+  }
 }
 
 type OverlayState = {
@@ -1569,11 +1550,14 @@ function showOverlay(
   analysis: Analysis,
   meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any }
 ) {
+  console.log("🎨 [SignGuard UI] showOverlay called for:", requestId);
+
   void ensureTrustedDomainsLoaded();
   void ensureSettingsLoaded();
   void ensureUsdLoaded();
-  // If an overlay is already open, update it in place (no close/reopen).
+
   if (__sgOverlay) {
+    console.log("🎨 [SignGuard UI] Updating existing overlay");
     __sgOverlay.requestId = requestId;
     __sgOverlay.analysis = analysis;
     __sgOverlay.meta = meta;
@@ -1588,34 +1572,42 @@ function showOverlay(
     return;
   }
 
+  console.log("🎨 [SignGuard UI] Creating NEW overlay DOM");
   const container = document.createElement("div");
   container.className = "sg-root";
   container.setAttribute("data-sg-overlay", "1");
   container.setAttribute("data-sg-request-id", requestId);
-  const shadow = container.attachShadow({ mode: "open" });
-  ensureOverlayCss(shadow);
-  const app = document.createElement("div");
-  app.id = "sg-app";
-  shadow.appendChild(app);
 
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      decideCurrentAndAdvance(false);
+  try {
+    const shadow = container.attachShadow({ mode: "open" });
+    ensureOverlayCss(shadow);
+    const app = document.createElement("div");
+    app.id = "sg-app";
+    shadow.appendChild(app);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") decideCurrentAndAdvance(false);
+    };
+    document.addEventListener("keydown", onKey);
+
+    __sgOverlay = { requestId, analysis, meta, container, shadow, app, onKey };
+
+    if (document.documentElement) {
+      document.documentElement.appendChild(container);
+      console.log("🎨 [SignGuard UI] Overlay appended to documentElement");
+    } else if (document.body) {
+      document.body.appendChild(container);
+      console.log("🎨 [SignGuard UI] Overlay appended to body");
+    } else {
+      console.error("🎨 [SignGuard UI] FATAL: No documentElement or body to append overlay!");
     }
-  };
-  document.addEventListener("keydown", onKey);
 
-  __sgOverlay = { requestId, analysis, meta, container, shadow, app, onKey };
-  document.documentElement.appendChild(container);
-
-  markUiShownFromContent(requestId);
-
-  if (__sgOverlay.keepaliveInterval) {
-    try { clearInterval(__sgOverlay.keepaliveInterval as any); } catch {}
+    markUiShownFromContent(requestId);
+    __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 5000) as any;
+    updateOverlay(__sgOverlay);
+  } catch (e) {
+    console.error("🎨 [SignGuard UI] Crash during overlay creation:", e);
   }
-  __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 5000) as any;
-
-  updateOverlay(__sgOverlay);
 }
 
 let __sgPinged = false;
@@ -1633,6 +1625,11 @@ async function handleSGRequest(ev: MessageEvent) {
     const method = String(data.payload?.method || "");
     const params = Array.isArray(data.payload?.params) ? data.payload.params : undefined;
     const rpcMeta = (data.payload as any)?.meta ?? null;
+
+    const chainIdHex =
+      (data.payload as any)?.chainIdHex ??
+      toChainIdHex(rpcMeta?.chainId) ??
+      undefined;
 
     const host = (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return String(data.payload?.host || ""); } })();
     const origin = (() => { try { return new URL(url).origin; } catch { return ""; } })();
@@ -1655,8 +1652,6 @@ async function handleSGRequest(ev: MessageEvent) {
     for (const [k, v] of recentSwitchByOrigin.entries()) {
       if (receivedAt - v.ts > FLOW_TTL_MS) recentSwitchByOrigin.delete(k);
     }
-
-    const chainIdHex = (data.payload as any)?.chainIdHex ?? toChainIdHex(rpcMeta?.chainId);
     const walletDisplay = wallet && typeof wallet === "object" ? { kind: wallet.kind, name: wallet.name, walletBrand: (wallet as any).walletBrand } : undefined;
     const fallbackAnalysis = buildFallbackAnalysis(data.payload, walletDisplay);
     if (txCostPreview) fallbackAnalysis.txCostPreview = txCostPreview;
@@ -1787,6 +1782,7 @@ async function handleSGRequest(ev: MessageEvent) {
 
     if (!isFirst) updateOverlay(__sgOverlay!);
   } catch (e: any) {
+    console.error("[SignGuard] handleSGRequest failed", e);
     try { dispatchDecision((ev as any)?.data?.requestId, true); } catch {}
   }
 }

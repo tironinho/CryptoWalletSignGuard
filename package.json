@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs && node scripts/build-extension.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run typecheck && node scripts/build.mjs && node scripts/build-extension.mjs",
     "watch": "node scripts/build.mjs --watch",
     "clean": "node scripts/build.mjs --clean",
     "pack": "node scripts/pack.mjs"
