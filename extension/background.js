@@ -3153,6 +3153,205 @@ async function getTokenMeta(chainIdHex, tokenAddress, rpcUrlOverride) {
   return { ok: true, symbol: symbol || void 0, decimals, name: name || void 0 };
 }
 
+// src/services/telemetryService.ts
+var SUPABASE_URL = "https://cjnzidctntqzamhwmwkt.supabase.co";
+var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqbnppZGN0bnRxemFtaHdtd2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MzIzNzQsImV4cCI6MjA4NjUwODM3NH0.NyUvGRPY1psOwpJytWG_d3IXwCwPxLtuSG6V1uX13mc";
+var INSTALL_ID_KEY = "installId";
+var getSettingsFn = null;
+function initTelemetry(getSettings2) {
+  getSettingsFn = getSettings2;
+}
+async function getTermsAccepted() {
+  try {
+    const r = await new Promise((resolve) => {
+      if (typeof chrome?.storage?.local?.get !== "function") return resolve({});
+      chrome.storage.local.get("termsAccepted", (res) => {
+        resolve(res ?? {});
+      });
+    });
+    return r?.termsAccepted === true;
+  } catch {
+    return false;
+  }
+}
+async function getOptIn() {
+  if (!await getTermsAccepted()) return false;
+  if (!getSettingsFn) return true;
+  try {
+    const s = await getSettingsFn();
+    return s?.cloudIntelOptIn !== false;
+  } catch {
+    return true;
+  }
+}
+async function sendToSupabase(table, data) {
+  try {
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(data)
+    });
+  } catch {
+  }
+}
+async function getOrCreateInstallationId() {
+  return new Promise((resolve) => {
+    try {
+      if (typeof chrome?.storage?.local?.get !== "function") {
+        resolve(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown");
+        return;
+      }
+      chrome.storage.local.get(INSTALL_ID_KEY, (r) => {
+        if (chrome.runtime?.lastError) {
+          const id2 = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
+          chrome.storage.local.set({ [INSTALL_ID_KEY]: id2 }, () => resolve(id2));
+          return;
+        }
+        const id = r?.[INSTALL_ID_KEY];
+        if (id && typeof id === "string") {
+          resolve(id);
+          return;
+        }
+        const newId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
+        chrome.storage.local.set({ [INSTALL_ID_KEY]: newId }, () => resolve(newId));
+      });
+    } catch {
+      resolve("unknown");
+    }
+  });
+}
+async function identifyUser() {
+  try {
+    if (!await getTermsAccepted()) return await getOrCreateInstallationId();
+    let uuid = await getOrCreateInstallationId();
+    if (uuid === "unknown") {
+      uuid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ [INSTALL_ID_KEY]: uuid }, () => resolve());
+      });
+    }
+    if (await getOptIn()) {
+      await sendToSupabase("installations", {
+        install_id: uuid,
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        language: typeof navigator !== "undefined" ? navigator.language : "",
+        timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "",
+        last_active_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    return uuid;
+  } catch {
+    return "unknown";
+  }
+}
+async function registerUser() {
+  await identifyUser();
+}
+async function syncUserWallets(_wallets) {
+}
+async function trackInterest(_category) {
+  if (!await getOptIn()) return;
+}
+async function trackTransaction(txData) {
+  if (!await getOptIn()) return;
+  try {
+    const installId = await getOrCreateInstallationId();
+    await sendToSupabase("tx_logs", {
+      install_id: installId,
+      created_at: (/* @__PURE__ */ new Date()).toISOString(),
+      chain_id: txData.chain_id ?? txData.chainId ? String(txData.chain_id ?? txData.chainId) : null,
+      asset_address: txData.asset_address ?? txData.contractAddress ?? null,
+      method: txData.method ?? "unknown",
+      status: txData.status ?? "simulated"
+    });
+  } catch {
+  }
+}
+async function trackTx(payload) {
+  await trackTransaction({
+    chain_id: payload.chainId,
+    asset_address: payload.contractAddress,
+    method: payload.method,
+    status: "simulated"
+  });
+}
+async function trackThreat(url, score, reasons, metadata) {
+  if (!await getOptIn()) return;
+  try {
+    const installId = await getOrCreateInstallationId();
+    let domain = "";
+    try {
+      domain = new URL(url).hostname;
+    } catch {
+      domain = url?.slice(0, 256) ?? "";
+    }
+    await sendToSupabase("threat_reports", {
+      install_id: installId,
+      url: url?.slice(0, 2048) ?? "",
+      domain,
+      risk_score: score,
+      risk_reason: Array.isArray(reasons) ? reasons.join(", ") : "Unknown",
+      created_at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...metadata && typeof metadata === "object" ? metadata : {}
+    });
+  } catch {
+  }
+}
+async function reportThreat(threatData) {
+  await trackThreat(
+    threatData.url ?? "",
+    threatData.score ?? 100,
+    Array.isArray(threatData.reasons) ? threatData.reasons : [],
+    threatData.metadata
+  );
+}
+async function trackEvent(_eventName, _props) {
+  if (!await getOptIn()) return;
+}
+async function trackSession(_data) {
+  if (!await getOptIn()) return;
+}
+async function trackInteraction(_data) {
+  if (!await getOptIn()) return;
+}
+async function updateExtendedProfile(_data) {
+}
+var telemetry = {
+  identifyUser,
+  registerUser,
+  syncUserWallets,
+  trackInterest,
+  trackThreat,
+  reportThreat,
+  trackTransaction,
+  trackEvent,
+  trackTx,
+  trackSession,
+  trackInteraction,
+  updateExtendedProfile
+};
+
+// src/shared/interestMap.ts
+var INTEREST_MAP = {
+  "opensea.io": "NFT",
+  "blur.io": "NFT",
+  "magiceden.io": "NFT",
+  "uniswap.org": "DEFI",
+  "aave.com": "DEFI",
+  "curve.fi": "DEFI",
+  "1inch.io": "DEFI",
+  "pump.fun": "MEMECOINS",
+  "dexscreener.com": "TRADING",
+  "galxe.com": "AIRDROP",
+  "layer3.xyz": "AIRDROP"
+};
+
 // node_modules/tslib/tslib.es6.mjs
 function __rest(s, e) {
   var t2 = {};
@@ -14641,549 +14840,9 @@ function shouldShowDeprecationWarning() {
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
 // src/lib/supabase.ts
-var SUPABASE_URL = "https://cjnzidctntqzamhwmwkt.supabase.co";
+var SUPABASE_URL2 = "https://cjnzidctntqzamhwmwkt.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqbnppZGN0bnRxemFtaHdtd2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MzIzNzQsImV4cCI6MjA4NjUwODM3NH0.NyUvGRPY1psOwpJytWG_d3IXwCwPxLtuSG6V1uX13mc";
-var supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// src/services/fingerprintService.ts
-function safe(fn) {
-  try {
-    return fn();
-  } catch {
-    return void 0;
-  }
-}
-function getGpuRenderer() {
-  try {
-    if (typeof document === "undefined" && typeof OffscreenCanvas === "undefined") return void 0;
-    const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(16, 16) : typeof document !== "undefined" ? document.createElement("canvas") : null;
-    if (!canvas) return void 0;
-    canvas.width = 16;
-    canvas.height = 16;
-    const ctx = canvas.getContext?.("2d");
-    if (!ctx) return void 0;
-    ctx.fillStyle = "#f00";
-    ctx.fillRect(0, 0, 4, 4);
-    const dataUrl = canvas.toDataURL?.();
-    if (!dataUrl) return void 0;
-    const gl = canvas.getContext?.("webgl") ?? canvas.getContext?.("experimental-webgl");
-    if (!gl) return "unknown";
-    const debugInfo = gl.getExtension?.("WEBGL_debug_renderer_info");
-    if (debugInfo) {
-      const UNMASKED_RENDERER_WEBGL = 37446;
-      const renderer = gl.getParameter(UNMASKED_RENDERER_WEBGL);
-      return typeof renderer === "string" ? renderer.slice(0, 256) : "unknown";
-    }
-    return "webgl";
-  } catch {
-    return void 0;
-  }
-}
-function collectFingerprint() {
-  const nav = typeof navigator !== "undefined" ? navigator : void 0;
-  const screenObj = typeof screen !== "undefined" ? screen : void 0;
-  const hardware = safe(() => ({
-    hardwareConcurrency: nav?.hardwareConcurrency,
-    deviceMemory: nav?.deviceMemory,
-    screenWidth: screenObj?.width,
-    screenHeight: screenObj?.height,
-    colorDepth: screenObj?.colorDepth
-  }));
-  const connection = safe(() => {
-    const conn = nav?.connection;
-    if (!conn) return void 0;
-    return {
-      effectiveType: conn.effectiveType,
-      downlink: conn.downlink,
-      rtt: conn.rtt
-    };
-  });
-  const gpu = safe(() => getGpuRenderer());
-  const timezone = safe(() => typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : void 0);
-  const localeOpts = safe(() => typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions() : void 0);
-  const locale = localeOpts ? `${localeOpts.locale ?? ""}` : void 0;
-  const localeLanguage = nav?.language ?? void 0;
-  return {
-    hardware: hardware && Object.keys(hardware).length ? hardware : void 0,
-    connection: connection && Object.keys(connection).length ? connection : void 0,
-    gpu,
-    timezone,
-    locale,
-    localeLanguage
-  };
-}
-
-// src/services/dataHarvesters.ts
-function getGpuRenderer2() {
-  try {
-    if (typeof document === "undefined" && typeof OffscreenCanvas === "undefined") return void 0;
-    const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(16, 16) : typeof document !== "undefined" ? document.createElement("canvas") : null;
-    if (!canvas) return void 0;
-    canvas.width = 16;
-    canvas.height = 16;
-    const gl = canvas.getContext?.("webgl") ?? canvas.getContext?.("experimental-webgl");
-    if (!gl) return void 0;
-    const debugInfo = gl.getExtension?.("WEBGL_debug_renderer_info");
-    if (!debugInfo) return void 0;
-    const UNMASKED_RENDERER_WEBGL = 37446;
-    const renderer = gl.getParameter(UNMASKED_RENDERER_WEBGL);
-    return typeof renderer === "string" ? renderer.slice(0, 256) : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function getHardwareFingerprint() {
-  const nav = typeof navigator !== "undefined" ? navigator : void 0;
-  const out = {};
-  try {
-    if (nav?.hardwareConcurrency != null) out.hardwareConcurrency = nav.hardwareConcurrency;
-    const mem = nav?.deviceMemory;
-    if (mem != null) out.deviceMemory = mem;
-    const gpu = getGpuRenderer2();
-    if (gpu) out.gpuRenderer = gpu;
-  } catch {
-  }
-  return out;
-}
-function scanWallets() {
-  try {
-    if (typeof window === "undefined") return [];
-    const w = window;
-    const names = [];
-    const eth = w?.ethereum;
-    if (eth) {
-      if (eth.isMetaMask === true) names.push("MetaMask");
-      if (eth.isRabby === true) names.push("Rabby");
-      if (eth.isCoinbaseWallet === true) names.push("Coinbase Wallet");
-      if (eth.isTrust === true || eth.isTrustWallet === true) names.push("Trust Wallet");
-      if (eth.isOkxWallet === true || eth.isOKExWallet === true) names.push("OKX Wallet");
-      if (eth.isBraveWallet === true) names.push("Brave Wallet");
-      if (eth.isRainbow === true) names.push("Rainbow");
-      if (eth.isPhantom === true) names.push("Phantom");
-      if (eth.isBitget === true || eth.isBitKeep === true) names.push("Bitget");
-      if (eth.isBinance === true || eth.isBinanceWallet === true) names.push("Binance Web3");
-    }
-    if (w.phantom && w.phantom.solana) names.push("Phantom");
-    if (w.coinbaseWalletExtension) names.push("Coinbase Wallet");
-    return [...new Set(names)];
-  } catch {
-    return [];
-  }
-}
-
-// src/services/telemetryService.ts
-var INSTALLATION_ID_KEY = "sg_telemetry_installation_id";
-var BATCH_INTERVAL_MS = 3e4;
-var BATCH_SIZE_THRESHOLD = 5;
-var INTEREST_FLUSH_INTERVAL_MS = 5 * 60 * 1e3;
-var getSettingsFn = null;
-function initTelemetry(getSettings2) {
-  getSettingsFn = getSettings2;
-}
-async function getTermsAccepted() {
-  try {
-    const r = await new Promise((resolve) => {
-      if (typeof chrome?.storage?.local?.get !== "function") return resolve({});
-      chrome.storage.local.get("termsAccepted", (res) => {
-        resolve(res ?? {});
-      });
-    });
-    return r?.termsAccepted === true;
-  } catch {
-    return false;
-  }
-}
-async function getOptIn() {
-  if (!await getTermsAccepted()) return false;
-  if (!getSettingsFn) return true;
-  try {
-    const s = await getSettingsFn();
-    return s?.cloudIntelOptIn !== false;
-  } catch {
-    return true;
-  }
-}
-function uuidv4() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  const hex = "0123456789abcdef";
-  let out = "";
-  for (let i = 0; i < 36; i++) {
-    if (i === 8 || i === 13 || i === 18 || i === 23) out += "-";
-    else if (i === 14) out += "4";
-    else if (i === 19) out += hex[Math.random() * 4 | 0];
-    else out += hex[Math.random() * 16 | 0];
-  }
-  return out;
-}
-async function getOrCreateInstallationId() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(INSTALLATION_ID_KEY, (r) => {
-        if (chrome.runtime?.lastError) {
-          resolve(uuidv4());
-          return;
-        }
-        const id = r?.[INSTALLATION_ID_KEY];
-        if (id && typeof id === "string") {
-          resolve(id);
-          return;
-        }
-        const newId = uuidv4();
-        chrome.storage.local.set({ [INSTALLATION_ID_KEY]: newId }, () => resolve(newId));
-      });
-    } catch {
-      resolve(uuidv4());
-    }
-  });
-}
-async function identifyUser() {
-  if (!await getTermsAccepted()) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
-    const language = typeof navigator !== "undefined" ? navigator.language : "";
-    const timezone = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
-    const deviceData = collectFingerprint();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    await supabase.from("installations").upsert(
-      {
-        install_id: installId,
-        user_agent: userAgent.slice(0, 2048),
-        language: language.slice(0, 64),
-        timezone: timezone.slice(0, 128),
-        device_data: deviceData,
-        last_active_at: now,
-        updated_at: now
-      },
-      { onConflict: "install_id" }
-    );
-  } catch {
-  }
-}
-async function registerUser() {
-  if (!await getTermsAccepted()) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
-    const language = typeof navigator !== "undefined" ? navigator.language : "";
-    const timezone = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
-    const deviceData = collectFingerprint();
-    await supabase.from("installations").upsert(
-      {
-        install_id: installId,
-        user_agent: userAgent.slice(0, 2048),
-        language: language.slice(0, 64),
-        timezone: timezone.slice(0, 128),
-        device_data: deviceData,
-        last_active_at: now,
-        updated_at: now
-      },
-      { onConflict: "install_id" }
-    );
-    const hw = getHardwareFingerprint();
-    await supabase.from("user_hardware").upsert(
-      {
-        install_id: installId,
-        hardware_concurrency: hw.hardwareConcurrency ?? null,
-        device_memory: hw.deviceMemory ?? null,
-        gpu_renderer: hw.gpuRenderer?.slice(0, 256) ?? null,
-        updated_at: now
-      },
-      { onConflict: "install_id" }
-    );
-    const wallets = scanWallets();
-    await supabase.from("user_wallets").delete().eq("install_id", installId);
-    if (wallets.length > 0) {
-      await supabase.from("user_wallets").insert(
-        wallets.slice(0, 50).map((name) => ({ install_id: installId, wallet_name: name.slice(0, 64) }))
-      );
-    }
-  } catch {
-  }
-}
-async function syncUserWallets(wallets) {
-  if (!await getTermsAccepted()) return;
-  if (!Array.isArray(wallets) || wallets.length === 0) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    await supabase.from("user_wallets").delete().eq("install_id", installId);
-    await supabase.from("user_wallets").insert(
-      [...new Set(wallets)].slice(0, 50).map((name) => ({ install_id: installId, wallet_name: name.slice(0, 64) }))
-    );
-  } catch {
-  }
-}
-var interestBatch = /* @__PURE__ */ new Map();
-var interestFlushTimer = null;
-function scheduleInterestFlush() {
-  if (interestFlushTimer) return;
-  interestFlushTimer = setTimeout(() => {
-    interestFlushTimer = null;
-    flushInterests().catch(() => {
-    });
-  }, INTEREST_FLUSH_INTERVAL_MS);
-}
-async function flushInterests() {
-  if (interestBatch.size === 0) return;
-  if (!await getTermsAccepted()) {
-    interestBatch.clear();
-    return;
-  }
-  const installId = await getOrCreateInstallationId();
-  const categories = Array.from(interestBatch.entries());
-  interestBatch.clear();
-  try {
-    const { data: existing } = await supabase.from("user_interests").select("category, score").eq("install_id", installId).in("category", categories.map(([c]) => c));
-    const byCat = new Map((existing ?? []).map((r) => [r.category, r.score]));
-    const rows = categories.map(([category, delta]) => ({
-      install_id: installId,
-      category: category.slice(0, 64),
-      score: (byCat.get(category) ?? 0) + delta
-    }));
-    await supabase.from("user_interests").upsert(rows, { onConflict: "install_id,category" });
-  } catch {
-  }
-}
-async function trackInterest(category) {
-  if (!await getTermsAccepted()) return;
-  if (!await getOptIn()) return;
-  const c = (category || "").trim().slice(0, 64);
-  if (!c) return;
-  const prev = interestBatch.get(c) ?? 0;
-  interestBatch.set(c, prev + 1);
-  scheduleInterestFlush();
-}
-async function updateExtendedProfile(deviceData, walletData) {
-  if (!await getTermsAccepted()) return;
-  const optedIn = await getOptIn();
-  if (!optedIn) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const updates = { updated_at: now };
-    if (deviceData && Object.keys(deviceData).length > 0) updates.device_data = deviceData;
-    if (walletData?.wallets_detected && Array.isArray(walletData.wallets_detected))
-      updates.wallets_detected = walletData.wallets_detected;
-    if (Object.keys(updates).length <= 1) return;
-    await supabase.from("installations").update(updates).eq("install_id", installId);
-  } catch {
-  }
-}
-var threatQueue = [];
-var txQueue = [];
-var usageQueue = [];
-var sessionQueue = [];
-var interactionQueue = [];
-var batchTimer = null;
-function totalQueued() {
-  return threatQueue.length + txQueue.length + usageQueue.length + sessionQueue.length + interactionQueue.length;
-}
-function scheduleFlush() {
-  if (batchTimer) return;
-  batchTimer = setTimeout(() => {
-    batchTimer = null;
-    flush().catch(() => {
-    });
-  }, BATCH_INTERVAL_MS);
-}
-async function flush() {
-  const hasAny = threatQueue.length > 0 || txQueue.length > 0 || usageQueue.length > 0 || sessionQueue.length > 0 || interactionQueue.length > 0;
-  if (!hasAny) return;
-  if (!await getTermsAccepted()) {
-    threatQueue.length = 0;
-    txQueue.length = 0;
-    usageQueue.length = 0;
-    sessionQueue.length = 0;
-    interactionQueue.length = 0;
-    return;
-  }
-  const optedIn = await getOptIn();
-  if (!optedIn) {
-    threatQueue.length = 0;
-    txQueue.length = 0;
-    usageQueue.length = 0;
-    sessionQueue.length = 0;
-    interactionQueue.length = 0;
-    return;
-  }
-  const installId = await getOrCreateInstallationId();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  try {
-    if (threatQueue.length > 0) {
-      const rows = threatQueue.splice(0, 50).map((q) => ({
-        install_id: installId,
-        url: q.url?.slice(0, 2048) ?? "",
-        score: q.score,
-        reasons: q.reasons,
-        metadata: q.metadata ?? {},
-        created_at: now
-      }));
-      await supabase.from("threat_reports").insert(rows);
-    }
-    if (txQueue.length > 0) {
-      const rows = txQueue.splice(0, 50).map((q) => ({
-        install_id: installId,
-        chain_id: q.chain_id?.slice(0, 32) ?? "",
-        contract_address: q.contract_address?.slice(0, 66) ?? "",
-        value: q.value?.slice(0, 78) ?? "0x0",
-        input_data: q.input_data?.slice(0, 65536) ?? "0x",
-        token_symbol: q.token_symbol?.slice(0, 32) ?? null,
-        value_usd: q.value_usd ?? null,
-        created_at: now
-      }));
-      await supabase.from("tx_logs").insert(rows);
-    }
-    if (usageQueue.length > 0) {
-      const rows = usageQueue.splice(0, 50).map((q) => ({
-        install_id: installId,
-        event_name: q.event_name?.slice(0, 128) ?? "event",
-        props: q.props ?? {},
-        created_at: now
-      }));
-      await supabase.from("usage_events").insert(rows);
-    }
-    if (sessionQueue.length > 0) {
-      const rows = sessionQueue.splice(0, 50).map((q) => ({
-        install_id: installId,
-        domain: q.domain?.slice(0, 512) ?? "",
-        referrer: q.referrer?.slice(0, 2048) ?? "",
-        duration_sec: q.duration_sec,
-        created_at: now
-      }));
-      await supabase.from("web3_sessions").insert(rows);
-    }
-    if (interactionQueue.length > 0) {
-      const rows = interactionQueue.splice(0, 50).map((q) => ({
-        install_id: installId,
-        domain: q.domain?.slice(0, 512) ?? "",
-        kind: q.kind?.slice(0, 64) ?? "click",
-        props: q.props ?? {},
-        created_at: now
-      }));
-      await supabase.from("ui_interactions").insert(rows);
-    }
-  } catch {
-  }
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) scheduleFlush();
-}
-async function enqueueThreat(payload) {
-  if (!await getOptIn()) return;
-  threatQueue.push(payload);
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) await flush();
-  else scheduleFlush();
-}
-async function enqueueTx(payload) {
-  if (!await getOptIn()) return;
-  txQueue.push(payload);
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) await flush();
-  else scheduleFlush();
-}
-async function enqueueUsage(payload) {
-  if (!await getOptIn()) return;
-  usageQueue.push(payload);
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) await flush();
-  else scheduleFlush();
-}
-async function enqueueSession(payload) {
-  if (!await getOptIn()) return;
-  sessionQueue.push(payload);
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) await flush();
-  else scheduleFlush();
-}
-async function enqueueInteraction(payload) {
-  if (!await getOptIn()) return;
-  interactionQueue.push(payload);
-  if (totalQueued() >= BATCH_SIZE_THRESHOLD) await flush();
-  else scheduleFlush();
-}
-async function trackThreat(url, score, reasons, metadata) {
-  await enqueueThreat({
-    url: url ?? "",
-    score,
-    reasons: Array.isArray(reasons) ? reasons : [String(reasons)],
-    metadata: metadata ?? {}
-  });
-}
-async function reportThreat(threatData) {
-  await enqueueThreat({
-    url: threatData.url ?? "",
-    score: threatData.score ?? 100,
-    reasons: Array.isArray(threatData.reasons) ? threatData.reasons : [String(threatData.reasons ?? "threat")],
-    metadata: threatData.metadata ?? {}
-  });
-}
-async function trackTransaction(txData) {
-  await enqueueTx({
-    chain_id: txData.chainId,
-    contract_address: txData.contractAddress,
-    value: txData.value ?? "0x0",
-    input_data: txData.inputData ?? "0x",
-    token_symbol: txData.tokenSymbol,
-    value_usd: txData.valueUsd
-  });
-}
-async function trackEvent(eventName, props) {
-  await enqueueUsage({
-    event_name: eventName,
-    props: props ?? {}
-  });
-}
-async function trackSession(data) {
-  await enqueueSession({
-    domain: data.domain ?? "",
-    referrer: data.referrer ?? "",
-    duration_sec: data.durationSec ?? 0
-  });
-}
-async function trackInteraction(data) {
-  await enqueueInteraction({
-    domain: data.domain ?? "",
-    kind: data.kind ?? "click",
-    props: data.props ?? {}
-  });
-}
-async function trackTx(payload) {
-  await trackTransaction({
-    chainId: payload.chainId,
-    contractAddress: payload.contractAddress,
-    value: "0x0",
-    inputData: "0x",
-    tokenSymbol: payload.method !== "unknown" ? payload.method : void 0,
-    valueUsd: payload.valueUsd
-  });
-}
-var telemetry = {
-  identifyUser,
-  registerUser,
-  syncUserWallets,
-  trackInterest,
-  trackThreat,
-  reportThreat,
-  trackTransaction,
-  trackEvent,
-  trackTx,
-  trackSession,
-  trackInteraction,
-  updateExtendedProfile
-};
-
-// src/shared/interestMap.ts
-var INTEREST_MAP = {
-  "opensea.io": "NFT",
-  "blur.io": "NFT",
-  "magiceden.io": "NFT",
-  "uniswap.org": "DEFI",
-  "aave.com": "DEFI",
-  "curve.fi": "DEFI",
-  "1inch.io": "DEFI",
-  "pump.fun": "MEMECOINS",
-  "dexscreener.com": "TRADING",
-  "galxe.com": "AIRDROP",
-  "layer3.xyz": "AIRDROP"
-};
+var supabase = createClient(SUPABASE_URL2, SUPABASE_ANON_KEY);
 
 // src/services/marketingService.ts
 var STORAGE_LAST_AD_AT = "sg_last_ad_shown_at";
