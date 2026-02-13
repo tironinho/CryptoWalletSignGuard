@@ -1,823 +1,192 @@
-// Runs in the MAIN world (MV3 content script with content_scripts[].world = "MAIN").
-(window as any).__signguard_mainworld = true;
+// ARQUIVO: src/mainWorld.ts
+
+/**
+ * SignGuard - Main World Script (Interceção Agressiva)
+ * Injetado via manifest.json com world: "MAIN"
+ */
+
+// Mark ready for content script handshake
 try {
-  document.documentElement.setAttribute("data-signguard-mainworld", "1");
-  document.documentElement.setAttribute("data-sg-mainworld", "1");
   document.documentElement.dataset.sgMainworld = "1";
-  window.postMessage(
-    { source: "signguard-inpage", type: "SG_MAINWORLD_READY", version: "1.0.0" },
-    "*"
-  );
+  window.postMessage({ source: "signguard-inpage", type: "SG_MAINWORLD_READY", version: "1.0.0" }, "*");
 } catch {}
-// Implements a correct "defer + resume" pipeline:
-import { estimateFee } from "./feeEstimate";
-import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalletBrand, listEvmProviders } from "./walletDetect";
-// - intercept sensitive provider.request calls and DEFER (no wallet popup yet)
-// - Content script shows overlay and posts decision
-// - MAIN world RESUMES by reexecuting the ORIGINAL request with bypass (no recursion)
 
-const TIMEOUT_MS_UI = 600_000;   // 10 min when UI shown; keepalive resets
-const TIMEOUT_MS_FAILOPEN = 30_000; // 30s when no UI yet — then arm fail-open (banner); runOriginal ONLY on Continuar click
-const KEEPALIVE_CAP_MS = 900_000; // 15 min max lifetime from creation when UI shown
-const FAILOPEN_WAIT_CAP_MS = 600_000; // 10 min max wait after armed; then reject
+const LOG_PREFIX = "[SignGuard 🛡️]";
+const DEBUG = true; // Altere para false em produção se desejar menos logs
 
-type PendingReq = {
-  resolve: (v: any) => void;
-  reject: (e: any) => void;
-  runOriginal: () => Promise<any>;
-  createdAt: number;
-  lastKeepaliveAt?: number;
+function log(...args: any[]) {
+  if (DEBUG) console.log(LOG_PREFIX, ...args);
+}
+
+function err(...args: any[]) {
+  console.error(LOG_PREFIX, ...args);
+}
+
+// Interfaces básicas para evitar erros de TS
+interface RequestArguments {
   method: string;
-  uiShown?: boolean;
-  failOpenArmed?: boolean;
-};
-
-const pendingCalls = new Map<string, PendingReq>();
-
-const SG_BYPASS = Symbol.for("SG_BYPASS"); // evita recursão
-
-function sgId() {
-  return (crypto?.randomUUID?.() || (Date.now() + "-" + Math.random().toString(16).slice(2)));
+  params?: unknown[] | object;
 }
 
-function toBigIntHex(v: any): bigint {
+interface EIP6963ProviderDetail {
+  info: {
+    uuid: string;
+    name: string;
+    icon: string;
+    rdns: string;
+  };
+  provider: any;
+}
+
+// --- CORE: Lógica de Interceção ---
+
+/**
+ * Aplica o patch no método .request do provider
+ */
+function patchProvider(provider: any, walletName: string = "Unknown") {
+  if (!provider || provider._sg_patched) return; // Já patcheado
+
+  log(`Patching provider: ${walletName}`);
+
+  // Tenta manter a referência original
+  const originalRequest = provider.request.bind(provider);
+
+  // Sobrescreve o método .request
   try {
-    const s = String(v || "0x0");
-    if (!s.startsWith("0x")) return BigInt(s); // allow decimal strings too
-    return BigInt(s);
-  } catch {
-    return 0n;
-  }
-}
+    Object.defineProperty(provider, "request", {
+      value: async function (args: RequestArguments) {
+        // Filtra apenas métodos críticos
+        const method = args.method;
+        const isCritical =
+          method === "eth_sendTransaction" ||
+          method === "eth_signTypedData_v4" ||
+          method === "eth_signTypedData_v3" ||
+          method === "eth_sign" ||
+          method === "personal_sign" ||
+          method === "wallet_switchEthereumChain" ||
+          method === "wallet_addEthereumChain";
 
-function weiToEthDecimal18(wei: bigint): string {
-  const ONE = 10n ** 18n;
-  const whole = wei / ONE;
-  const frac = wei % ONE;
-  const fracStr = frac.toString().padStart(18, "0");
-  const trimmed = fracStr.replace(/0+$/, "");
-  return trimmed ? `${whole.toString()}.${trimmed}` : whole.toString();
-}
-
-function postMessageSG(type: string, data: any) {
-  try {
-    window.postMessage(
-      { __SIGNGUARD__: true, type, data, href: location.href, origin: location.origin, ts: Date.now() },
-      "*"
-    );
-  } catch {}
-}
-
-function buildRpcMeta(methodLower: string, params: any, provider: any) {
-  try {
-    if (methodLower === "eth_sendtransaction" || methodLower === "wallet_sendtransaction") {
-      const tx = Array.isArray(params) ? params[0] : undefined;
-      const valueWei = toBigIntHex(tx?.value || "0x0");
-      return {
-        chainId: provider?.chainId ?? null,
-        preflight: {
-          tx,
-          valueWei: valueWei.toString(10),
-          valueEth: weiToEthDecimal18(valueWei),
+        if (!isCritical) {
+          return originalRequest(args);
         }
-      };
-    }
-    if (methodLower === "wallet_switchethereumchain") {
-      const chainIdRequested = Array.isArray(params) ? params?.[0]?.chainId : undefined;
-      return {
-        chainId: provider?.chainId ?? null,
-        chainIdRequested: chainIdRequested ?? null,
-      };
-    }
-    return { chainId: provider?.chainId ?? null };
-  } catch {
-    return { chainId: provider?.chainId ?? null };
-  }
-}
 
-function toChainIdHex(chainId: string | number | null | undefined): string | null {
-  if (chainId == null || chainId === "") return null;
-  const s = String(chainId).trim();
-  if (s.toLowerCase().startsWith("0x")) return s;
-  const n = parseInt(s, 10);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return "0x" + n.toString(16);
-}
+        log(`Intercepted Call: ${method}`, args);
 
-const CHAIN_ID_FALLBACK_MS = 800;
-/** Resolve chainIdHex from provider; if empty, fetch via eth_chainId (with timeout). */
-async function resolveChainIdHex(provider: any, rawRequest: (args: any) => Promise<any>): Promise<string | null> {
-  const fromProvider = toChainIdHex(provider?.chainId ?? null);
-  if (fromProvider && fromProvider !== "0x0") return fromProvider;
-  try {
-    const result = await Promise.race([
-      rawRequest({ method: "eth_chainId", params: [], [SG_BYPASS]: true }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), CHAIN_ID_FALLBACK_MS)),
-    ]);
-    return toChainIdHex(result);
-  } catch {
-    return fromProvider;
-  }
-}
+        // Gera ID único para rastreio
+        const requestId = crypto.randomUUID();
 
-type EIP6963Provider = { uuid: string; name: string; icon?: string; rdns?: string; providerRef: any };
-
-const SG_ANNOUNCED_PROVIDERS: EIP6963Provider[] = [];
-let SG_ACTIVE_PROVIDER: any = null;
-
-function selectActiveProvider(): any {
-  const w = typeof window !== "undefined" ? (window as any) : null;
-  const eth = w?.ethereum;
-  if (eth) return eth;
-  const first = SG_ANNOUNCED_PROVIDERS[0]?.providerRef;
-  return first || null;
-}
-
-function applyActiveProvider() {
-  const next = selectActiveProvider();
-  if (next && next !== SG_ACTIVE_PROVIDER) {
-    SG_ACTIVE_PROVIDER = next;
-    wrapProvider(next, undefined, "window.ethereum");
-  }
-}
-
-function wrapProvider(provider: any, providerTag?: string, providerSource?: "window.ethereum" | "ethereum.providers[i]" | "eip6963", providerIndex?: number | string, eip6963DisplayName?: string) {
-  if (!provider || typeof provider.request !== "function") return;
-  if ((provider.request as any).__sg_wrapped) return;
-
-  const eth = provider;
-  const rawRequest = eth.request?.bind(eth);
-  const rawSend = eth.send?.bind(eth);
-  const rawSendAsync = eth.sendAsync?.bind(eth);
-
-  if (typeof rawRequest !== "function") return;
-
-  async function sgRequest(args: any) {
-    // bypass para reexecução
-    if (args && args[SG_BYPASS]) {
-      const clean = { ...args };
-      delete clean[SG_BYPASS];
-      return rawRequest(clean);
-    }
-
-    const method = String(args?.method || "").toLowerCase();
-    const params = args?.params;
-
-    // Non-blocking telemetry for flow tracking (content script)
-    postMessageSG("SG_RPC", { method, params });
-
-    // For send tx: estimate fees BEFORE opening overlay (read-only, no wallet popup)
-    let txCostPreview: any = undefined;
-    if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-      const tx = params[0];
-      const providerRequest = (a: any) => rawRequest(a);
-      const fee = await estimateFee(providerRequest, tx);
-      const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
-      txCostPreview = {
-        valueWei: valueWei.toString(10),
-        feeEstimated: fee.ok,
-      };
-      if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
-        if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
-        txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
-        txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
-        txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
-        txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
-      } else {
-        txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
-      }
-    }
-
-    const sensitive = [
-      "eth_requestaccounts",
-      "wallet_requestpermissions",
-      "wallet_getpermissions",
-      "personal_sign",
-      "eth_sign",
-      "eth_signtypeddata_v4",
-      "eth_signtypeddata_v3",
-      "eth_signtypeddata",
-      "eth_signtransaction",
-      "eth_sendtransaction",
-      "wallet_sendtransaction",
-      "wallet_switchethereumchain",
-      "wallet_addethereumchain",
-      "wallet_watchasset"
-    ].includes(method);
-
-    if (!sensitive) return rawRequest(args);
-
-    const requestId = sgId();
-
-    return new Promise((resolve, reject) => {
-      pendingCalls.set(requestId, {
-        resolve,
-        reject,
-        runOriginal: () => rawRequest({ ...(args || {}), [SG_BYPASS]: true }),
-        createdAt: Date.now(),
-        method,
-        uiShown: false
-      });
-
-      const walletMeta = detectWalletFromProvider(provider);
-      const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
-      const walletBrand = detectWalletBrand(provider, eip6963DisplayName);
-      const providerKey = [providerSource || "window.ethereum", walletMeta.id, providerIndex ?? ""].filter(Boolean).join(":");
-      (async () => {
-        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
-        const meta = buildRpcMeta(method, params, provider);
-        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
-        try {
-          window.postMessage({
-            source: "signguard-inpage",
+        // Envia para o Content Script (Isolado)
+        // Usa "*" para evitar erros de 'target origin mismatch' em iframes
+        window.postMessage(
+          {
+            source: "signguard",
             type: "SG_REQUEST",
             requestId,
             payload: {
-              id: requestId,
-              url: location.href,
-              origin: location.origin,
-              host: location.host,
               method,
-              params: Array.isArray(params) ? params : (params ?? null),
-              chainId: chainIdHex ?? provider?.chainId ?? null,
-              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
-              wallet: { ...walletInfo, id: walletMeta.id, walletBrand, walletName: walletInfo.walletName || walletBrand },
-              providerKey,
-              providerSource: providerSource || "window.ethereum",
-              request: { method, params: Array.isArray(params) ? params : undefined },
-              providerTag,
-              providerHint: { kind: walletInfo.name, name: walletInfo.name },
-              meta,
-              txCostPreview,
-            }
-          }, "*");
-        } catch {}
-      })();
-    });
-  }
+              params: (args as any).params,
+              host: window.location.hostname,
+              url: window.location.href,
+              wallet: { name: walletName },
+            },
+          },
+          "*"
+        );
 
-  (sgRequest as any).__sg_wrapped = true;
-  eth.request = sgRequest as any;
+        // Retorna uma Promise que espera a decisão do utilizador
+        return new Promise((resolve, reject) => {
+          const handler = (ev: MessageEvent) => {
+            if (
+              ev.source === window &&
+              ev.data?.source === "signguard-content" &&
+              ev.data?.type === "SG_DECISION" &&
+              ev.data?.requestId === requestId
+            ) {
+              window.removeEventListener("message", handler);
 
-  // Wrap send (method, params) or send(payload)
-  if (typeof rawSend === "function") {
-    eth.send = function(methodOrPayload: any, paramsOrCb: any) {
-      const payload =
-        typeof methodOrPayload === "string"
-          ? { method: methodOrPayload, params: Array.isArray(paramsOrCb) ? paramsOrCb : [paramsOrCb] }
-          : methodOrPayload;
+              const { allow, errorMessage } = ev.data;
+              log(`Decision received for ${requestId}: ${allow ? "ALLOW" : "BLOCK"}`);
 
-      const method = String(payload?.method || "").toLowerCase().trim();
-      const params = payload?.params;
-      postMessageSG("SG_RPC", { method, params });
-
-      const sensitive = [
-        "eth_requestaccounts",
-        "wallet_requestpermissions",
-        "wallet_getpermissions",
-        "personal_sign",
-        "eth_sign",
-        "eth_signtypeddata_v4",
-        "eth_signtypeddata_v3",
-        "eth_signtypeddata",
-        "eth_signtransaction",
-        "eth_sendtransaction",
-        "wallet_sendtransaction",
-        "wallet_switchethereumchain",
-        "wallet_addethereumchain",
-        "wallet_watchasset"
-      ].includes(method);
-
-      if (!sensitive) return rawSend(methodOrPayload, paramsOrCb);
-
-      const requestId = sgId();
-      (async () => {
-        let txCostPreview: any = undefined;
-        if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-          const tx = params[0];
-          const fee = await estimateFee((a: any) => rawRequest(a), tx);
-          const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
-          txCostPreview = { valueWei: valueWei.toString(10), feeEstimated: fee.ok };
-          if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
-            if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
-            txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
-            txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
-            txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
-            txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
-          } else {
-            txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
-          }
-        }
-        const walletMetaInner = detectWalletFromProvider(provider);
-        const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
-        const walletBrandInner = detectWalletBrand(provider, eip6963DisplayName);
-        const providerKey = [providerSource || "window.ethereum", walletMetaInner.id, providerIndex ?? ""].filter(Boolean).join(":");
-        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
-        const meta = buildRpcMeta(method, params, provider);
-        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
-        try {
-          window.postMessage({
-            source: "signguard-inpage",
-            type: "SG_REQUEST",
-            requestId,
-            payload: {
-              id: requestId,
-              url: location.href,
-              origin: location.origin,
-              host: location.host,
-              method,
-              params: Array.isArray(params) ? params : (params ?? null),
-              chainId: chainIdHex ?? provider?.chainId ?? null,
-              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
-              wallet: { ...walletInfo, id: walletMetaInner.id, walletBrand: walletBrandInner, walletName: walletInfo.walletName || walletBrandInner },
-              providerKey,
-              providerSource: providerSource || "window.ethereum",
-              request: { method, params: Array.isArray(params) ? params : undefined },
-              providerTag,
-              providerHint: { kind: walletInfo.name, name: walletInfo.name },
-              meta,
-              txCostPreview,
-            }
-          }, "*");
-        } catch {}
-      })();
-      return new Promise((resolve, reject) => {
-        pendingCalls.set(requestId, {
-          resolve,
-          reject,
-          runOriginal: () => Promise.resolve(rawSend(methodOrPayload, paramsOrCb)),
-          createdAt: Date.now(),
-          method,
-          uiShown: false,
-        });
-      });
-    } as any;
-  }
-
-  // Wrap sendAsync(payload, cb)
-  if (typeof rawSendAsync === "function") {
-    eth.sendAsync = function(payload: any, cb: any) {
-      const method = String(payload?.method || "").toLowerCase().trim();
-      const params = payload?.params;
-      postMessageSG("SG_RPC", { method, params });
-
-      const sensitive = [
-        "eth_requestaccounts",
-        "wallet_requestpermissions",
-        "wallet_getpermissions",
-        "personal_sign",
-        "eth_sign",
-        "eth_signtypeddata_v4",
-        "eth_signtypeddata_v3",
-        "eth_signtypeddata",
-        "eth_signtransaction",
-        "eth_sendtransaction",
-        "wallet_sendtransaction",
-        "wallet_switchethereumchain",
-        "wallet_addethereumchain",
-        "wallet_watchasset"
-      ].includes(method);
-
-      if (!sensitive) return rawSendAsync(payload, cb);
-
-      const requestId = sgId();
-      const doneCb = (typeof cb === "function") ? cb : (() => {});
-
-      (async () => {
-        let txCostPreview: any = undefined;
-        if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && Array.isArray(params) && params[0] && typeof params[0] === "object") {
-          const tx = params[0];
-          const fee = await estimateFee((a: any) => rawRequest(a), tx);
-          const valueWei = BigInt(typeof tx?.value === "string" ? tx.value : (tx?.value ?? "0x0"));
-          txCostPreview = { valueWei: valueWei.toString(10), feeEstimated: fee.ok };
-          if (fee.ok && fee.feeLikelyWei !== undefined && fee.feeMaxWei !== undefined) {
-            if (fee.gasLimit) txCostPreview.gasLimitWei = fee.gasLimit.toString(10);
-            txCostPreview.feeLikelyWei = fee.feeLikelyWei.toString(10);
-            txCostPreview.feeMaxWei = fee.feeMaxWei.toString(10);
-            txCostPreview.totalLikelyWei = (valueWei + fee.feeLikelyWei).toString(10);
-            txCostPreview.totalMaxWei = (valueWei + fee.feeMaxWei).toString(10);
-          } else {
-            txCostPreview.feeReasonKey = "fee_unknown_wallet_will_estimate";
-          }
-        }
-        const walletMetaAsync = detectWalletFromProvider(provider);
-        const walletInfo = detectEvmWallet(provider, eip6963DisplayName);
-        const walletBrandAsync = detectWalletBrand(provider, eip6963DisplayName);
-        const providerKey = [providerSource || "window.ethereum", walletMetaAsync.id, providerIndex ?? ""].filter(Boolean).join(":");
-        const chainIdHex = await resolveChainIdHex(provider, (a) => rawRequest(a));
-        const meta = buildRpcMeta(method, params, provider);
-        if (chainIdHex != null) (meta as any).chainId = chainIdHex;
-        try {
-          window.postMessage({
-            source: "signguard-inpage",
-            type: "SG_REQUEST",
-            requestId,
-            payload: {
-              id: requestId,
-              url: location.href,
-              origin: location.origin,
-              host: location.host,
-              method,
-              params: Array.isArray(params) ? params : (params ?? null),
-              chainId: chainIdHex ?? provider?.chainId ?? null,
-              chainIdHex: chainIdHex ?? toChainIdHex(provider?.chainId ?? null),
-              wallet: { ...walletInfo, id: walletMetaAsync.id, walletBrand: walletBrandAsync, walletName: walletInfo.walletName || walletBrandAsync },
-              providerKey,
-              providerSource: providerSource || "window.ethereum",
-              request: { method, params: Array.isArray(params) ? params : undefined },
-              providerTag,
-              providerHint: { kind: walletInfo.name, name: walletInfo.name },
-              meta,
-              txCostPreview,
-            }
-          }, "*");
-        } catch {}
-      })();
-      return new Promise((resolve, reject) => {
-        pendingCalls.set(requestId, {
-          resolve: (v) => { try { doneCb(null, v); } catch {} resolve(v); },
-          reject: (e) => { try { doneCb(e); } catch {} reject(e); },
-          runOriginal: () =>
-            new Promise((res, rej) => {
-              try {
-                rawSendAsync(payload, (err: any, resp: any) => {
-                  if (err) return rej(err);
-                  res(resp);
+              if (allow) {
+                // Se permitido, chama o original
+                originalRequest(args)
+                  .then(resolve)
+                  .catch(reject);
+              } else {
+                // Se bloqueado, rejeita a transação (simula rejeição do utilizador)
+                reject({
+                  code: 4001,
+                  message: errorMessage || "SignGuard: Transaction blocked by user security settings.",
                 });
-              } catch (e) { rej(e); }
-            }),
-          createdAt: Date.now(),
-          method,
-          uiShown: false,
-        });
-      });
-    } as any;
-  }
-}
-
-function rejectEIP1193UserRejected(method: string) {
-  return { code: 4001, message: "User rejected the request", data: { method } };
-}
-
-function resumeDecisionInner(requestId: string, allow: boolean, errorMessage?: string) {
-  try {
-    const pending = pendingCalls.get(requestId);
-    if (!pending) return;
-
-    pendingCalls.delete(requestId);
-
-    if (!allow) {
-      const msg = typeof errorMessage === "string" && errorMessage.trim() ? errorMessage.trim() : "User rejected the request";
-      pending.reject({ code: 4001, message: msg, data: { method: pending.method } });
-      try {
-        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
-      } catch {}
-      return;
-    }
-
-    try {
-      const promise = pending.runOriginal();
-      promise.then(pending.resolve).catch(pending.reject);
-      try {
-        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: true }, "*");
-      } catch {}
-    } catch (e) {
-      pending.reject(e);
-      try {
-        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId, allow: false }, "*");
-      } catch {}
-    }
-  } catch {}
-}
-
-function markUiShown(requestId: string) {
-  try {
-    const p = pendingCalls.get(requestId);
-    if (p) {
-      p.uiShown = true;
-      p.lastKeepaliveAt = Date.now();
-    }
-  } catch {}
-}
-
-function handleKeepalive(requestId: string) {
-  try {
-    const p = pendingCalls.get(requestId);
-    if (!p) return;
-    p.lastKeepaliveAt = Date.now();
-    if (!p.uiShown) p.uiShown = true; // keepalive implies overlay is active
-  } catch {}
-}
-
-// Content marks overlay shown (affects timeout: uiShown => reject on timeout, else fail-open)
-window.addEventListener("signguard:uiShown", (ev: any) => {
-  try {
-    const detail = ev?.detail || {};
-    const requestId = String(detail.requestId || "");
-    if (!requestId) return;
-    markUiShown(requestId);
-  } catch {}
-}, true);
-
-window.addEventListener("message", (ev) => {
-  try {
-    if (ev.source !== window) return;
-    const d = (ev as any)?.data;
-    if (!d || (d.source !== "signguard" && d.source !== "signguard-content")) return;
-    if (d.type === "SG_UI_SHOWN") markUiShown(String(d.requestId || ""));
-    if (d.type === "SG_KEEPALIVE") handleKeepalive(String(d.requestId || ""));
-  } catch {}
-});
-
-// CRITICAL: Click capture in MAIN world so resume runs in same user-activation stack (MetaMask opens 100%)
-window.addEventListener("click", (ev: MouseEvent) => {
-  try {
-    const path = ev.composedPath && ev.composedPath();
-    if (!path || !Array.isArray(path) || path.length === 0) return;
-    let allow: boolean | null = null;
-    for (let i = 0; i < path.length; i++) {
-      const el = path[i] as Element | undefined;
-      if (!el || typeof el.getAttribute !== "function") continue;
-      const id = el.id;
-      if (id === "sg-continue" || id === "sg-proceed") { allow = true; break; }
-      if (id === "sg-cancel" || id === "sg-close") { allow = false; break; }
-    }
-    if (allow === null) return;
-    let overlayRoot: Element | null = null;
-    for (let i = 0; i < path.length; i++) {
-      const el = path[i] as Element | undefined;
-      if (el?.getAttribute?.("data-sg-overlay") === "1") {
-        overlayRoot = el;
-        break;
-      }
-    }
-    if (!overlayRoot) return;
-    const requestId = overlayRoot.getAttribute("data-sg-request-id") || "";
-    if (!requestId) return;
-    if (!pendingCalls.has(requestId)) return;
-    resumeDecisionInner(requestId, allow);
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-  } catch {}
-}, true);
-
-// Fallback path: CustomEvent from content (when click capture did not run)
-window.addEventListener("signguard:decision", (ev: any) => {
-  try {
-    const detail = ev?.detail || {};
-    const requestId = String(detail.requestId || "");
-    const allow = !!detail.allow;
-    const errorMessage = detail.errorMessage;
-    resumeDecisionInner(requestId, allow, errorMessage);
-  } catch {}
-}, true);
-
-// Back-compat: previous event name
-window.addEventListener("sg:decision", (ev: any) => {
-  try {
-    const detail = ev?.detail || {};
-    const requestId = String(detail.requestId || "");
-    const allow = !!detail.allow;
-    const errorMessage = detail.errorMessage;
-    resumeDecisionInner(requestId, allow, errorMessage);
-  } catch {}
-}, true);
-
-// Fallback: SG_DECISION via postMessage funnels into same logic
-window.addEventListener("message", (ev) => {
-  try {
-    if (ev.source !== window) return;
-    const d = (ev as any)?.data;
-    if (!d || (d.source !== "signguard" && d.source !== "signguard-content")) return;
-    if (d.type !== "SG_DECISION") return;
-    void resumeDecisionInner(String(d.requestId || ""), !!d.allow, d.errorMessage);
-  } catch {}
-});
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, p] of pendingCalls.entries()) {
-    const base = p.lastKeepaliveAt ?? p.createdAt;
-    const timeout = p.uiShown ? TIMEOUT_MS_UI : TIMEOUT_MS_FAILOPEN;
-    const expiresAt = p.uiShown
-      ? Math.min(base + timeout, p.createdAt + KEEPALIVE_CAP_MS)
-      : base + timeout;
-    if (now <= expiresAt) continue;
-
-    if (p.uiShown) {
-      pendingCalls.delete(id);
-      p.reject({ code: 4001, message: "SignGuard: timeout" });
-      try {
-        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
-      } catch {}
-      continue;
-    }
-
-    // !uiShown: arm fail-open only; NEVER call runOriginal() here (user-gesture required for wallet)
-    if (p.failOpenArmed) {
-      if (now > p.createdAt + FAILOPEN_WAIT_CAP_MS) {
-        pendingCalls.delete(id);
-        p.reject({ code: 4001, message: "SignGuard: timeout" });
-        try {
-          window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
-        } catch {}
-      }
-      continue;
-    }
-    p.failOpenArmed = true;
-    try {
-      window.postMessage({ source: "signguard-inpage", type: "SG_FAILOPEN_ARMED", requestId: id }, "*");
-    } catch {}
-  }
-}, 5000);
-
-function tryWrapAll() {
-  const providers = listEvmProviders();
-  const eth = (window as any)?.ethereum;
-  for (let i = 0; i < providers.length; i++) {
-    const p = providers[i];
-    const src: "window.ethereum" | "ethereum.providers[i]" = (i === 0 && p === eth) ? "window.ethereum" : "ethereum.providers[i]";
-    wrapProvider(p, i > 0 ? `provider-${i}` : undefined, src, String(i));
-  }
-  if (providers.length === 0) applyActiveProvider();
-  tryWrapSolana();
-}
-
-function tryWrapSolana() {
-  const sol: any = (window as any).solana;
-  if (!sol || (sol as any).__sg_wrapped) return;
-  const methods = ["connect", "signMessage", "signTransaction", "signAllTransactions", "signAndSendTransaction"];
-  for (const m of methods) {
-    if (typeof sol[m] !== "function") continue;
-    const raw = sol[m].bind(sol);
-    (sol as any)[m] = function (...args: any[]) {
-      const wallet = detectSolWallet(sol);
-      const requestId = sgId();
-      return new Promise((resolve, reject) => {
-        pendingCalls.set(requestId, {
-          resolve,
-          reject,
-          runOriginal: () => Promise.resolve(raw(...args)),
-          createdAt: Date.now(),
-          method: `solana:${m}`,
-          uiShown: false,
-        });
-        try {
-          window.postMessage({
-            source: "signguard-inpage",
-            type: "SG_REQUEST",
-            requestId,
-            payload: {
-              id: requestId,
-              url: location.href,
-              origin: location.origin,
-              host: location.host,
-              method: `solana:${m}`,
-              params: args?.length ? [{ method: m, argsCount: args.length }] : null,
-              wallet,
-              request: { method: `solana:${m}`, params: args },
-              meta: { chainId: null },
+              }
             }
-          }, "*");
-        } catch {}
-      });
-    };
+          };
+
+          window.addEventListener("message", handler);
+        });
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    // Marca como patcheado para não repetir
+    provider._sg_patched = true;
+  } catch (e) {
+    err("Failed to overwrite provider.request", e);
   }
-  (sol as any).__sg_wrapped = true;
 }
 
-function startWrapRetry() {
-  window.addEventListener("ethereum#initialized", () => tryWrapAll(), { once: false } as any);
+// --- INIT: Estratégias de Captura ---
 
+function init() {
+  log("Initializing interception...");
+
+  // 1. Captura Imediata (se já existir)
+  if ((window as any).ethereum) {
+    patchProvider((window as any).ethereum, "window.ethereum");
+  }
+
+  // 2. Hook no Object.defineProperty (Para capturar quando o MetaMask injetar)
+  let storedEthereum = (window as any).ethereum;
+  try {
+    Object.defineProperty(window, "ethereum", {
+      get() {
+        return storedEthereum;
+      },
+      set(val) {
+        storedEthereum = val;
+        patchProvider(val, "window.ethereum (Setter)");
+      },
+      configurable: true, // Permite que o MetaMask sobrescreva, mas nós já pegámos a referência no Setter
+    });
+  } catch (e) {
+    // Se falhar (ex: já definido como não-configurável), fallback para polling
+    log("Hook defineProperty failed, relying on polling.");
+  }
+
+  // 3. EIP-6963 (Multi-Wallet Discovery) - O standard moderno
   window.addEventListener("eip6963:announceProvider", (event: any) => {
-    try {
-      const info = event?.detail?.info;
-      const provider = event?.detail?.provider;
-      if (info && provider) {
-        const existing = SG_ANNOUNCED_PROVIDERS.find((p) => p.uuid === info.uuid);
-        if (!existing) {
-          SG_ANNOUNCED_PROVIDERS.push({
-            uuid: info.uuid || "",
-            name: info.name || "Unknown",
-            icon: info.icon,
-            rdns: info.rdns,
-            providerRef: provider,
-          });
-          wrapProvider(provider, info.rdns || info.name, "eip6963", info.uuid, info.name);
-        }
-        applyActiveProvider();
-      }
-    } catch {}
+    const detail = event.detail as EIP6963ProviderDetail;
+    if (detail && detail.provider) {
+      patchProvider(detail.provider, detail.info.name || "EIP-6963 Wallet");
+    }
   });
-  try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch {}
+  // Dispara pedido para as carteiras se anunciarem
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
 
-  const started = Date.now();
+  // 4. Polling de Segurança (Sledgehammer)
+  // Verifica a cada 100ms se surgiu um novo provider não patcheado
+  // (Resolve casos onde o MetaMask sobrescreve o objeto window.ethereum completamente)
   const interval = setInterval(() => {
-    tryWrapAll();
-    if (Date.now() - started > 10_000) clearInterval(interval);
-  }, 50);
+    const eth = (window as any).ethereum;
+    if (eth && !eth._sg_patched) {
+      patchProvider(eth, "Polling Detected");
+    }
+  }, 100);
 
-  try {
-    const mo = new MutationObserver(() => tryWrapAll());
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => mo.disconnect(), 10_000);
-  } catch {}
+  // Para o polling após 5 segundos (a maioria das injeções ocorre no início)
+  setTimeout(() => clearInterval(interval), 5000);
 }
 
-// REWRAP guard: window.ethereum and window.solana can change after load
-function startProviderGuardRewrap() {
-  let lastEth: any = null;
-  let lastReqFn: any = null;
-  let lastSolana: any = null;
-  let tries = 0;
-  const maxTries = 10;
-  const timer = setInterval(() => {
-    tries++;
-    try {
-      const eth: any = (window as any).ethereum;
-      const reqFn = eth?.request;
-      const sol: any = (window as any).solana;
-
-      const ethChanged = !!eth && eth !== lastEth;
-      const reqChanged = !!eth && typeof reqFn === "function" && reqFn !== lastReqFn;
-      const notWrapped = !!eth && typeof reqFn === "function" && !(reqFn as any).__sg_wrapped;
-      const solChanged = !!sol && sol !== lastSolana;
-      const solNotWrapped = !!sol && !(sol as any).__sg_wrapped;
-
-      if (ethChanged || reqChanged || notWrapped || solChanged || solNotWrapped) {
-        tryWrapAll();
-        lastEth = eth || null;
-        lastReqFn = eth?.request || null;
-        lastSolana = sol || null;
-      }
-    } catch {}
-
-    if (tries >= maxTries) {
-      try { clearInterval(timer); } catch {}
-    }
-  }, 500);
-}
-
-// RPC bridge: readonly eth_call / eth_chainId for asset lookup
-const ALLOWED_RPC_METHODS = new Set(["eth_call", "eth_chainid", "eth_getCode"]);
-window.addEventListener("message", (ev: MessageEvent) => {
-  try {
-    if (ev.source !== window) return;
-    const d = (ev as any)?.data;
-    if (!d || d.source !== "signguard-content" || d.type !== "SG_RPC_CALL_REQUEST") return;
-    const { id, method, params } = d;
-    const methodNorm = String(method || "").toLowerCase();
-    if (!ALLOWED_RPC_METHODS.has(methodNorm)) {
-      window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: "method_not_allowed" }, "*");
-      return;
-    }
-    const eth = (window as any).ethereum || SG_ACTIVE_PROVIDER;
-    if (!eth?.request) {
-      window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: "no_provider" }, "*");
-      return;
-    }
-    Promise.resolve(eth.request({ method: methodNorm, params: params || [] }))
-      .then((result: any) => window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, result }, "*"))
-      .catch((err: any) => window.postMessage({ source: "signguard", type: "SG_RPC_CALL_RESPONSE", id, error: String(err?.message || err) }, "*"));
-  } catch {}
-});
-
-/** Market intelligence: detect which wallets are present and report to telemetry. */
-function reportWalletsDetected() {
-  try {
-    const w = typeof window !== "undefined" ? (window as any) : null;
-    if (!w) return;
-    const names: string[] = [];
-    if (w.ethereum) {
-      if (w.ethereum.isMetaMask === true) names.push("MetaMask");
-      if (w.ethereum.isRabby === true) names.push("Rabby");
-      if (w.ethereum.isCoinbaseWallet === true) names.push("Coinbase Wallet");
-      if (w.ethereum.isTrust === true || w.ethereum.isTrustWallet === true) names.push("Trust Wallet");
-      if (w.ethereum.isOkxWallet === true || w.ethereum.isOKExWallet === true) names.push("OKX Wallet");
-      if (w.ethereum.isBraveWallet === true) names.push("Brave Wallet");
-      if (w.ethereum.isRainbow === true) names.push("Rainbow");
-      if (w.ethereum.isPhantom === true) names.push("Phantom");
-      if (w.ethereum.isBitget === true || w.ethereum.isBitKeep === true) names.push("Bitget");
-      if (w.ethereum.isBinance === true || w.ethereum.isBinanceWallet === true) names.push("Binance Web3");
-    }
-    if (w.phantom?.solana) names.push("Phantom");
-    if (w.coinbaseWalletExtension) names.push("Coinbase Wallet");
-    const unique = [...new Set(names)];
-    if (unique.length > 0) {
-      window.postMessage(
-        { __SIGNGUARD__: true, type: "TELEMETRY_WALLETS_DETECTED", data: { wallets: unique }, href: location.href, origin: location.origin, ts: Date.now() },
-        "*"
-      );
-    }
-  } catch {
-    // must not break extension
-  }
-}
-
-// document_start
-tryWrapAll();
-startWrapRetry();
-startProviderGuardRewrap();
-setTimeout(reportWalletsDetected, 500);
-setTimeout(reportWalletsDetected, 3000);
-
+// Inicia imediatamente
+init();
