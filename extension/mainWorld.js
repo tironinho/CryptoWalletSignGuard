@@ -185,6 +185,11 @@
   try {
     document.documentElement.setAttribute("data-signguard-mainworld", "1");
     document.documentElement.setAttribute("data-sg-mainworld", "1");
+    document.documentElement.dataset.sgMainworld = "1";
+    window.postMessage(
+      { source: "signguard-inpage", type: "SG_MAINWORLD_READY", version: "1.0.0" },
+      "*"
+    );
   } catch {
   }
   var TIMEOUT_MS_UI = 6e5;

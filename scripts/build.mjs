@@ -124,5 +124,4 @@ if (missing.length) {
 // CSP: no remote/inline scripts in extension pages
 execSync("node scripts/validate-csp.mjs", { stdio: "inherit", cwd: ROOT });
 console.log("Build complete:", DIST);
-console.log("Load unpacked: select the project ROOT folder (where manifest.json is)");
 if (watch) console.log("Watching for changes... (reload extension after rebuilds)");

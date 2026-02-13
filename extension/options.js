@@ -270,23 +270,23 @@ var dict = {
     severity_LOW: "BAIXO",
     cost_you_send: "Voc\xEA envia",
     cost_fee_only: "apenas taxa",
-    cost_value: "Valor (ETH)",
-    cost_fee: "Taxa estimada (ETH)",
-    cost_total: "Total estimado (ETH)",
+    cost_value: "Valor",
+    cost_fee: "Taxa estimada",
+    cost_total: "Total estimado",
     cost_fee_unknown: "Taxa ser\xE1 cobrada (confirme na carteira)",
     network_switch_title: "Troca de rede",
     network_current: "Rede atual",
     network_requested: "Rede solicitada",
     trusted_domain_ref_title: "Dom\xEDnios confi\xE1veis (refer\xEAncia)",
-    tx_cost_sending: "Voc\xEA est\xE1 enviando {value} ETH + taxa de rede",
-    tx_cost_gas_only: "Mesmo sem enviar ETH, voc\xEA pagar\xE1 taxa de rede (gas)",
+    tx_cost_sending: "Voc\xEA est\xE1 enviando {value} + taxa de rede",
+    tx_cost_gas_only: "Mesmo sem enviar moeda nativa, voc\xEA pagar\xE1 taxa de rede (gas)",
     gas_calculating: "calculando\u2026",
     tx_destination: "Destino",
     token_verified_uniswap: "Token Verificado (Uniswap List)",
     token_unknown_unverified: "Token Desconhecido (N\xE3o Verificado)",
     tx_contract_method: "Contrato/m\xE9todo",
-    tx_max_gas_fee: "Gas m\xE1x (ETH)",
-    tx_max_total: "Total m\xE1x (ETH)",
+    tx_max_gas_fee: "Taxa m\xE1xima (gas)",
+    tx_max_total: "Total m\xE1ximo",
     tx_fee_estimated_by_wallet: "A carteira estimar\xE1 a taxa na pr\xF3xima etapa.",
     network_target: "Rede alvo",
     switch_no_gas: "A troca de rede normalmente N\xC3O custa gas.",
@@ -394,8 +394,8 @@ var dict = {
     privacyLimitsLine3: "Threat intel pode ser atualizado via fontes p\xFAblicas (opcional).",
     cloudIntelOptInLabel: "Permitir checagens externas",
     cloudIntelOptInDesc: "Mais prote\xE7\xE3o; pode enviar dom\xEDnio/endere\xE7os para valida\xE7\xE3o (preparado para P1).",
-    showUsdLabel: "Mostrar valores em USD",
-    showUsdDesc: "Exibe aproxima\xE7\xE3o em d\xF3lares (USD) ao lado de valores em ETH.",
+    showUsdLabel: "Exibir valores em USD",
+    showUsdDesc: "Converte valores da moeda nativa e tokens para d\xF3lar (quando dispon\xEDvel).",
     tabSettings: "Configura\xE7\xF5es",
     tabHistory: "Hist\xF3rico",
     tabPlan: "Plano",
@@ -467,8 +467,8 @@ var dict = {
     label_total_max: "Total m\xE1ximo",
     fee_gt_value: "A taxa m\xE1xima \xE9 MAIOR que o valor enviado. Confirme se faz sentido.",
     check_wallet_network_fee: "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.",
-    label_max_fee: "Taxa m\xE1xima (ETH)",
-    label_max_total: "Total m\xE1ximo (ETH)",
+    label_max_fee: "Taxa m\xE1xima",
+    label_max_total: "Total m\xE1ximo",
     switch_summary_no_gas: "Troca de rede normalmente n\xE3o custa gas, mas pode mudar quais ativos voc\xEA est\xE1 vendo.",
     permission_title: "Permiss\xE3o",
     permission_token_contract: "Contrato",
@@ -766,23 +766,23 @@ var dict = {
     severity_LOW: "LOW",
     cost_you_send: "You send",
     cost_fee_only: "fee only",
-    cost_value: "Value (ETH)",
-    cost_fee: "Estimated fee (ETH)",
-    cost_total: "Estimated total (ETH)",
+    cost_value: "Value",
+    cost_fee: "Estimated fee",
+    cost_total: "Estimated total",
     cost_fee_unknown: "A network fee will be charged (confirm in wallet)",
     network_switch_title: "Network switch",
     network_current: "Current network",
     network_requested: "Requested network",
     trusted_domain_ref_title: "Trusted domains (reference)",
-    tx_cost_sending: "You are sending {value} ETH + network fee",
-    tx_cost_gas_only: "Even with 0 ETH, you will pay a network fee (gas)",
+    tx_cost_sending: "You are sending {value} + network fee",
+    tx_cost_gas_only: "Even with no native currency sent, you will pay a network fee (gas)",
     gas_calculating: "calculating\u2026",
     tx_destination: "Destination",
     token_verified_uniswap: "Token Verified (Uniswap List)",
     token_unknown_unverified: "Token Unknown (Not Verified)",
     tx_contract_method: "Contract/method",
-    tx_max_gas_fee: "Max gas fee (ETH)",
-    tx_max_total: "Max total (ETH)",
+    tx_max_gas_fee: "Max gas fee",
+    tx_max_total: "Max total",
     tx_fee_estimated_by_wallet: "The wallet will estimate the fee in the next step.",
     network_target: "Target network",
     switch_no_gas: "Switching networks usually costs NO gas.",
@@ -891,7 +891,7 @@ var dict = {
     cloudIntelOptInLabel: "Allow external checks",
     cloudIntelOptInDesc: "More protection; may send domain/addresses for validation (prepared for P1).",
     showUsdLabel: "Show USD values",
-    showUsdDesc: "Shows an approximate USD value next to ETH amounts.",
+    showUsdDesc: "Converts native and token amounts to USD when available.",
     tabSettings: "Settings",
     tabHistory: "History",
     tabPlan: "Plan",
@@ -963,8 +963,8 @@ var dict = {
     label_total_max: "Total max",
     fee_gt_value: "The max fee is HIGHER than the value being sent. Make sure this is expected.",
     check_wallet_network_fee: "You haven't seen the fee yet. Check the wallet 'Network fee' before confirming.",
-    label_max_fee: "Max fee (ETH)",
-    label_max_total: "Max total (ETH)",
+    label_max_fee: "Max fee",
+    label_max_total: "Max total",
     switch_summary_no_gas: "Switching networks usually has no gas fee, but it changes which assets you see.",
     permission_title: "Permission",
     permission_token_contract: "Contract",
@@ -1309,6 +1309,32 @@ function showTab(name) {
   }
   if (name === "history") loadHistory();
   if (name === "lists") loadListsTab();
+  if (name === "diagnostics") loadDiagnosticsTab();
+}
+async function loadDiagnosticsTab() {
+  const versionEl = document.getElementById("diagnosticsVersion");
+  const lastRefreshEl = document.getElementById("diagnosticsLastRefresh");
+  const countsEl = document.getElementById("diagnosticsCounts");
+  const debugLogsCheck = document.getElementById("diagnosticsDebugLogs");
+  try {
+    const manifest = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest() : null;
+    if (versionEl) versionEl.textContent = manifest?.version ?? "\u2014";
+    const resp = await safeSendMessage({ type: "SG_LISTS_STATUS" }, 3e3);
+    if (lastRefreshEl) {
+      lastRefreshEl.textContent = resp?.updatedAt ? new Date(resp.updatedAt).toLocaleString() : "\u2014";
+    }
+    if (countsEl && resp?.ok && resp?.counts) {
+      const c = resp.counts;
+      countsEl.textContent = `trusted: ${c.trustedDomains + c.userTrustedDomains}, blocked domains: ${c.blockedDomains + c.userBlockedDomains}, blocked addresses: ${c.blockedAddresses + c.userBlockedAddresses}, scam tokens: ${c.scamTokens + c.userScamTokens}`;
+    } else if (countsEl) {
+      countsEl.textContent = "\u2014";
+    }
+    const debugOn = await localGet("debugLogs");
+    if (debugLogsCheck) debugLogsCheck.checked = debugOn === true;
+  } catch {
+    if (lastRefreshEl) lastRefreshEl.textContent = "Erro";
+    if (countsEl) countsEl.textContent = "Erro";
+  }
 }
 async function loadListsTab() {
   const statEls = document.querySelectorAll(".list-stat-n");
@@ -1393,8 +1419,17 @@ function listToLines(v) {
   const domains = (s.trustedDomains?.length ? s.trustedDomains : s.allowlist) ?? [];
   if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : "settings";
+  const tabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "diagnostics" ? "diagnostics" : "settings";
   showTab(tabName);
+  const tabDiagnosticsBtn = document.getElementById("tabDiagnostics");
+  localGet("debugLogs").then((debugLogs) => {
+    if (tabDiagnosticsBtn) tabDiagnosticsBtn.style.display = debugLogs === true ? "" : "none";
+  });
+  const diagnosticsDebugLogsEl = document.getElementById("diagnosticsDebugLogs");
+  diagnosticsDebugLogsEl?.addEventListener("change", () => {
+    chrome.storage?.local?.set({ debugLogs: diagnosticsDebugLogsEl.checked }, () => {
+    });
+  });
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const t2 = btn.getAttribute("data-tab");
@@ -1406,7 +1441,7 @@ function listToLines(v) {
   });
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : "settings");
+    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "diagnostics" ? "diagnostics" : "settings");
   });
   showUsdEl?.addEventListener("change", async () => {
     const next = await load();

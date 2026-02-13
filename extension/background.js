@@ -68,29 +68,47 @@ var init_listSeeds = __esm({
     TRUSTED_DOMAINS_SEED = [
       "metamask.io",
       "metamask.com",
-      "opensea.io",
-      "uniswap.org",
-      "app.uniswap.org",
+      "rainbow.me",
+      "walletconnect.com",
+      "walletconnect.org",
+      "phantom.app",
+      "solana.com",
+      // Explorers
       "etherscan.io",
       "etherscan.com",
+      "arbiscan.io",
+      "polygonscan.com",
+      "bscscan.com",
+      "snowtrace.io",
+      "basescan.org",
+      // Marketplaces
+      "opensea.io",
+      "blur.io",
+      "magiceden.io",
+      "rarible.com",
+      "looksrare.org",
+      "x2y2.io",
+      // DEX / DeFi
+      "app.uniswap.org",
+      "uniswap.org",
+      "aave.com",
+      "curve.fi",
+      "1inch.io",
+      "sushiswap.fi",
+      "pancakeswap.finance",
+      "pancakeswap.com",
+      "compound.finance",
+      // Bridges
+      "bridge.arbitrum.io",
+      "bridge.base.org",
+      "portal.polygon.technology",
+      // Chains / info
       "arbitrum.io",
       "polygon.technology",
       "avax.network",
       "bnbchain.org",
       "base.org",
       "optimism.io",
-      "rainbow.me",
-      "walletconnect.com",
-      "walletconnect.org",
-      "phantom.app",
-      "solana.com",
-      "blur.io",
-      "looksrare.org",
-      "x2y2.io",
-      "pancakeswap.finance",
-      "pancakeswap.com",
-      "aave.com",
-      "compound.finance",
       "ens.domains",
       "revoke.cash",
       "dexscreener.com",
@@ -125,6 +143,7 @@ function emptyCache() {
       scamsniffer: {},
       cryptoscamdb: {},
       dappradar: {},
+      mew: {},
       seed: {},
       user: {}
     },
@@ -223,6 +242,52 @@ function parseCryptoScamDb(body) {
     return {};
   }
 }
+function parseDappRadarTokens(body) {
+  try {
+    const j = JSON.parse(body);
+    const arr = Array.isArray(j) ? j : (j?.tokens ? j.tokens : j?.data) ?? [];
+    return arr.map((x) => {
+      const chainId = String(x?.chainId ?? x?.chain ?? "0x1").toLowerCase();
+      const addr = normalizeAddress(String(x?.address ?? x?.contract ?? x ?? ""));
+      if (!addr) return null;
+      const chainIdHex = chainId.startsWith("0x") ? chainId : "0x" + parseInt(chainId, 10).toString(16);
+      return {
+        chainId: chainIdHex,
+        address: addr,
+        symbol: typeof x?.symbol === "string" ? x.symbol : void 0,
+        name: typeof x?.name === "string" ? x.name : void 0,
+        source: "dappradar"
+      };
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function parseMewUrls(body) {
+  try {
+    const j = JSON.parse(body);
+    const arr = Array.isArray(j) ? j : j?.urls ?? j?.list ?? [];
+    return arr.map((x) => (typeof x === "string" ? x : x?.id ?? x?.url ?? "").trim().toLowerCase()).filter((u) => u && (u.startsWith("http") || u.includes("."))).map((u) => {
+      try {
+        const host = new URL(u.startsWith("http") ? u : "https://" + u).hostname.replace(/^www\./, "");
+        return host || "";
+      } catch {
+        return "";
+      }
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function parseMewAddresses(body) {
+  try {
+    const j = JSON.parse(body);
+    const arr = Array.isArray(j) ? j : j?.addresses ?? j?.list ?? [];
+    return arr.map((x) => normalizeAddress(String(typeof x === "string" ? x : x?.address ?? x?.id ?? ""))).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 async function getLists() {
   const cache = await getStorage();
   if (cache) return cache;
@@ -261,8 +326,11 @@ function isScamToken(chainId, tokenAddress, cache) {
   if (userMatch) return true;
   return cache.scamTokens.some((t2) => normalizeTokenKey(t2.chainId, t2.address) === key);
 }
-async function refresh() {
+async function refresh(forceRefresh) {
   const cache = await getLists();
+  if (!forceRefresh && cache.updatedAt && Date.now() - cache.updatedAt < TTL_CACHE_MS) {
+    return cache;
+  }
   const updated = { ...cache, updatedAt: Date.now() };
   const trustedSet = new Set(updated.trustedDomains);
   const blockedSet = new Set(updated.blockedDomains);
@@ -334,10 +402,56 @@ async function refresh() {
   } catch (e) {
     updated.sources.cryptoscamdb = { ...updated.sources.cryptoscamdb, ok: false, error: String(e?.message ?? e) };
   }
+  const MEW_URLS_URL = "https://raw.githubusercontent.com/MyEtherWallet/ethereum-lists/master/src/urls/urls-darklist.json";
+  const MEW_ADDRESSES_URL = "https://raw.githubusercontent.com/MyEtherWallet/ethereum-lists/master/src/addresses/addresses-darklist.json";
+  try {
+    const [mewUrls, mewAddrs] = await Promise.all([
+      fetchWithTimeout3(MEW_URLS_URL, updated.sources.mew?.etag),
+      fetchWithTimeout3(MEW_ADDRESSES_URL)
+    ]);
+    if (mewUrls?.body) {
+      const list = parseMewUrls(mewUrls.body);
+      list.forEach((d) => {
+        const n = normalizeHost(d);
+        if (n) blockedSet.add(n);
+      });
+    }
+    if (mewAddrs?.body) {
+      const addrs = parseMewAddresses(mewAddrs.body);
+      addrs.forEach((a) => {
+        if (a) blockedAddrSet.add(a);
+      });
+    }
+    if (mewUrls?.body || mewAddrs?.body) {
+      updated.sources.mew = { ok: true, updatedAt: Date.now(), etag: mewUrls?.etag };
+    } else {
+      updated.sources.mew = { ...updated.sources.mew, ok: false, error: "fetch failed" };
+    }
+  } catch (e) {
+    updated.sources.mew = { ...updated.sources.mew, ok: false, error: String(e?.message ?? e) };
+  }
+  const DAPPRADAR_TOKENS_URL = "https://raw.githubusercontent.com/dappradar/tokens-blacklist/main/all-tokens.json";
+  let dappradarTokenList = [];
+  try {
+    const dr = await fetchWithTimeout3(DAPPRADAR_TOKENS_URL, updated.sources.dappradar?.etag);
+    if (dr?.body) {
+      const tokens = parseDappRadarTokens(dr.body);
+      tokens.forEach((t2) => {
+        const key = normalizeTokenKey(t2.chainId, t2.address);
+        if (key) scamKeys.add(key);
+      });
+      dappradarTokenList = tokens.map((t2) => ({ chainId: t2.chainId, address: t2.address, symbol: t2.symbol, name: t2.name, source: "dappradar" }));
+      updated.sources.dappradar = { ok: true, updatedAt: Date.now(), etag: dr.etag };
+    } else {
+      updated.sources.dappradar = { ...updated.sources.dappradar, ok: false, error: "fetch failed" };
+    }
+  } catch (e) {
+    updated.sources.dappradar = { ...updated.sources.dappradar, ok: false, error: String(e?.message ?? e) };
+  }
   updated.trustedDomains = [...trustedSet];
   updated.blockedDomains = [...blockedSet];
   updated.blockedAddresses = [...blockedAddrSet];
-  updated.scamTokens = updated.scamTokens.filter((t2) => scamKeys.has(normalizeTokenKey(t2.chainId, t2.address)));
+  updated.scamTokens = [...dappradarTokenList, ...cache.userScamTokens];
   await setStorage(updated);
   return updated;
 }
@@ -417,7 +531,7 @@ function searchLists(cache, query, kind, limit, offset) {
   const paginated = results.slice(offset, offset + limit);
   return { results: paginated, total };
 }
-var STORAGE_KEY, LAST_REFRESH_KEY, FETCH_TIMEOUT_MS4;
+var STORAGE_KEY, LAST_REFRESH_KEY, FETCH_TIMEOUT_MS4, TTL_CACHE_MS;
 var init_listManager = __esm({
   "src/services/listManager.ts"() {
     "use strict";
@@ -426,6 +540,7 @@ var init_listManager = __esm({
     STORAGE_KEY = "sg_lists_cache_v1";
     LAST_REFRESH_KEY = "sg_lists_last_refresh";
     FETCH_TIMEOUT_MS4 = 6e3;
+    TTL_CACHE_MS = 12 * 60 * 60 * 1e3;
   }
 });
 
@@ -846,23 +961,23 @@ var dict = {
     severity_LOW: "BAIXO",
     cost_you_send: "Voc\xEA envia",
     cost_fee_only: "apenas taxa",
-    cost_value: "Valor (ETH)",
-    cost_fee: "Taxa estimada (ETH)",
-    cost_total: "Total estimado (ETH)",
+    cost_value: "Valor",
+    cost_fee: "Taxa estimada",
+    cost_total: "Total estimado",
     cost_fee_unknown: "Taxa ser\xE1 cobrada (confirme na carteira)",
     network_switch_title: "Troca de rede",
     network_current: "Rede atual",
     network_requested: "Rede solicitada",
     trusted_domain_ref_title: "Dom\xEDnios confi\xE1veis (refer\xEAncia)",
-    tx_cost_sending: "Voc\xEA est\xE1 enviando {value} ETH + taxa de rede",
-    tx_cost_gas_only: "Mesmo sem enviar ETH, voc\xEA pagar\xE1 taxa de rede (gas)",
+    tx_cost_sending: "Voc\xEA est\xE1 enviando {value} + taxa de rede",
+    tx_cost_gas_only: "Mesmo sem enviar moeda nativa, voc\xEA pagar\xE1 taxa de rede (gas)",
     gas_calculating: "calculando\u2026",
     tx_destination: "Destino",
     token_verified_uniswap: "Token Verificado (Uniswap List)",
     token_unknown_unverified: "Token Desconhecido (N\xE3o Verificado)",
     tx_contract_method: "Contrato/m\xE9todo",
-    tx_max_gas_fee: "Gas m\xE1x (ETH)",
-    tx_max_total: "Total m\xE1x (ETH)",
+    tx_max_gas_fee: "Taxa m\xE1xima (gas)",
+    tx_max_total: "Total m\xE1ximo",
     tx_fee_estimated_by_wallet: "A carteira estimar\xE1 a taxa na pr\xF3xima etapa.",
     network_target: "Rede alvo",
     switch_no_gas: "A troca de rede normalmente N\xC3O custa gas.",
@@ -970,8 +1085,8 @@ var dict = {
     privacyLimitsLine3: "Threat intel pode ser atualizado via fontes p\xFAblicas (opcional).",
     cloudIntelOptInLabel: "Permitir checagens externas",
     cloudIntelOptInDesc: "Mais prote\xE7\xE3o; pode enviar dom\xEDnio/endere\xE7os para valida\xE7\xE3o (preparado para P1).",
-    showUsdLabel: "Mostrar valores em USD",
-    showUsdDesc: "Exibe aproxima\xE7\xE3o em d\xF3lares (USD) ao lado de valores em ETH.",
+    showUsdLabel: "Exibir valores em USD",
+    showUsdDesc: "Converte valores da moeda nativa e tokens para d\xF3lar (quando dispon\xEDvel).",
     tabSettings: "Configura\xE7\xF5es",
     tabHistory: "Hist\xF3rico",
     tabPlan: "Plano",
@@ -1043,8 +1158,8 @@ var dict = {
     label_total_max: "Total m\xE1ximo",
     fee_gt_value: "A taxa m\xE1xima \xE9 MAIOR que o valor enviado. Confirme se faz sentido.",
     check_wallet_network_fee: "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.",
-    label_max_fee: "Taxa m\xE1xima (ETH)",
-    label_max_total: "Total m\xE1ximo (ETH)",
+    label_max_fee: "Taxa m\xE1xima",
+    label_max_total: "Total m\xE1ximo",
     switch_summary_no_gas: "Troca de rede normalmente n\xE3o custa gas, mas pode mudar quais ativos voc\xEA est\xE1 vendo.",
     permission_title: "Permiss\xE3o",
     permission_token_contract: "Contrato",
@@ -1342,23 +1457,23 @@ var dict = {
     severity_LOW: "LOW",
     cost_you_send: "You send",
     cost_fee_only: "fee only",
-    cost_value: "Value (ETH)",
-    cost_fee: "Estimated fee (ETH)",
-    cost_total: "Estimated total (ETH)",
+    cost_value: "Value",
+    cost_fee: "Estimated fee",
+    cost_total: "Estimated total",
     cost_fee_unknown: "A network fee will be charged (confirm in wallet)",
     network_switch_title: "Network switch",
     network_current: "Current network",
     network_requested: "Requested network",
     trusted_domain_ref_title: "Trusted domains (reference)",
-    tx_cost_sending: "You are sending {value} ETH + network fee",
-    tx_cost_gas_only: "Even with 0 ETH, you will pay a network fee (gas)",
+    tx_cost_sending: "You are sending {value} + network fee",
+    tx_cost_gas_only: "Even with no native currency sent, you will pay a network fee (gas)",
     gas_calculating: "calculating\u2026",
     tx_destination: "Destination",
     token_verified_uniswap: "Token Verified (Uniswap List)",
     token_unknown_unverified: "Token Unknown (Not Verified)",
     tx_contract_method: "Contract/method",
-    tx_max_gas_fee: "Max gas fee (ETH)",
-    tx_max_total: "Max total (ETH)",
+    tx_max_gas_fee: "Max gas fee",
+    tx_max_total: "Max total",
     tx_fee_estimated_by_wallet: "The wallet will estimate the fee in the next step.",
     network_target: "Target network",
     switch_no_gas: "Switching networks usually costs NO gas.",
@@ -1467,7 +1582,7 @@ var dict = {
     cloudIntelOptInLabel: "Allow external checks",
     cloudIntelOptInDesc: "More protection; may send domain/addresses for validation (prepared for P1).",
     showUsdLabel: "Show USD values",
-    showUsdDesc: "Shows an approximate USD value next to ETH amounts.",
+    showUsdDesc: "Converts native and token amounts to USD when available.",
     tabSettings: "Settings",
     tabHistory: "History",
     tabPlan: "Plan",
@@ -1539,8 +1654,8 @@ var dict = {
     label_total_max: "Total max",
     fee_gt_value: "The max fee is HIGHER than the value being sent. Make sure this is expected.",
     check_wallet_network_fee: "You haven't seen the fee yet. Check the wallet 'Network fee' before confirming.",
-    label_max_fee: "Max fee (ETH)",
-    label_max_total: "Max total (ETH)",
+    label_max_fee: "Max fee",
+    label_max_total: "Max total",
     switch_summary_no_gas: "Switching networks usually has no gas fee, but it changes which assets you see.",
     permission_title: "Permission",
     permission_token_contract: "Contract",
@@ -16642,7 +16757,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "SG_LISTS_REFRESH_NOW": {
           try {
-            const lists = await refresh();
+            const lists = await refresh(true);
             reply({
               ok: true,
               updatedAt: lists.updatedAt,

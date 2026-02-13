@@ -47,6 +47,7 @@
       <button class="nav-btn tab-btn" data-tab="security" type="button">🔒 Segurança</button>
       <button class="nav-btn tab-btn" data-tab="lists" type="button">📋 Listas</button>
       <button class="nav-btn tab-btn" data-tab="history" type="button">📜 Histórico</button>
+      <button class="nav-btn tab-btn" data-tab="diagnostics" type="button" id="tabDiagnostics">🔧 Diagnóstico</button>
     </aside>
     <main class="content">
       <section id="tab-settings" class="tab-panel active">
@@ -125,6 +126,30 @@
             <label class="sg-btn" style="background:#334155;cursor:pointer;display:inline-block;"><input type="file" id="listsImportFile" accept=".json" style="display:none;">Importar JSON</label>
           </div>
           <p id="listsImportStatus" style="margin:10px 0 0 0;font-size:0.9rem;color:var(--text-muted);"></p>
+        </div>
+      </section>
+      <section id="tab-diagnostics" class="tab-panel hidden">
+        <h1 class="panel-title">Diagnóstico</h1>
+        <p class="panel-desc">Versão, listas e marcadores de injeção (útil com debugLogs ativo).</p>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Marcadores no dApp</h3>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Em uma aba com um dApp (ex: OpenSea), abra o DevTools (F12) e no console execute:</p>
+          <pre style="background:#0f172a;padding:12px;border-radius:8px;font-size:12px;overflow:auto;">document.documentElement.dataset.sgContent
+document.documentElement.dataset.sgMainworld</pre>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:8px 0 0 0;">Se content e mainWorld estiverem injetados, verá <code>"1"</code>. Caso contrário <code>undefined</code>.</p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Extensão</h3>
+          <p style="margin:0;"><b>Versão:</b> <span id="diagnosticsVersion">—</span></p>
+          <div class="setting-row" style="margin-top:12px;">
+            <div><span>Logs de debug (console)</span><p style="color:var(--text-muted);margin:0;font-size:0.85rem;">Ativa [SignGuard] no console do content e mostra botão Diagnóstico no popup.</p></div>
+            <label class="switch"><input type="checkbox" id="diagnosticsDebugLogs"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Listas</h3>
+          <p style="margin:0 0 8px 0;"><b>Última atualização:</b> <span id="diagnosticsLastRefresh">—</span></p>
+          <p style="margin:0;"><b>Contagens:</b> <span id="diagnosticsCounts">—</span></p>
         </div>
       </section>
       <section id="tab-history" class="tab-panel hidden">

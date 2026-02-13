@@ -306,23 +306,23 @@
       severity_LOW: "BAIXO",
       cost_you_send: "Voc\xEA envia",
       cost_fee_only: "apenas taxa",
-      cost_value: "Valor (ETH)",
-      cost_fee: "Taxa estimada (ETH)",
-      cost_total: "Total estimado (ETH)",
+      cost_value: "Valor",
+      cost_fee: "Taxa estimada",
+      cost_total: "Total estimado",
       cost_fee_unknown: "Taxa ser\xE1 cobrada (confirme na carteira)",
       network_switch_title: "Troca de rede",
       network_current: "Rede atual",
       network_requested: "Rede solicitada",
       trusted_domain_ref_title: "Dom\xEDnios confi\xE1veis (refer\xEAncia)",
-      tx_cost_sending: "Voc\xEA est\xE1 enviando {value} ETH + taxa de rede",
-      tx_cost_gas_only: "Mesmo sem enviar ETH, voc\xEA pagar\xE1 taxa de rede (gas)",
+      tx_cost_sending: "Voc\xEA est\xE1 enviando {value} + taxa de rede",
+      tx_cost_gas_only: "Mesmo sem enviar moeda nativa, voc\xEA pagar\xE1 taxa de rede (gas)",
       gas_calculating: "calculando\u2026",
       tx_destination: "Destino",
       token_verified_uniswap: "Token Verificado (Uniswap List)",
       token_unknown_unverified: "Token Desconhecido (N\xE3o Verificado)",
       tx_contract_method: "Contrato/m\xE9todo",
-      tx_max_gas_fee: "Gas m\xE1x (ETH)",
-      tx_max_total: "Total m\xE1x (ETH)",
+      tx_max_gas_fee: "Taxa m\xE1xima (gas)",
+      tx_max_total: "Total m\xE1ximo",
       tx_fee_estimated_by_wallet: "A carteira estimar\xE1 a taxa na pr\xF3xima etapa.",
       network_target: "Rede alvo",
       switch_no_gas: "A troca de rede normalmente N\xC3O custa gas.",
@@ -430,8 +430,8 @@
       privacyLimitsLine3: "Threat intel pode ser atualizado via fontes p\xFAblicas (opcional).",
       cloudIntelOptInLabel: "Permitir checagens externas",
       cloudIntelOptInDesc: "Mais prote\xE7\xE3o; pode enviar dom\xEDnio/endere\xE7os para valida\xE7\xE3o (preparado para P1).",
-      showUsdLabel: "Mostrar valores em USD",
-      showUsdDesc: "Exibe aproxima\xE7\xE3o em d\xF3lares (USD) ao lado de valores em ETH.",
+      showUsdLabel: "Exibir valores em USD",
+      showUsdDesc: "Converte valores da moeda nativa e tokens para d\xF3lar (quando dispon\xEDvel).",
       tabSettings: "Configura\xE7\xF5es",
       tabHistory: "Hist\xF3rico",
       tabPlan: "Plano",
@@ -503,8 +503,8 @@
       label_total_max: "Total m\xE1ximo",
       fee_gt_value: "A taxa m\xE1xima \xE9 MAIOR que o valor enviado. Confirme se faz sentido.",
       check_wallet_network_fee: "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.",
-      label_max_fee: "Taxa m\xE1xima (ETH)",
-      label_max_total: "Total m\xE1ximo (ETH)",
+      label_max_fee: "Taxa m\xE1xima",
+      label_max_total: "Total m\xE1ximo",
       switch_summary_no_gas: "Troca de rede normalmente n\xE3o custa gas, mas pode mudar quais ativos voc\xEA est\xE1 vendo.",
       permission_title: "Permiss\xE3o",
       permission_token_contract: "Contrato",
@@ -802,23 +802,23 @@
       severity_LOW: "LOW",
       cost_you_send: "You send",
       cost_fee_only: "fee only",
-      cost_value: "Value (ETH)",
-      cost_fee: "Estimated fee (ETH)",
-      cost_total: "Estimated total (ETH)",
+      cost_value: "Value",
+      cost_fee: "Estimated fee",
+      cost_total: "Estimated total",
       cost_fee_unknown: "A network fee will be charged (confirm in wallet)",
       network_switch_title: "Network switch",
       network_current: "Current network",
       network_requested: "Requested network",
       trusted_domain_ref_title: "Trusted domains (reference)",
-      tx_cost_sending: "You are sending {value} ETH + network fee",
-      tx_cost_gas_only: "Even with 0 ETH, you will pay a network fee (gas)",
+      tx_cost_sending: "You are sending {value} + network fee",
+      tx_cost_gas_only: "Even with no native currency sent, you will pay a network fee (gas)",
       gas_calculating: "calculating\u2026",
       tx_destination: "Destination",
       token_verified_uniswap: "Token Verified (Uniswap List)",
       token_unknown_unverified: "Token Unknown (Not Verified)",
       tx_contract_method: "Contract/method",
-      tx_max_gas_fee: "Max gas fee (ETH)",
-      tx_max_total: "Max total (ETH)",
+      tx_max_gas_fee: "Max gas fee",
+      tx_max_total: "Max total",
       tx_fee_estimated_by_wallet: "The wallet will estimate the fee in the next step.",
       network_target: "Target network",
       switch_no_gas: "Switching networks usually costs NO gas.",
@@ -927,7 +927,7 @@
       cloudIntelOptInLabel: "Allow external checks",
       cloudIntelOptInDesc: "More protection; may send domain/addresses for validation (prepared for P1).",
       showUsdLabel: "Show USD values",
-      showUsdDesc: "Shows an approximate USD value next to ETH amounts.",
+      showUsdDesc: "Converts native and token amounts to USD when available.",
       tabSettings: "Settings",
       tabHistory: "History",
       tabPlan: "Plan",
@@ -999,8 +999,8 @@
       label_total_max: "Total max",
       fee_gt_value: "The max fee is HIGHER than the value being sent. Make sure this is expected.",
       check_wallet_network_fee: "You haven't seen the fee yet. Check the wallet 'Network fee' before confirming.",
-      label_max_fee: "Max fee (ETH)",
-      label_max_total: "Max total (ETH)",
+      label_max_fee: "Max fee",
+      label_max_total: "Max total",
       switch_summary_no_gas: "Switching networks usually has no gas fee, but it changes which assets you see.",
       permission_title: "Permission",
       permission_token_contract: "Contract",
@@ -1842,6 +1842,50 @@
   }
 
   // src/content.ts
+  var mainWorldReady = false;
+  try {
+    document.documentElement.dataset.sgContent = "1";
+  } catch {
+  }
+  function sgDebugLog(message) {
+    try {
+      chrome.storage.local.get("debugLogs", (r) => {
+        if (r?.debugLogs === true) console.info("[SignGuard]", message);
+      });
+    } catch {
+    }
+  }
+  function injectMainWorldFallback() {
+    try {
+      const url = safeGetURL("dist/mainWorld.js");
+      if (!url) return;
+      const script = document.createElement("script");
+      script.src = url;
+      script.onload = () => sgDebugLog("mainWorld fallback injection completed");
+      script.onerror = () => sgDebugLog("mainWorld fallback injection failed");
+      (document.documentElement || document.head).appendChild(script);
+    } catch (e) {
+      sgDebugLog("mainWorld fallback injection error: " + e?.message);
+    }
+  }
+  window.addEventListener("message", (ev) => {
+    try {
+      const d = ev.data;
+      if (!d || typeof d !== "object" || d.source !== "signguard-inpage" && d.source !== "signguard" || d.type !== "SG_MAINWORLD_READY") return;
+      mainWorldReady = true;
+      sgDebugLog("SG_MAINWORLD_READY received");
+    } catch {
+    }
+  });
+  setTimeout(() => {
+    if (!mainWorldReady) {
+      sgDebugLog("mainWorld not ready after 300ms, attempting fallback injection");
+      injectMainWorldFallback();
+    }
+  }, 300);
+  chrome.storage?.local?.get("debugLogs", (r) => {
+    if (r?.debugLogs === true) console.info("[SignGuard] content script start");
+  });
   function isContextInvalidated(msg) {
     const s = (msg || "").toLowerCase();
     return s.includes("extension context invalidated") || s.includes("context invalidated") || s.includes("the message port closed") || s.includes("runtime.lastError") || s.includes("receiving end does not exist") || s.includes("message port closed");
@@ -1870,6 +1914,7 @@
   });
   function dispatchDecision(requestId, allow, errorMessage) {
     try {
+      sgDebugLog("SG_DECISION sent " + requestId + " allow=" + allow);
       const detail = { requestId, allow, errorMessage };
       window.dispatchEvent(new CustomEvent("signguard:decision", { detail }));
       window.postMessage({ source: "signguard-content", type: "SG_DECISION", requestId, allow, errorMessage }, "*");
@@ -2336,6 +2381,7 @@
     }
     try {
       window.postMessage({ source: "signguard-content", type: "SG_UI_SHOWN", requestId }, "*");
+      sgDebugLog("overlay shown, SG_UI_SHOWN sent " + requestId);
     } catch {
     }
   }
@@ -3175,6 +3221,7 @@
       const data = ev.data;
       if (!data || data.source !== "signguard" && data.source !== "signguard-inpage" || data.type !== "SG_REQUEST") return;
       const requestId = String(data.requestId || "");
+      sgDebugLog("SG_REQUEST received " + requestId);
       const url = String(data.payload?.url || "");
       const method = String(data.payload?.method || "");
       const params = Array.isArray(data.payload?.params) ? data.payload.params : void 0;
