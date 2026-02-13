@@ -1833,28 +1833,6 @@
   }
 
   // src/content.ts
-  (function injectMainWorldFallback() {
-    try {
-      if (document.documentElement.getAttribute("data-signguard-mainworld") === "1") return;
-      if (!isRuntimeUsable()) return;
-      const id = "sg-mainworld-injected";
-      if (document.getElementById(id)) return;
-      const href = safeGetURL("mainWorld.js");
-      if (!href) return;
-      const s = document.createElement("script");
-      s.id = id;
-      s.src = href;
-      s.type = "text/javascript";
-      (document.documentElement || document.head).appendChild(s);
-      s.onload = () => {
-        try {
-          s.remove();
-        } catch {
-        }
-      };
-    } catch {
-    }
-  })();
   function isContextInvalidated(msg) {
     const s = (msg || "").toLowerCase();
     return s.includes("extension context invalidated") || s.includes("context invalidated") || s.includes("the message port closed") || s.includes("runtime.lastError") || s.includes("receiving end does not exist") || s.includes("message port closed");
@@ -2811,7 +2789,7 @@
       const symbol = typeof tokenSymbol === "string" && tokenSymbol ? tokenSymbol : "";
       const label = tokenVerified ? t("token_verified_uniswap") : t("token_unknown_unverified");
       return `<div class="sg-token-badge-row" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                      <img class="sg-token-logo" src="${escapeHtml(imgSrc)}" data-fallback="${escapeHtml(placeholderSvg)}" alt="" width="24" height="24" loading="lazy" />
+                      <img class="sg-token-logo" src="${escapeHtml(imgSrc)}" alt="" width="24" height="24" loading="lazy" onerror="this.src='${placeholderSvg}'" />
                       ${symbol ? `<span class="sg-mono">${escapeHtml(symbol)}</span>` : ""}
                       <span class="sg-token-badge ${tokenVerified ? "sg-token-verified" : "sg-token-unknown"}">${tokenVerified ? "\u2705" : "\u26A0\uFE0F"} ${escapeHtml(label)}</span>
                     </div>`;
@@ -2961,16 +2939,6 @@
       </div>
     </div>
   `;
-    try {
-      state.shadow.querySelectorAll("img.sg-token-logo[data-fallback]").forEach((img) => {
-        img.addEventListener("error", () => {
-          const el = img;
-          const fb = el.dataset.fallback;
-          if (fb && el.src !== fb) el.src = fb;
-        }, { once: true });
-      });
-    } catch {
-    }
     const closeBtn = state.shadow.getElementById("sg-close");
     const continueBtn = state.shadow.getElementById("sg-continue");
     const proceedBtn = state.shadow.getElementById("sg-proceed");
