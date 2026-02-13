@@ -7,7 +7,7 @@ import { safeStorageGet, safeStorageSet, safeSendMessage } from "./runtimeSafe";
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
 const HISTORY_KEY = "sg_history_v1";
 
-type TabName = "settings" | "security" | "lists" | "history";
+type TabName = "settings" | "security" | "lists" | "history" | "diagnostics";
 
 function showTab(name: TabName) {
   const tabs = document.querySelectorAll(".tab-btn");
@@ -25,6 +25,7 @@ function showTab(name: TabName) {
   }
   if (name === "history") loadHistory();
   if (name === "lists") loadListsTab();
+  if (name === "diagnostics") loadDiagnosticsTab();
 }
 
 type ListsStatus = {
@@ -41,6 +42,32 @@ type ListsStatus = {
     userScamTokens: number;
   };
 };
+
+async function loadDiagnosticsTab() {
+  const versionEl = document.getElementById("diagnosticsVersion");
+  const lastRefreshEl = document.getElementById("diagnosticsLastRefresh");
+  const countsEl = document.getElementById("diagnosticsCounts");
+  const debugLogsCheck = document.getElementById("diagnosticsDebugLogs") as HTMLInputElement | null;
+  try {
+    const manifest = typeof chrome !== "undefined" && chrome.runtime?.getManifest ? chrome.runtime.getManifest() : null;
+    if (versionEl) versionEl.textContent = (manifest as { version?: string })?.version ?? "—";
+    const resp = await safeSendMessage<ListsStatus>({ type: "SG_LISTS_STATUS" }, 3000);
+    if (lastRefreshEl) {
+      lastRefreshEl.textContent = resp?.updatedAt ? new Date(resp.updatedAt).toLocaleString() : "—";
+    }
+    if (countsEl && resp?.ok && resp?.counts) {
+      const c = resp.counts;
+      countsEl.textContent = `trusted: ${c.trustedDomains + c.userTrustedDomains}, blocked domains: ${c.blockedDomains + c.userBlockedDomains}, blocked addresses: ${c.blockedAddresses + c.userBlockedAddresses}, scam tokens: ${c.scamTokens + c.userScamTokens}`;
+    } else if (countsEl) {
+      countsEl.textContent = "—";
+    }
+    const debugOn = await localGet<boolean>("debugLogs");
+    if (debugLogsCheck) debugLogsCheck.checked = debugOn === true;
+  } catch {
+    if (lastRefreshEl) lastRefreshEl.textContent = "Erro";
+    if (countsEl) countsEl.textContent = "Erro";
+  }
+}
 
 async function loadListsTab() {
   const statEls = document.querySelectorAll(".list-stat-n");
@@ -140,8 +167,17 @@ function listToLines(v: string[]): string {
   if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
 
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName: TabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : "settings";
+  const tabName: TabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "diagnostics" ? "diagnostics" : "settings";
   showTab(tabName);
+
+  const tabDiagnosticsBtn = document.getElementById("tabDiagnostics");
+  localGet<boolean>("debugLogs").then((debugLogs) => {
+    if (tabDiagnosticsBtn) tabDiagnosticsBtn.style.display = debugLogs === true ? "" : "none";
+  });
+  const diagnosticsDebugLogsEl = document.getElementById("diagnosticsDebugLogs") as HTMLInputElement | null;
+  diagnosticsDebugLogsEl?.addEventListener("change", () => {
+    chrome.storage?.local?.set({ debugLogs: diagnosticsDebugLogsEl.checked }, () => {});
+  });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -155,7 +191,7 @@ function listToLines(v: string[]): string {
 
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : "settings");
+    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "diagnostics" ? "diagnostics" : "settings");
   });
 
   showUsdEl?.addEventListener("change", async () => {

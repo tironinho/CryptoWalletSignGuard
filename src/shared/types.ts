@@ -102,7 +102,7 @@ export type DomainDecision = "TRUSTED" | "BLOCKED" | "UNKNOWN";
 /** Cache key for scam token: chainId:tokenAddressLower */
 export type ScamTokenKey = `${string}:${string}`;
 
-export type ListSourceName = "metamask" | "scamsniffer" | "cryptoscamdb" | "dappradar" | "seed" | "user";
+export type ListSourceName = "metamask" | "scamsniffer" | "cryptoscamdb" | "dappradar" | "mew" | "seed" | "user";
 
 export type ListsCacheV1 = {
   version: 1;

@@ -1893,7 +1893,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "SG_LISTS_REFRESH_NOW": {
           try {
-            const lists = await refreshLists();
+            const lists = await refreshLists(true);
             reply({
               ok: true,
               updatedAt: lists.updatedAt,

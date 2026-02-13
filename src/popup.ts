@@ -56,6 +56,29 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     if (statusEl) statusEl.textContent = t("popupStatusPaused") || "Pausado";
   });
 
+  const diagnosticsWrap = $("popupDiagnosticsWrap");
+  const linkDiagnostics = $("linkDiagnostics");
+  chrome.storage?.local?.get("debugLogs", (r) => {
+    const show = (r as Record<string, boolean>)?.debugLogs === true;
+    if (diagnosticsWrap) diagnosticsWrap.classList.toggle("hidden", !show);
+  });
+  linkDiagnostics?.addEventListener("click", (e) => {
+    e.preventDefault();
+    try {
+      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
+        ? chrome.runtime.getURL("dist/options.html#diagnostics")
+        : "dist/options.html#diagnostics";
+      if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, "_blank");
+      }
+      window.close();
+    } catch {
+      window.close();
+    }
+  });
+
   linkSettings?.addEventListener("click", (e) => {
     e.preventDefault();
     sendUsageEvent("settings_opened");
@@ -76,8 +99,8 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     sendUsageEvent("history_opened");
     try {
       const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
-        ? chrome.runtime.getURL("options.html#history")
-        : "options.html#history";
+        ? chrome.runtime.getURL("dist/options.html#history")
+        : "dist/options.html#history";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {

@@ -9,6 +9,7 @@ import { TRUSTED_DOMAINS_SEED, BLOCKED_DOMAINS_SEED } from "./listSeeds";
 const STORAGE_KEY = "sg_lists_cache_v1";
 const LAST_REFRESH_KEY = "sg_lists_last_refresh";
 const FETCH_TIMEOUT_MS = 6000;
+const TTL_CACHE_MS = 12 * 60 * 60 * 1000; // 12h
 
 function emptyCache(): ListsCacheV1 {
   return {
@@ -19,6 +20,7 @@ function emptyCache(): ListsCacheV1 {
       scamsniffer: {},
       cryptoscamdb: {},
       dappradar: {},
+      mew: {},
       seed: {},
       user: {},
     },
@@ -125,7 +127,7 @@ function parseCryptoScamDb(body: string): { blacklist?: string[]; whitelist?: st
   }
 }
 
-function parseDappRadarTokens(body: string): Array<{ chainId: string; address: string }> {
+function parseDappRadarTokens(body: string): Array<{ chainId: string; address: string; symbol?: string; name?: string }> {
   try {
     const j = JSON.parse(body);
     const arr = Array.isArray(j) ? j : (j?.tokens ? j.tokens : j?.data) ?? [];
@@ -133,9 +135,50 @@ function parseDappRadarTokens(body: string): Array<{ chainId: string; address: s
       .map((x: any) => {
         const chainId = String(x?.chainId ?? x?.chain ?? "0x1").toLowerCase();
         const addr = normalizeAddress(String(x?.address ?? x?.contract ?? x ?? ""));
-        return addr ? { chainId: chainId.startsWith("0x") ? chainId : "0x" + chainId, address: addr } : null;
+        if (!addr) return null;
+        const chainIdHex = chainId.startsWith("0x") ? chainId : "0x" + parseInt(chainId, 10).toString(16);
+        return {
+          chainId: chainIdHex,
+          address: addr,
+          symbol: typeof x?.symbol === "string" ? x.symbol : undefined,
+          name: typeof x?.name === "string" ? x.name : undefined,
+          source: "dappradar" as ListSourceName,
+        };
       })
-      .filter(Boolean) as Array<{ chainId: string; address: string }>;
+      .filter(Boolean) as Array<{ chainId: string; address: string; symbol?: string; name?: string; source: ListSourceName }>;
+  } catch {
+    return [];
+  }
+}
+
+function parseMewUrls(body: string): string[] {
+  try {
+    const j = JSON.parse(body);
+    const arr = Array.isArray(j) ? j : (j?.urls ?? j?.list ?? []);
+    return arr
+      .map((x: any) => (typeof x === "string" ? x : x?.id ?? x?.url ?? "").trim().toLowerCase())
+      .filter((u: string) => u && (u.startsWith("http") || u.includes(".")))
+      .map((u: string) => {
+        try {
+          const host = new URL(u.startsWith("http") ? u : "https://" + u).hostname.replace(/^www\./, "");
+          return host || "";
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function parseMewAddresses(body: string): string[] {
+  try {
+    const j = JSON.parse(body);
+    const arr = Array.isArray(j) ? j : (j?.addresses ?? j?.list ?? []);
+    return arr
+      .map((x: any) => normalizeAddress(String(typeof x === "string" ? x : x?.address ?? x?.id ?? "")))
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -184,8 +227,11 @@ export function isScamToken(chainId: string, tokenAddress: string, cache: ListsC
   return cache.scamTokens.some((t) => normalizeTokenKey(t.chainId, t.address) === key);
 }
 
-export async function refresh(): Promise<ListsCacheV1> {
+export async function refresh(forceRefresh?: boolean): Promise<ListsCacheV1> {
   const cache = await getLists();
+  if (!forceRefresh && cache.updatedAt && Date.now() - cache.updatedAt < TTL_CACHE_MS) {
+    return cache;
+  }
   const updated = { ...cache, updatedAt: Date.now() };
   const trustedSet = new Set(updated.trustedDomains);
   const blockedSet = new Set(updated.blockedDomains);
@@ -247,11 +293,55 @@ export async function refresh(): Promise<ListsCacheV1> {
     updated.sources.cryptoscamdb = { ...updated.sources.cryptoscamdb, ok: false, error: String((e as Error)?.message ?? e) };
   }
 
+  // MEW ethereum-lists (domains + addresses)
+  const MEW_URLS_URL = "https://raw.githubusercontent.com/MyEtherWallet/ethereum-lists/master/src/urls/urls-darklist.json";
+  const MEW_ADDRESSES_URL = "https://raw.githubusercontent.com/MyEtherWallet/ethereum-lists/master/src/addresses/addresses-darklist.json";
+  try {
+    const [mewUrls, mewAddrs] = await Promise.all([
+      fetchWithTimeout(MEW_URLS_URL, updated.sources.mew?.etag),
+      fetchWithTimeout(MEW_ADDRESSES_URL),
+    ]);
+    if (mewUrls?.body) {
+      const list = parseMewUrls(mewUrls.body);
+      list.forEach((d) => { const n = normalizeHost(d); if (n) blockedSet.add(n); });
+    }
+    if (mewAddrs?.body) {
+      const addrs = parseMewAddresses(mewAddrs.body);
+      addrs.forEach((a) => { if (a) blockedAddrSet.add(a); });
+    }
+    if (mewUrls?.body || mewAddrs?.body) {
+      updated.sources.mew = { ok: true, updatedAt: Date.now(), etag: mewUrls?.etag };
+    } else {
+      updated.sources.mew = { ...updated.sources.mew, ok: false, error: "fetch failed" };
+    }
+  } catch (e) {
+    updated.sources.mew = { ...updated.sources.mew, ok: false, error: String((e as Error)?.message ?? e) };
+  }
+
+  // DappRadar tokens blacklist
+  const DAPPRADAR_TOKENS_URL = "https://raw.githubusercontent.com/dappradar/tokens-blacklist/main/all-tokens.json";
+  let dappradarTokenList: ListsCacheV1["scamTokens"] = [];
+  try {
+    const dr = await fetchWithTimeout(DAPPRADAR_TOKENS_URL, updated.sources.dappradar?.etag);
+    if (dr?.body) {
+      const tokens = parseDappRadarTokens(dr.body);
+      tokens.forEach((t) => {
+        const key = normalizeTokenKey(t.chainId, t.address);
+        if (key) scamKeys.add(key);
+      });
+      dappradarTokenList = tokens.map((t) => ({ chainId: t.chainId, address: t.address, symbol: t.symbol, name: t.name, source: "dappradar" as ListSourceName }));
+      updated.sources.dappradar = { ok: true, updatedAt: Date.now(), etag: dr.etag };
+    } else {
+      updated.sources.dappradar = { ...updated.sources.dappradar, ok: false, error: "fetch failed" };
+    }
+  } catch (e) {
+    updated.sources.dappradar = { ...updated.sources.dappradar, ok: false, error: String((e as Error)?.message ?? e) };
+  }
+
   updated.trustedDomains = [...trustedSet];
   updated.blockedDomains = [...blockedSet];
   updated.blockedAddresses = [...blockedAddrSet];
-  updated.scamTokens = updated.scamTokens.filter((t) => scamKeys.has(normalizeTokenKey(t.chainId, t.address)));
-  // Scam tokens: no remote fetch until stable URL; seed + user overrides only
+  updated.scamTokens = [...dappradarTokenList, ...cache.userScamTokens];
   await setStorage(updated);
   return updated;
 }

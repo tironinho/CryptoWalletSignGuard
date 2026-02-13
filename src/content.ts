@@ -25,8 +25,56 @@ import {
 import { runPageRiskScan, injectPageRiskBanner } from "./risk/domScanner";
 import { renderAdToast, dismissAdToast } from "./features/adToast";
 
-// --- INJEÇÃO MANUAL REMOVIDA DAQUI ---
-// O mainWorld.js agora é injetado EXCLUSIVAMENTE pelo manifest.json (world: "MAIN")
+// --- Handshake with MAIN world (mainWorld.js) ---
+// Content runs in isolated world; mainWorld runs in MAIN. We detect readiness via postMessage, not (window as any).__signguard_mainworld.
+let mainWorldReady = false;
+
+try {
+  document.documentElement.dataset.sgContent = "1";
+} catch {}
+
+function sgDebugLog(message: string) {
+  try {
+    chrome.storage.local.get("debugLogs", (r) => {
+      if ((r as any)?.debugLogs === true) console.info("[SignGuard]", message);
+    });
+  } catch {}
+}
+
+function injectMainWorldFallback() {
+  try {
+    const url = safeGetURL("dist/mainWorld.js");
+    if (!url) return;
+    const script = document.createElement("script");
+    script.src = url;
+    script.onload = () => sgDebugLog("mainWorld fallback injection completed");
+    script.onerror = () => sgDebugLog("mainWorld fallback injection failed");
+    (document.documentElement || document.head).appendChild(script);
+  } catch (e) {
+    sgDebugLog("mainWorld fallback injection error: " + (e as Error)?.message);
+  }
+}
+
+window.addEventListener("message", (ev: MessageEvent) => {
+  try {
+    const d = ev.data;
+    if (!d || typeof d !== "object" || (d.source !== "signguard-inpage" && d.source !== "signguard") || d.type !== "SG_MAINWORLD_READY") return;
+    mainWorldReady = true;
+    sgDebugLog("SG_MAINWORLD_READY received");
+  } catch {}
+});
+
+setTimeout(() => {
+  if (!mainWorldReady) {
+    sgDebugLog("mainWorld not ready after 300ms, attempting fallback injection");
+    injectMainWorldFallback();
+  }
+}, 300);
+
+// Log content start (async so we don't block)
+chrome.storage?.local?.get("debugLogs", (r) => {
+  if ((r as any)?.debugLogs === true) console.info("[SignGuard] content script start");
+});
 
 function isContextInvalidated(msg: string) {
   const s = (msg || "").toLowerCase();
@@ -81,6 +129,7 @@ type DecisionDetail = { requestId: string; allow: boolean; errorMessage?: string
 
 function dispatchDecision(requestId: string, allow: boolean, errorMessage?: string) {
   try {
+    sgDebugLog("SG_DECISION sent " + requestId + " allow=" + allow);
     const detail: DecisionDetail = { requestId, allow, errorMessage };
     window.dispatchEvent(new CustomEvent("signguard:decision", { detail }));
     window.postMessage({ source: "signguard-content", type: "SG_DECISION", requestId, allow, errorMessage }, "*");
@@ -668,6 +717,7 @@ function markUiShownFromContent(requestId: string) {
   } catch {}
   try {
     window.postMessage({ source: "signguard-content", type: "SG_UI_SHOWN", requestId }, "*");
+    sgDebugLog("overlay shown, SG_UI_SHOWN sent " + requestId);
   } catch {}
 }
 
@@ -1577,6 +1627,7 @@ async function handleSGRequest(ev: MessageEvent) {
     if (!data || (data.source !== "signguard" && data.source !== "signguard-inpage") || data.type !== "SG_REQUEST") return;
 
     const requestId = String(data.requestId || "");
+    sgDebugLog("SG_REQUEST received " + requestId);
     const url = String(data.payload?.url || "");
     const method = String(data.payload?.method || "");
     const params = Array.isArray(data.payload?.params) ? data.payload.params : undefined;

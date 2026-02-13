@@ -9,14 +9,14 @@ npm i
 npm run build
 ```
 
-- **Output:** `dist/` (intermediate) and **`extension/`** (final). The build copies everything from `dist/` into `extension/` so that `manifest.json`, `background.js`, `content.js`, `mainWorld.js`, and HTML/icons all live in one folder.
+- **Output:** `dist/` (bundles and assets). The root `manifest.json` points all paths to `dist/` (e.g. `dist/background.js`, `dist/content.js`, `dist/popup.html`).
 
 ## Load unpacked (testar local)
 
 - Open `chrome://extensions`
 - Enable **Developer mode**
 - Click **Load unpacked**
-- **Select the folder `extension/`** (not the repo root and not `dist/`). The extension only works when the folder you load contains `manifest.json` and the built JS/HTML at the same level.
+- **Select the project ROOT folder** (the folder where `manifest.json` is). Do not select `dist/` or any subfolder — the extension must be loaded from the root so Chrome finds `manifest.json` and the `dist/` folder.
 
 ## Pack (publicar / loja)
 
@@ -24,8 +24,8 @@ npm run build
 npm run pack
 ```
 
-- Produces **`crypto-wallet-signguard.zip`** in the repo root.
-- The ZIP contains the **contents** of `extension/` (e.g. `manifest.json` at the **root of the ZIP**), as required for the Chrome Web Store and side-load installs.
+- Produces **`CryptoWalletSignGuard.zip`** in the repo root.
+- The ZIP contains **`manifest.json`**, **`dist/`**, and **`_locales/`** at the root of the archive, as required for the Chrome Web Store and side-load installs.
 - Run `npm run build` before `npm run pack`.
 
 ## Quick test checklist

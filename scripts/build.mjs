@@ -1,4 +1,5 @@
 import { build, context } from "esbuild";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -45,8 +46,7 @@ if (clean) {
 rimraf(DIST);
 fs.mkdirSync(DIST, { recursive: true });
 
-// Copy static assets
-copyFile(path.join(ROOT, "manifest.json"), path.join(DIST, "manifest.json"));
+// Do NOT copy manifest.json to dist — extension is loaded from project ROOT (manifest points to dist/*)
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
 copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
 copyFile(path.join(SRC, "onboarding.html"), path.join(DIST, "onboarding.html"));
@@ -107,9 +107,22 @@ for (const [name, entry] of Object.entries(extraEntryPoints)) {
   await runBuild(name, entry, "esm");
 }
 
-// Copy dist to extension/ so "Load unpacked" can point to extension/ (manifest + js/html at same level)
-rimraf(EXTENSION);
-copyDir(DIST, EXTENSION);
+// Validate required dist artifacts (extension is loaded from ROOT; manifest references dist/*)
+const required = [
+  "background.js",
+  "content.js",
+  "mainWorld.js",
+  "popup.html",
+  "options.html",
+  "overlay.css",
+];
+const missing = required.filter((name) => !fs.existsSync(path.join(DIST, name)));
+if (missing.length) {
+  console.error("Build validation failed. Missing in dist/:", missing.join(", "));
+  process.exit(1);
+}
+// CSP: no remote/inline scripts in extension pages
+execSync("node scripts/validate-csp.mjs", { stdio: "inherit", cwd: ROOT });
 console.log("Build complete:", DIST);
-console.log("Extension folder (load this in chrome://extensions):", EXTENSION);
+console.log("Load unpacked: select the project ROOT folder (where manifest.json is)");
 if (watch) console.log("Watching for changes... (reload extension after rebuilds)");
