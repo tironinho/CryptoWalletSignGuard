@@ -6,141 +6,79 @@
     window.postMessage({ source: "signguard-inpage", type: "SG_MAINWORLD_READY", version: "1.0.0" }, "*");
   } catch {
   }
-  var LOG_PREFIX = "[SignGuard \u{1F6E1}\uFE0F]";
-  var DEBUG = true;
-  var TIMEOUT_MS_FAILOPEN = 3e4;
   function log(...args) {
-    if (DEBUG) console.log(LOG_PREFIX, ...args);
   }
-  function err(...args) {
-    console.error(LOG_PREFIX, ...args);
-  }
-  function patchProvider(provider, walletName = "Unknown") {
+  function patchProvider(provider) {
     if (!provider || provider._sg_patched) return;
-    log(`Patching provider: ${walletName}`);
+    log("Patching Provider:", provider);
     const originalRequest = provider.request.bind(provider);
-    try {
-      Object.defineProperty(provider, "request", {
-        value: async function(args) {
-          const method = args.method;
-          const isCritical = method === "eth_sendTransaction" || method === "eth_signTypedData_v4" || method === "eth_signTypedData_v3" || method === "eth_sign" || method === "personal_sign" || method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain";
-          if (!isCritical) {
-            return originalRequest(args);
+    provider.request = async (args) => {
+      const method = args?.method;
+      const criticalMethods = [
+        "eth_sendTransaction",
+        "eth_signTypedData_v4",
+        "eth_signTypedData_v3",
+        "personal_sign",
+        "wallet_switchEthereumChain"
+      ];
+      if (!criticalMethods.includes(method)) {
+        return originalRequest(args);
+      }
+      log("Intercepted:", method);
+      const requestId = crypto.randomUUID();
+      window.postMessage(
+        {
+          source: "signguard",
+          type: "SG_REQUEST",
+          requestId,
+          payload: {
+            method,
+            params: args?.params,
+            host: window.location.hostname,
+            url: window.location.href
           }
-          log(`Intercepted Call: ${method}`, args);
-          const requestId = crypto.randomUUID();
-          window.postMessage(
-            {
-              source: "signguard",
-              type: "SG_REQUEST",
-              requestId,
-              payload: {
-                method,
-                params: args.params,
-                host: window.location.hostname,
-                url: window.location.href,
-                wallet: { name: walletName }
-              }
-            },
-            "*"
-          );
-          return new Promise((resolve, reject) => {
-            let uiShown = false;
-            let settled = false;
-            let timeoutId = null;
-            const cleanup = () => {
-              if (timeoutId != null) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-              }
-              window.removeEventListener("message", handler);
-            };
-            const handler = (ev) => {
-              if (ev.source !== window || !ev.data || typeof ev.data !== "object") return;
-              const d = ev.data;
-              if (d.source !== "signguard-content") return;
-              if (d.requestId !== requestId) return;
-              if (d.type === "SG_UI_SHOWN") {
-                uiShown = true;
-                if (timeoutId != null) {
-                  clearTimeout(timeoutId);
-                  timeoutId = null;
-                }
-                return;
-              }
-              if (d.type === "SG_DECISION") {
-                if (settled) return;
-                settled = true;
-                cleanup();
-                const { allow, errorMessage } = d;
-                log(`Decision received for ${requestId}: ${allow ? "ALLOW" : "BLOCK"}`);
-                if (allow) {
-                  originalRequest(args).then(resolve).catch(reject);
-                } else {
-                  reject({
-                    code: 4001,
-                    message: errorMessage || "SignGuard: Transaction blocked by user security settings."
-                  });
-                }
-              }
-            };
-            window.addEventListener("message", handler);
-            timeoutId = setTimeout(() => {
-              if (settled) return;
-              if (uiShown) return;
-              settled = true;
-              cleanup();
-              log(`Timeout ${requestId}: UI not available, rejecting`);
-              reject({
-                code: 4001,
-                message: "SignGuard: UI not available"
-              });
-            }, TIMEOUT_MS_FAILOPEN);
-          });
         },
-        configurable: true,
-        writable: true
+        "*"
+      );
+      return new Promise((resolve, reject) => {
+        const handler = (ev) => {
+          const d = ev?.data;
+          if (d?.requestId !== requestId || d?.type !== "SG_DECISION") return;
+          if (d?.source !== "signguard-content") return;
+          window.removeEventListener("message", handler);
+          if (d.allow) {
+            originalRequest(args).then(resolve).catch(reject);
+          } else {
+            reject({ code: 4001, message: "SignGuard: Blocked by user" });
+          }
+        };
+        window.addEventListener("message", handler);
       });
-      provider._sg_patched = true;
-    } catch (e) {
-      err("Failed to overwrite provider.request", e);
-    }
+    };
+    provider._sg_patched = true;
   }
   function init() {
-    log("Initializing interception...");
     if (window.ethereum) {
-      patchProvider(window.ethereum, "window.ethereum");
+      patchProvider(window.ethereum);
     }
-    let storedEthereum = window.ethereum;
+    let storedEth = window.ethereum;
     try {
       Object.defineProperty(window, "ethereum", {
-        get() {
-          return storedEthereum;
-        },
-        set(val) {
-          storedEthereum = val;
-          patchProvider(val, "window.ethereum (Setter)");
+        get: () => storedEth,
+        set: (val) => {
+          storedEth = val;
+          patchProvider(val);
         },
         configurable: true
-        // Permite que o MetaMask sobrescreva, mas nós já pegámos a referência no Setter
       });
-    } catch (e) {
-      log("Hook defineProperty failed, relying on polling.");
+    } catch {
     }
-    window.addEventListener("eip6963:announceProvider", (event) => {
-      const detail = event.detail;
-      if (detail && detail.provider) {
-        patchProvider(detail.provider, detail.info.name || "EIP-6963 Wallet");
-      }
-    });
-    window.dispatchEvent(new Event("eip6963:requestProvider"));
-    const interval = setInterval(() => {
+    setInterval(() => {
       const eth = window.ethereum;
       if (eth && !eth._sg_patched) {
-        patchProvider(eth, "Polling Detected");
+        patchProvider(eth);
       }
     }, 100);
-    setTimeout(() => clearInterval(interval), 5e3);
   }
   init();
 })();

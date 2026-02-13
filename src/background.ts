@@ -1821,6 +1821,7 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log("⚙️ [SignGuard Background] Message received:", msg?.type, msg);
   if (!msg || typeof msg !== "object" || !msg.type) {
     try { sendResponse({ ok: false, error: "INVALID_MESSAGE" }); } catch {}
     return false;

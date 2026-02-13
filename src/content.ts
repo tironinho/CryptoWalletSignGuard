@@ -1622,6 +1622,7 @@ let __sgPinged = false;
 
 async function handleSGRequest(ev: MessageEvent) {
   try {
+    console.log("📨 [SignGuard Content] Message received:", ev.data);
     if (ev.source !== window) return;
     const data = ev.data as MainWorldRequestMsg;
     if (!data || (data.source !== "signguard" && data.source !== "signguard-inpage") || data.type !== "SG_REQUEST") return;
