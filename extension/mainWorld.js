@@ -184,35 +184,14 @@
   window.__signguard_mainworld = true;
   try {
     document.documentElement.setAttribute("data-signguard-mainworld", "1");
+    document.documentElement.setAttribute("data-sg-mainworld", "1");
   } catch {
   }
   var TIMEOUT_MS_UI = 6e5;
-  var TIMEOUT_MS_FAILOPEN = 6e4;
+  var TIMEOUT_MS_FAILOPEN = 3e4;
   var KEEPALIVE_CAP_MS = 9e5;
+  var FAILOPEN_WAIT_CAP_MS = 6e5;
   var pendingCalls = /* @__PURE__ */ new Map();
-  var failOpenQueue = [];
-  var failOpenArmed = false;
-  function armFailOpenOnNextGesture(item) {
-    failOpenQueue.push(item);
-    if (failOpenArmed) return;
-    failOpenArmed = true;
-    const handler = () => {
-      window.removeEventListener("pointerdown", handler, true);
-      failOpenArmed = false;
-      const next = failOpenQueue.shift();
-      if (!next) return;
-      try {
-        next.runOriginal().then(next.resolve).catch(next.reject);
-      } catch (e) {
-        next.reject(e);
-      }
-      if (failOpenQueue.length > 0) {
-        const nextItem = failOpenQueue.shift();
-        armFailOpenOnNextGesture(nextItem);
-      }
-    };
-    window.addEventListener("pointerdown", handler, true);
-  }
   var SG_BYPASS = Symbol.for("SG_BYPASS");
   function sgId() {
     return crypto?.randomUUID?.() || Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -749,23 +728,31 @@
       const base = p.lastKeepaliveAt ?? p.createdAt;
       const timeout = p.uiShown ? TIMEOUT_MS_UI : TIMEOUT_MS_FAILOPEN;
       const expiresAt = p.uiShown ? Math.min(base + timeout, p.createdAt + KEEPALIVE_CAP_MS) : base + timeout;
-      if (now > expiresAt) {
+      if (now <= expiresAt) continue;
+      if (p.uiShown) {
         pendingCalls.delete(id);
-        if (p.uiShown) {
+        p.reject({ code: 4001, message: "SignGuard: timeout" });
+        try {
+          window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
+        } catch {
+        }
+        continue;
+      }
+      if (p.failOpenArmed) {
+        if (now > p.createdAt + FAILOPEN_WAIT_CAP_MS) {
+          pendingCalls.delete(id);
           p.reject({ code: 4001, message: "SignGuard: timeout" });
           try {
             window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
           } catch {
           }
-          continue;
         }
-        armFailOpenOnNextGesture({
-          id,
-          runOriginal: p.runOriginal,
-          resolve: p.resolve,
-          reject: p.reject,
-          armedAt: Date.now()
-        });
+        continue;
+      }
+      p.failOpenArmed = true;
+      try {
+        window.postMessage({ source: "signguard-inpage", type: "SG_FAILOPEN_ARMED", requestId: id }, "*");
+      } catch {
       }
     }
   }, 5e3);

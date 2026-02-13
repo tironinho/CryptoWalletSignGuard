@@ -2,6 +2,7 @@
 (window as any).__signguard_mainworld = true;
 try {
   document.documentElement.setAttribute("data-signguard-mainworld", "1");
+  document.documentElement.setAttribute("data-sg-mainworld", "1");
 } catch {}
 // Implements a correct "defer + resume" pipeline:
 import { estimateFee } from "./feeEstimate";
@@ -11,8 +12,9 @@ import { detectEvmWallet, detectSolWallet, detectWalletFromProvider, detectWalle
 // - MAIN world RESUMES by reexecuting the ORIGINAL request with bypass (no recursion)
 
 const TIMEOUT_MS_UI = 600_000;   // 10 min when UI shown; keepalive resets
-const TIMEOUT_MS_FAILOPEN = 60_000; // 60s when no UI yet (fail-open on next user gesture)
+const TIMEOUT_MS_FAILOPEN = 30_000; // 30s when no UI yet — then arm fail-open (banner); runOriginal ONLY on Continuar click
 const KEEPALIVE_CAP_MS = 900_000; // 15 min max lifetime from creation when UI shown
+const FAILOPEN_WAIT_CAP_MS = 600_000; // 10 min max wait after armed; then reject
 
 type PendingReq = {
   resolve: (v: any) => void;
@@ -22,46 +24,10 @@ type PendingReq = {
   lastKeepaliveAt?: number;
   method: string;
   uiShown?: boolean;
+  failOpenArmed?: boolean;
 };
 
 const pendingCalls = new Map<string, PendingReq>();
-
-type FailOpenItem = {
-  id: string;
-  runOriginal: () => Promise<any>;
-  resolve: (v: any) => void;
-  reject: (e: any) => void;
-  armedAt: number;
-};
-const failOpenQueue: FailOpenItem[] = [];
-let failOpenArmed = false;
-
-function armFailOpenOnNextGesture(item: FailOpenItem) {
-  failOpenQueue.push(item);
-  if (failOpenArmed) return;
-  failOpenArmed = true;
-
-  const handler = () => {
-    window.removeEventListener("pointerdown", handler, true);
-    failOpenArmed = false;
-
-    const next = failOpenQueue.shift();
-    if (!next) return;
-
-    try {
-      next.runOriginal().then(next.resolve).catch(next.reject);
-    } catch (e) {
-      next.reject(e);
-    }
-
-    if (failOpenQueue.length > 0) {
-      const nextItem = failOpenQueue.shift()!;
-      armFailOpenOnNextGesture(nextItem);
-    }
-  };
-
-  window.addEventListener("pointerdown", handler, true);
-}
 
 const SG_BYPASS = Symbol.for("SG_BYPASS"); // evita recursão
 
@@ -631,23 +597,32 @@ setInterval(() => {
     const expiresAt = p.uiShown
       ? Math.min(base + timeout, p.createdAt + KEEPALIVE_CAP_MS)
       : base + timeout;
-    if (now > expiresAt) {
+    if (now <= expiresAt) continue;
+
+    if (p.uiShown) {
       pendingCalls.delete(id);
-      if (p.uiShown) {
+      p.reject({ code: 4001, message: "SignGuard: timeout" });
+      try {
+        window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
+      } catch {}
+      continue;
+    }
+
+    // !uiShown: arm fail-open only; NEVER call runOriginal() here (user-gesture required for wallet)
+    if (p.failOpenArmed) {
+      if (now > p.createdAt + FAILOPEN_WAIT_CAP_MS) {
+        pendingCalls.delete(id);
         p.reject({ code: 4001, message: "SignGuard: timeout" });
         try {
           window.postMessage({ source: "signguard-inpage", type: "SG_DECISION_ACK", requestId: id, allow: false, expired: true }, "*");
         } catch {}
-        continue;
       }
-      armFailOpenOnNextGesture({
-        id,
-        runOriginal: p.runOriginal,
-        resolve: p.resolve,
-        reject: p.reject,
-        armedAt: Date.now(),
-      });
+      continue;
     }
+    p.failOpenArmed = true;
+    try {
+      window.postMessage({ source: "signguard-inpage", type: "SG_FAILOPEN_ARMED", requestId: id }, "*");
+    } catch {}
   }
 }, 5000);
 

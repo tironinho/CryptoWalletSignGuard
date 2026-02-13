@@ -440,6 +440,7 @@
       historyClear: "Limpar",
       historyEmpty: "Nenhum registro.",
       request_expired_toast: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
+      failopen_armed_banner: "An\xE1lise demorou. Voc\xEA pode Continuar mesmo assim ou Cancelar.",
       decision_allow: "Permitido",
       decision_block: "Bloqueado",
       planSubtitle: "Gerencie seu plano e licen\xE7a.",
@@ -935,6 +936,7 @@
       historyClear: "Clear",
       historyEmpty: "No entries.",
       request_expired_toast: "Request expired. Redo the action on the site and try again.",
+      failopen_armed_banner: "Analysis took too long. You can Continue anyway or Cancel.",
       decision_allow: "Allowed",
       decision_block: "Blocked",
       planSubtitle: "Manage your plan and license.",
@@ -1281,7 +1283,14 @@
     { chainIdHex: "0x2105", name: "Base", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.base.org"] },
     { chainIdHex: "0x89", name: "Polygon", nativeSymbol: "MATIC", coingeckoId: "matic-network", rpcUrls: ["https://polygon-rpc.com"] },
     { chainIdHex: "0x38", name: "BNB Smart Chain", nativeSymbol: "BNB", coingeckoId: "binancecoin", rpcUrls: ["https://bsc-dataseed.binance.org"] },
-    { chainIdHex: "0xa86a", name: "Avalanche C-Chain", nativeSymbol: "AVAX", coingeckoId: "avalanche-2", rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"] }
+    { chainIdHex: "0xa86a", name: "Avalanche C-Chain", nativeSymbol: "AVAX", coingeckoId: "avalanche-2", rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"] },
+    { chainIdHex: "0xfa", name: "Fantom", nativeSymbol: "FTM", coingeckoId: "fantom", rpcUrls: ["https://rpc.ftm.tools"] },
+    { chainIdHex: "0x64", name: "Gnosis", nativeSymbol: "xDAI", coingeckoId: "xdai", rpcUrls: ["https://rpc.gnosischain.com"] },
+    { chainIdHex: "0xa4ec", name: "Celo", nativeSymbol: "CELO", coingeckoId: "celo", rpcUrls: ["https://forno.celo.org"] },
+    { chainIdHex: "0x82750", name: "Scroll", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.scroll.io"] },
+    { chainIdHex: "0xe708", name: "Linea", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.linea.build"] },
+    { chainIdHex: "0x144", name: "zkSync Era", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.era.zksync.io"] },
+    { chainIdHex: "0x44d", name: "Polygon zkEVM", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] }
   ];
   var byChainId = /* @__PURE__ */ new Map();
   for (const c of CHAINS) {
@@ -2428,7 +2437,16 @@
     try {
       if (ev.source !== window) return;
       const d = ev?.data;
-      if (!d || d.source !== "signguard-inpage" || d.type !== "SG_DECISION_ACK") return;
+      if (!d || d.source !== "signguard-inpage") return;
+      if (d.type === "SG_FAILOPEN_ARMED") {
+        const requestId2 = String(d.requestId || "");
+        if (__sgOverlay && __sgOverlay.requestId === requestId2) {
+          __sgOverlay.failOpenArmed = true;
+          updateOverlay(__sgOverlay);
+        }
+        return;
+      }
+      if (d.type !== "SG_DECISION_ACK") return;
       const requestId = String(d.requestId || "");
       if (!requestId) return;
       const allow = !!d.allow;
@@ -2709,6 +2727,7 @@
     const needsFriction = !phishingHardBlock && analysis.recommend === "BLOCK" || analysis.recommend === "HIGH" || analysis.level === "HIGH" && settings.blockHighRisk || analysis.level === "HIGH" && displayAction === "SIGN_TYPED_DATA" && (settings.requireTypedOverride ?? true);
     const isLoading = !!analysisLoading;
     const showActivateProtectionLink = !isLoading && analysis.simulationOutcome?.simulated === false;
+    const failOpenArmed = !!state.failOpenArmed;
     state.app.innerHTML = `
     <div class="sg-backdrop">
       <div class="sg-modal">
@@ -2726,6 +2745,7 @@
         </div>
 
         <div class="sg-body">
+          ${failOpenArmed ? `<div class="sg-card" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.5);margin-bottom:12px;"><div class="sg-card-title" style="color:#f59e0b;">\u23F1 ${escapeHtml(t("failopen_armed_banner") || "An\xE1lise demorou. Voc\xEA pode Continuar mesmo assim ou Cancelar.")}</div></div>` : ""}
           ${isLoading ? `
           <div class="sg-skeleton-loading" aria-busy="true" aria-label="${escapeHtml(t("analyzing"))}">
             <div class="sg-summary-line" style="margin-bottom:16px;">

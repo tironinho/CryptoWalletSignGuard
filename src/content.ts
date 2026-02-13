@@ -634,6 +634,7 @@ type OverlayState = {
   countdownTimer?: number | null;
   keepaliveInterval?: number | null;
   analysisLoading?: boolean;
+  failOpenArmed?: boolean;
 };
 
 let __sgOverlay: OverlayState | null = null;
@@ -760,7 +761,16 @@ window.addEventListener("message", (ev: MessageEvent) => {
   try {
     if (ev.source !== window) return;
     const d = (ev as any)?.data;
-    if (!d || d.source !== "signguard-inpage" || d.type !== "SG_DECISION_ACK") return;
+    if (!d || d.source !== "signguard-inpage") return;
+    if (d.type === "SG_FAILOPEN_ARMED") {
+      const requestId = String(d.requestId || "");
+      if (__sgOverlay && __sgOverlay.requestId === requestId) {
+        __sgOverlay.failOpenArmed = true;
+        updateOverlay(__sgOverlay);
+      }
+      return;
+    }
+    if (d.type !== "SG_DECISION_ACK") return;
     const requestId = String(d.requestId || "");
     if (!requestId) return;
     const allow = !!d.allow;
@@ -1078,6 +1088,7 @@ function renderOverlay(state: OverlayState) {
 
   const isLoading = !!analysisLoading;
   const showActivateProtectionLink = !isLoading && (analysis as any).simulationOutcome?.simulated === false;
+  const failOpenArmed = !!(state as OverlayState).failOpenArmed;
 
   state.app.innerHTML = `
     <div class="sg-backdrop">
@@ -1096,6 +1107,7 @@ function renderOverlay(state: OverlayState) {
         </div>
 
         <div class="sg-body">
+          ${failOpenArmed ? `<div class="sg-card" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.5);margin-bottom:12px;"><div class="sg-card-title" style="color:#f59e0b;">⏱ ${escapeHtml(t("failopen_armed_banner") || "Análise demorou. Você pode Continuar mesmo assim ou Cancelar.")}</div></div>` : ""}
           ${isLoading ? `
           <div class="sg-skeleton-loading" aria-busy="true" aria-label="${escapeHtml(t("analyzing"))}">
             <div class="sg-summary-line" style="margin-bottom:16px;">
