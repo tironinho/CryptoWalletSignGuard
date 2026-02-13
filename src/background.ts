@@ -350,7 +350,11 @@ async function getSettings(): Promise<Settings> {
   });
 }
 
-initTelemetry(getSettings);
+try {
+  initTelemetry(getSettings);
+} catch (e) {
+  console.warn("SignGuard: Telemetry init failed (non-fatal):", e);
+}
 
 const WEB3_KEYWORDS = ["swap", "dex", "finance", "crypto", "nft", "wallet", "bridge", "stake", "defi", "uniswap", "pancake", "opensea", "metamask", "phantom"];
 const tabSessions = new Map<number, { startTime: number; domain: string; referrer: string }>();
@@ -1804,13 +1808,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try { sendResponse({ ok: false, error: "INVALID_MESSAGE" }); } catch {}
     return false;
   }
+  let responded = false;
+  const reply = (payload: any) => {
+    if (responded) return;
+    responded = true;
+    try { sendResponse(payload); } catch {}
+  };
   (async () => {
-    let responded = false;
-    const reply = (payload: any) => {
-      if (responded) return;
-      responded = true;
-      try { sendResponse(payload); } catch {}
-    };
     try {
       switch (msg.type) {
         case "PING":
@@ -2211,6 +2215,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } catch (e) {
       reply({ ok: false, error: String((e as Error)?.message || e) });
     }
-  })();
+  })().catch((e) => {
+    reply({ ok: false, error: String((e as Error)?.message || e) });
+  });
   return true; // keep channel open for async sendResponse
 });

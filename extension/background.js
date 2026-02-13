@@ -15535,7 +15535,11 @@ async function getSettings() {
     }
   });
 }
-initTelemetry(getSettings);
+try {
+  initTelemetry(getSettings);
+} catch (e) {
+  console.warn("SignGuard: Telemetry init failed (non-fatal):", e);
+}
 var WEB3_KEYWORDS = ["swap", "dex", "finance", "crypto", "nft", "wallet", "bridge", "stake", "defi", "uniswap", "pancake", "opensea", "metamask", "phantom"];
 var tabSessions = /* @__PURE__ */ new Map();
 function isWeb3RelevantDomain(host) {
@@ -16875,16 +16879,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     return false;
   }
+  let responded = false;
+  const reply = (payload) => {
+    if (responded) return;
+    responded = true;
+    try {
+      sendResponse(payload);
+    } catch {
+    }
+  };
   (async () => {
-    let responded = false;
-    const reply = (payload) => {
-      if (responded) return;
-      responded = true;
-      try {
-        sendResponse(payload);
-      } catch {
-      }
-    };
     try {
       switch (msg.type) {
         case "PING":
@@ -17305,7 +17309,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } catch (e) {
       reply({ ok: false, error: String(e?.message || e) });
     }
-  })();
+  })().catch((e) => {
+    reply({ ok: false, error: String(e?.message || e) });
+  });
   return true;
 });
 export {
