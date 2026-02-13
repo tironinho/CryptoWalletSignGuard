@@ -1582,7 +1582,7 @@ function showOverlay(
     if (__sgOverlay.keepaliveInterval) {
       try { clearInterval(__sgOverlay.keepaliveInterval as any); } catch {}
     }
-    __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 2000) as any;
+    __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 5000) as any;
     updateOverlay(__sgOverlay);
     markUiShownFromContent(requestId);
     return;
@@ -1613,7 +1613,7 @@ function showOverlay(
   if (__sgOverlay.keepaliveInterval) {
     try { clearInterval(__sgOverlay.keepaliveInterval as any); } catch {}
   }
-  __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 2000) as any;
+  __sgOverlay.keepaliveInterval = setInterval(() => sendKeepalive(requestId), 5000) as any;
 
   updateOverlay(__sgOverlay);
 }
@@ -1771,16 +1771,18 @@ async function handleSGRequest(ev: MessageEvent) {
     }
     markUiShownFromContent(requestId);
 
+    void tryAnalyze();
+
     if (!__sgPinged) {
       __sgPinged = true;
-      const ping = await portRequest<{ ok?: boolean }>({ type: "PING" }, 2000);
-      if (!ping?.ok) {
-        const fb = await safeSendMessage<{ ok?: boolean }>({ type: "PING" }, 2000);
-        if (!fb?.ok) showToast(t("toast_extension_updated"));
-      }
+      void (async () => {
+        const ping = await portRequest<{ ok?: boolean }>({ type: "PING" }, 2000);
+        if (!ping?.ok) {
+          const fb = await safeSendMessage<{ ok?: boolean }>({ type: "PING" }, 2000);
+          if (!fb?.ok) showToast(t("toast_extension_updated"));
+        }
+      })();
     }
-
-    void tryAnalyze();
 
     if (!isFirst) updateOverlay(__sgOverlay!);
   } catch (e: any) {

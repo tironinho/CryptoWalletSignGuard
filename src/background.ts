@@ -34,6 +34,23 @@ import {
 
 export const SUGGESTED_TRUSTED_DOMAINS = SUGGESTED_TRUSTED_DOMAINS_SHARED;
 
+// Bootstrap: registar onMessage/onConnect logo para PING (sem depender de async init)
+chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+  if (msg?.type === "PING") {
+    try { sendResponse({ ok: true, ts: Date.now() }); } catch {}
+    return true;
+  }
+  return false;
+});
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "sg_port") return;
+  port.onMessage.addListener((msg: any) => {
+    if (msg?.type === "PING" && msg?.requestId != null) {
+      try { port.postMessage({ requestId: msg.requestId, ok: true, ts: Date.now() }); } catch {}
+    }
+  });
+});
+
 const INTEL_KEY = "sg_threat_intel_v2";
 const INTEL_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -1694,6 +1711,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "sg_port") return;
   port.onMessage.addListener((msg: any) => {
+    if (msg?.type === "PING") return;
     const requestId = msg?.requestId;
     let settled = false;
     const reply = (payload: any) => {
@@ -1703,7 +1721,6 @@ chrome.runtime.onConnect.addListener((port) => {
     };
     (async () => {
       try {
-        if (msg?.type === "PING") { reply({ ok: true }); return; }
         if (msg?.type === "GET_ETH_USD" || msg?.type === "SG_GET_PRICE") {
           const usdPerEth = await getEthUsdPriceCached();
           if (usdPerEth != null) {
@@ -1808,6 +1825,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try { sendResponse({ ok: false, error: "INVALID_MESSAGE" }); } catch {}
     return false;
   }
+  if (msg.type === "PING") return false;
   let responded = false;
   const reply = (payload: any) => {
     if (responded) return;
@@ -1817,9 +1835,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
       switch (msg.type) {
-        case "PING":
-          reply({ ok: true });
-          return;
         case "AD_TRACK_CLICK": {
           const campaignId = msg.payload?.campaignId;
           if (campaignId) {

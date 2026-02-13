@@ -48,9 +48,6 @@ export async function estimateFee(providerRequest: (args: any) => Promise<any>, 
     let computedPriority: bigint | undefined = maxPriorityFeePerGas;
 
     if (!computedMaxFee && !gasPrice) {
-      const prioHex = await tryRpc<string>(providerRequest, "eth_maxPriorityFeePerGas", []);
-      computedPriority = prioHex != null && prioHex !== "" ? BigInt(prioHex) : 1_000_000_000n;
-
       let baseFee: bigint | undefined;
       const fh = await tryRpc<{ baseFeePerGas?: string[] }>(providerRequest, "eth_feeHistory", ["0x1", "latest", []]);
       const arr = fh?.baseFeePerGas;
@@ -61,7 +58,8 @@ export async function estimateFee(providerRequest: (args: any) => Promise<any>, 
       }
 
       if (baseFee != null) {
-        computedMaxFee = baseFee * 2n + (computedPriority ?? 0n);
+        computedPriority = computedPriority ?? 1_000_000_000n;
+        computedMaxFee = baseFee * 2n + computedPriority;
       } else {
         const gpHex = await tryRpc<string>(providerRequest, "eth_gasPrice", []);
         if (gpHex != null && gpHex !== "") return finalizeLegacy(gasLimit, BigInt(gpHex));

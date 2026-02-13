@@ -1147,35 +1147,50 @@ function initPortListener() {
 }
 function portRequest(msg, timeoutMs = 2500) {
   return new Promise((resolve) => {
-    try {
-      const p = getPort();
-      if (!p) {
-        resolve(null);
-        return;
-      }
-      initPortListener();
-      const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `sg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const payload = { ...msg, requestId };
-      const timer = setTimeout(() => {
-        if (_portPending.has(requestId)) {
+    (async () => {
+      try {
+        if (!_port) {
+          try {
+            await new Promise((r) => {
+              const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+              if (!c?.runtime?.sendMessage) return r();
+              c.runtime.sendMessage({ type: "PING" }, () => {
+                r();
+              });
+              setTimeout(() => r(), 600);
+            });
+          } catch {
+          }
+        }
+        const p = getPort();
+        if (!p) {
+          resolve(null);
+          return;
+        }
+        initPortListener();
+        const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `sg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const payload = { ...msg, requestId };
+        const timer = setTimeout(() => {
+          if (_portPending.has(requestId)) {
+            _portPending.delete(requestId);
+            resolve(null);
+          }
+        }, timeoutMs);
+        _portPending.set(requestId, (resp) => {
+          clearTimeout(timer);
+          resolve(resp != null ? resp : null);
+        });
+        try {
+          p.postMessage(payload);
+        } catch (e) {
+          clearTimeout(timer);
           _portPending.delete(requestId);
           resolve(null);
         }
-      }, timeoutMs);
-      _portPending.set(requestId, (resp) => {
-        clearTimeout(timer);
-        resolve(resp != null ? resp : null);
-      });
-      try {
-        p.postMessage(payload);
-      } catch (e) {
-        clearTimeout(timer);
-        _portPending.delete(requestId);
+      } catch {
         resolve(null);
       }
-    } catch {
-      resolve(null);
-    }
+    })();
   });
 }
 var DEFAULT_SEND_MS = 4e3;

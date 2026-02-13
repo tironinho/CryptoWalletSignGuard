@@ -8,6 +8,7 @@
   }
   var LOG_PREFIX = "[SignGuard \u{1F6E1}\uFE0F]";
   var DEBUG = true;
+  var TIMEOUT_MS_FAILOPEN = 3e4;
   function log(...args) {
     if (DEBUG) console.log(LOG_PREFIX, ...args);
   }
@@ -44,10 +45,34 @@
             "*"
           );
           return new Promise((resolve, reject) => {
+            let uiShown = false;
+            let settled = false;
+            let timeoutId = null;
+            const cleanup = () => {
+              if (timeoutId != null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              window.removeEventListener("message", handler);
+            };
             const handler = (ev) => {
-              if (ev.source === window && ev.data?.source === "signguard-content" && ev.data?.type === "SG_DECISION" && ev.data?.requestId === requestId) {
-                window.removeEventListener("message", handler);
-                const { allow, errorMessage } = ev.data;
+              if (ev.source !== window || !ev.data || typeof ev.data !== "object") return;
+              const d = ev.data;
+              if (d.source !== "signguard-content") return;
+              if (d.requestId !== requestId) return;
+              if (d.type === "SG_UI_SHOWN") {
+                uiShown = true;
+                if (timeoutId != null) {
+                  clearTimeout(timeoutId);
+                  timeoutId = null;
+                }
+                return;
+              }
+              if (d.type === "SG_DECISION") {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                const { allow, errorMessage } = d;
                 log(`Decision received for ${requestId}: ${allow ? "ALLOW" : "BLOCK"}`);
                 if (allow) {
                   originalRequest(args).then(resolve).catch(reject);
@@ -60,6 +85,17 @@
               }
             };
             window.addEventListener("message", handler);
+            timeoutId = setTimeout(() => {
+              if (settled) return;
+              if (uiShown) return;
+              settled = true;
+              cleanup();
+              log(`Timeout ${requestId}: UI not available, rejecting`);
+              reject({
+                code: 4001,
+                message: "SignGuard: UI not available"
+              });
+            }, TIMEOUT_MS_FAILOPEN);
           });
         },
         configurable: true,

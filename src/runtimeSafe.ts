@@ -70,41 +70,57 @@ function initPortListener() {
   });
 }
 
-/** Port-based request (preferred over sendMessage to avoid runtime.lastError) */
+/** Port-based request (preferred over sendMessage to avoid runtime.lastError). Sends PING via sendMessage first if port not yet connected (wakes SW). */
 export function portRequest<T = any>(msg: unknown, timeoutMs = 2500): Promise<T | null> {
   return new Promise((resolve) => {
-    try {
-      const p = getPort();
-      if (!p) {
-        resolve(null);
-        return;
-      }
-      initPortListener();
-      const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `sg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const payload = { ...(msg as object), requestId };
+    (async () => {
+      try {
+        if (!_port) {
+          try {
+            await new Promise<void>((r) => {
+              const c = (typeof globalThis !== "undefined" ? (globalThis as any).chrome : undefined) ?? (typeof chrome !== "undefined" ? chrome : undefined);
+              if (!c?.runtime?.sendMessage) return r();
+              c.runtime.sendMessage({ type: "PING" }, () => {
+                r();
+              });
+              setTimeout(() => r(), 600);
+            });
+          } catch {
+            // ignore
+          }
+        }
+        const p = getPort();
+        if (!p) {
+          resolve(null);
+          return;
+        }
+        initPortListener();
+        const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `sg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const payload = { ...(msg as object), requestId };
 
-      const timer = setTimeout(() => {
-        if (_portPending.has(requestId)) {
+        const timer = setTimeout(() => {
+          if (_portPending.has(requestId)) {
+            _portPending.delete(requestId);
+            resolve(null);
+          }
+        }, timeoutMs);
+
+        _portPending.set(requestId, (resp: any) => {
+          clearTimeout(timer);
+          resolve(resp != null ? (resp as T) : null);
+        });
+
+        try {
+          p.postMessage(payload);
+        } catch (e) {
+          clearTimeout(timer);
           _portPending.delete(requestId);
           resolve(null);
         }
-      }, timeoutMs);
-
-      _portPending.set(requestId, (resp: any) => {
-        clearTimeout(timer);
-        resolve(resp != null ? (resp as T) : null);
-      });
-
-      try {
-        p.postMessage(payload);
-      } catch (e) {
-        clearTimeout(timer);
-        _portPending.delete(requestId);
+      } catch {
         resolve(null);
       }
-    } catch {
-      resolve(null);
-    }
+    })();
   });
 }
 

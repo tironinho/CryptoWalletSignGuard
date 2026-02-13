@@ -13,6 +13,7 @@ try {
 
 const LOG_PREFIX = "[SignGuard 🛡️]";
 const DEBUG = true; // Altere para false em produção se desejar menos logs
+const TIMEOUT_MS_FAILOPEN = 30_000; // Se após 30s não houver SG_UI_SHOWN nem SG_DECISION, rejeitar (não executar runOriginal)
 
 function log(...args: any[]) {
   if (DEBUG) console.log(LOG_PREFIX, ...args);
@@ -93,27 +94,45 @@ function patchProvider(provider: any, walletName: string = "Unknown") {
           "*"
         );
 
-        // Retorna uma Promise que espera a decisão do utilizador
+        // Retorna uma Promise que espera a decisão do utilizador (ou timeout se UI não aparecer)
         return new Promise((resolve, reject) => {
-          const handler = (ev: MessageEvent) => {
-            if (
-              ev.source === window &&
-              ev.data?.source === "signguard-content" &&
-              ev.data?.type === "SG_DECISION" &&
-              ev.data?.requestId === requestId
-            ) {
-              window.removeEventListener("message", handler);
+          let uiShown = false;
+          let settled = false;
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-              const { allow, errorMessage } = ev.data;
+          const cleanup = () => {
+            if (timeoutId != null) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
+            window.removeEventListener("message", handler);
+          };
+
+          const handler = (ev: MessageEvent) => {
+            if (ev.source !== window || !ev.data || typeof ev.data !== "object") return;
+            const d = ev.data as { source?: string; type?: string; requestId?: string; allow?: boolean; errorMessage?: string };
+            if (d.source !== "signguard-content") return;
+            if (d.requestId !== requestId) return;
+
+            if (d.type === "SG_UI_SHOWN") {
+              uiShown = true;
+              if (timeoutId != null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              return;
+            }
+            if (d.type === "SG_DECISION") {
+              if (settled) return;
+              settled = true;
+              cleanup();
+
+              const { allow, errorMessage } = d;
               log(`Decision received for ${requestId}: ${allow ? "ALLOW" : "BLOCK"}`);
 
               if (allow) {
-                // Se permitido, chama o original
-                originalRequest(args)
-                  .then(resolve)
-                  .catch(reject);
+                originalRequest(args).then(resolve).catch(reject);
               } else {
-                // Se bloqueado, rejeita a transação (simula rejeição do utilizador)
                 reject({
                   code: 4001,
                   message: errorMessage || "SignGuard: Transaction blocked by user security settings.",
@@ -123,6 +142,19 @@ function patchProvider(provider: any, walletName: string = "Unknown") {
           };
 
           window.addEventListener("message", handler);
+
+          // Se após TIMEOUT_MS_FAILOPEN não tiver SG_UI_SHOWN nem SG_DECISION: NÃO executar runOriginal; rejeitar
+          timeoutId = setTimeout(() => {
+            if (settled) return;
+            if (uiShown) return; // UI mostrou; continua à espera de decisão (sem timeout extra)
+            settled = true;
+            cleanup();
+            log(`Timeout ${requestId}: UI not available, rejecting`);
+            reject({
+              code: 4001,
+              message: "SignGuard: UI not available",
+            });
+          }, TIMEOUT_MS_FAILOPEN);
         });
       },
       configurable: true,
