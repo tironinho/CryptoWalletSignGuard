@@ -601,7 +601,8 @@
       btn_copy_json: "Copiar JSON",
       chain_not_recognized: "Rede n\xE3o reconhecida",
       simulation_skipped_caution: "Sem simula\xE7\xE3o \u2014 valide com mais cautela.",
-      toast_copied: "Copiado"
+      toast_copied: "Copiado",
+      btn_ver_menos: "Ver menos"
     },
     en: {
       tech_displayAction: "Action (classification)",
@@ -1105,7 +1106,8 @@
       btn_copy_json: "Copy JSON",
       chain_not_recognized: "Chain not recognized",
       simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
-      toast_copied: "Copied"
+      toast_copied: "Copied",
+      btn_ver_menos: "Show less"
     }
   };
   function format(template, params) {
@@ -1452,6 +1454,16 @@
     if (!Number.isFinite(n) || n < 0) return null;
     return "0x" + n.toString(16);
   }
+  function inferHost(url) {
+    try {
+      const u = new URL(url);
+      let h = u.hostname || "";
+      if (h.toLowerCase().startsWith("www.")) h = h.slice(4);
+      return h;
+    } catch {
+      return "";
+    }
+  }
   function showToast(text) {
     try {
       const el = document.createElement("div");
@@ -1508,6 +1520,44 @@
     }
     return false;
   }
+  function renderMoreExplanationsHtml(action, isContractInteraction) {
+    const what = t("more_whatItDoes") || "O que isso faz";
+    const risks = t("more_risks") || "Riscos";
+    const safe = t("more_safeNotes") || "Notas de seguran\xE7a";
+    const next = t("more_nextSteps") || "Pr\xF3ximos passos";
+    let whatItems;
+    let riskItems;
+    let safeItems;
+    let nextItems;
+    if (isContractInteraction || action === "SEND_TX") {
+      whatItems = [t("default_human_contract_what") || "Envia uma transa\xE7\xE3o para um contrato (a\xE7\xE3o dentro do dApp)."];
+      riskItems = [t("default_human_contract_risk") || "O custo real pode variar e a a\xE7\xE3o pode mover ativos/tokens via contrato."];
+      safeItems = [t("default_human_contract_safe") || "Confira destino (to), rede, valor e a taxa (Network fee) na carteira."];
+      nextItems = [t("default_human_contract_next") || "Se os detalhes baterem, prossiga. Caso contr\xE1rio, cancele."];
+    } else if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") {
+      whatItems = [t("explain_switch_why") || "Alguns sites exigem uma rede espec\xEDfica para funcionar."];
+      riskItems = [t("switch_note_inline") || "Trocar rede normalmente n\xE3o custa gas."];
+      safeItems = [t("default_human_generic_safe") || "Confirme dom\xEDnio, rede e detalhes na carteira."];
+      nextItems = [t("human_connect_next_2") || "Confirme se a rede solicitada \xE9 a esperada. Se n\xE3o, cancele."];
+    } else if (action === "SIGN_MESSAGE" || action === "SIGN_TYPED_DATA") {
+      whatItems = [t("human_sign_whatIs") || "Cria uma assinatura criptogr\xE1fica. Geralmente n\xE3o custa gas, mas pode autorizar a\xE7\xF5es."];
+      riskItems = [t("human_sign_risk_1") || "Assinar textos desconhecidos pode autorizar a\xE7\xF5es/login que voc\xEA n\xE3o pretendia."];
+      safeItems = [t("human_sign_safe_1") || "Prefira carteiras que mostrem detalhes de assinatura de forma leg\xEDvel."];
+      nextItems = [t("human_sign_next_1") || "Verifique a URL e leia a mensagem/typed-data com aten\xE7\xE3o."];
+    } else if (action === "CONNECT") {
+      whatItems = [t("human_connect_whatIs") || "Conecta seu endere\xE7o de carteira a este site (como um login)."];
+      riskItems = [t("human_connect_risk_1") || "Privacidade/rastreamento: pode vincular seu endere\xE7o a este site."];
+      safeItems = [t("human_connect_safe_1") || "Trate connect como compartilhar identidade: fa\xE7a isso s\xF3 em sites que voc\xEA reconhece."];
+      nextItems = [t("human_connect_next_1") || "Confira o dom\xEDnio (ortografia, HTTPS, sem punycode)."];
+    } else {
+      whatItems = [t("default_human_generic_what") || "A\xE7\xE3o solicitada pela dApp."];
+      riskItems = [t("default_human_generic_risk") || "Se algo n\xE3o fizer sentido, cancele."];
+      safeItems = [t("default_human_generic_safe") || "Confirme dom\xEDnio, rede e detalhes na carteira."];
+      nextItems = [t("default_human_generic_next") || "Prossiga apenas se tudo estiver correto."];
+    }
+    const ul = (items) => `<ul><li>${items.map((x) => escapeHtml(x)).join("</li><li>")}</li></ul>`;
+    return `<p><strong>${escapeHtml(what)}</strong></p>${ul(whatItems)}<p><strong>${escapeHtml(risks)}</strong></p>${ul(riskItems)}<p><strong>${escapeHtml(safe)}</strong></p>${ul(safeItems)}<p><strong>${escapeHtml(next)}</strong></p>${ul(nextItems)}`;
+  }
   var __sgOverlay = null;
   function ensureOverlayCss(shadow) {
     try {
@@ -1562,46 +1612,31 @@
   }
   function updateOverlay(state) {
     const a = state.analysis;
-    if (a.level === "LOADING") {
-      state.app.innerHTML = `
-    <div class="sg-backdrop">
-      <div class="sg-modal" style="max-width:380px;">
-        <header class="sg-header"><div class="sg-brand">\u{1F6E1}\uFE0F SignGuard</div></header>
-        <div class="sg-body">
-          <p class="sg-summary-sub">${escapeHtml(t("gas_calculating") || "Analisando\u2026")}</p>
-          <p><strong>${escapeHtml(state.meta.method)}</strong></p>
-        </div>
-        <footer class="sg-footer">
-          <button type="button" id="sg-deny" class="sg-btn sg-btn-secondary">${t("recommend_BLOCK") || "Bloquear"}</button>
-          <button type="button" id="sg-allow" class="sg-btn sg-btn-primary">${t("recommend_ALLOW") || "Permitir"}</button>
-        </footer>
-      </div>
-    </div>`;
-      state.shadow.getElementById("sg-deny")?.addEventListener("click", () => decideCurrentAndAdvance(false));
-      state.shadow.getElementById("sg-allow")?.addEventListener("click", () => decideCurrentAndAdvance(true));
-      return;
-    }
+    const isLoading = a.level === "LOADING";
     const settings = __sgSettings ?? DEFAULT_SETTINGS;
     const openByDefault = !!settings.defaultExpandDetails || state.meta.method === "eth_sendTransaction" || state.meta.method === "eth_signTypedData_v4" || state.meta.method === "eth_signTypedData_v3";
-    const chainIdHex = state.meta.chainIdHex ?? null;
-    const chainKey = chainIdHex ? String(chainIdHex).toLowerCase() : "";
-    const chainInfo = chainIdHex ? getChainInfo(chainIdHex) : null;
-    const nativeSymbol = chainInfo?.nativeSymbol ?? getNativeSymbol(chainIdHex ?? void 0);
-    const chainName = chainInfo?.name ?? (chainIdHex ? t("chain_not_recognized") || "Chain not recognized" : "\u2014");
+    const displayChainIdHex = state.meta.chainIdHex ?? a.chainTarget?.chainIdHex ?? toChainIdHex(a.addChainInfo?.chainId) ?? null;
+    const chainTarget = a.chainTarget;
+    const addChainInfo = a.addChainInfo;
+    const displayChainName = chainTarget?.chainName ?? addChainInfo?.chainName ?? (displayChainIdHex ? getChainInfo(displayChainIdHex)?.name ?? (t("chain_not_recognized") || "Chain not recognized") : "\u2014");
+    const chainKey = displayChainIdHex ? String(displayChainIdHex).toLowerCase() : "";
+    const chainInfo = displayChainIdHex ? getChainInfo(displayChainIdHex) : null;
+    const nativeSymbol = chainInfo?.nativeSymbol ?? getNativeSymbol(displayChainIdHex ?? void 0);
+    const chainName = displayChainName;
     const usdPerNative = a.txCostPreview?.usdPerNative ?? __sgNativeUsd[chainKey]?.usd;
-    const showUsd = settings.showUsd !== false && usdPerNative != null && usdPerNative > 0;
-    fetchNativeUsdAndRerender(chainIdHex);
+    const showUsd = !isLoading && settings.showUsd !== false && usdPerNative != null && usdPerNative > 0;
+    fetchNativeUsdAndRerender(displayChainIdHex);
     const cost = a.txCostPreview;
     const valueWei = cost?.valueWei ?? a.tx?.valueWei ?? "0";
-    const valueEth = cost?.valueWei ? weiToEthString(BigInt(cost.valueWei)) : a.tx?.valueEth ?? (valueWei ? weiToEthString(BigInt(valueWei)) : "0");
-    const feeLikely = cost?.feeLikelyWei ? weiToEthString(BigInt(cost.feeLikelyWei)) : a.tx?.maxGasFeeEth ?? "\u2014";
-    const feeMax = cost?.feeMaxWei ? weiToEthString(BigInt(cost.feeMaxWei)) : a.tx?.maxGasFeeEth ?? "\u2014";
-    const totalLikely = cost?.totalLikelyWei ? weiToEthString(BigInt(cost.totalLikelyWei)) : a.tx?.maxTotalEth ?? "\u2014";
-    const totalMax = cost?.totalMaxWei ? weiToEthString(BigInt(cost.totalMaxWei)) : a.tx?.maxTotalEth ?? "\u2014";
-    const valueUsd = showUsd && usdPerNative ? Number(valueWei) / 1e18 * usdPerNative : null;
-    const toAddr = a.tx?.to ?? a.decoded?.to ?? "";
+    const valueEth = isLoading ? "\u2014" : cost?.valueWei ? weiToEthString(BigInt(cost.valueWei)) : a.tx?.valueEth ?? (valueWei ? weiToEthString(BigInt(valueWei)) : "0");
+    const feeLikely = isLoading ? "\u2014" : cost?.feeLikelyWei ? weiToEthString(BigInt(cost.feeLikelyWei)) : a.tx?.maxGasFeeEth ?? "\u2014";
+    const feeMax = isLoading ? "\u2014" : cost?.feeMaxWei ? weiToEthString(BigInt(cost.feeMaxWei)) : a.tx?.maxGasFeeEth ?? "\u2014";
+    const totalLikely = isLoading ? "\u2014" : cost?.totalLikelyWei ? weiToEthString(BigInt(cost.totalLikelyWei)) : a.tx?.maxTotalEth ?? "\u2014";
+    const totalMax = isLoading ? "\u2014" : cost?.totalMaxWei ? weiToEthString(BigInt(cost.totalMaxWei)) : a.tx?.maxTotalEth ?? "\u2014";
+    const valueUsd = !isLoading && showUsd && usdPerNative ? Number(valueWei) / 1e18 * usdPerNative : null;
+    const toAddr = isLoading ? "" : a.tx?.to ?? a.decoded?.to ?? "";
     const selector = a.tx?.selector ?? "";
-    const contractMethod = selector && a.tx?.contractNameHint ? `${a.tx.contractNameHint} (${selector})` : selector ? selector : "";
+    const contractMethod = isLoading ? "" : selector && a.tx?.contractNameHint ? `${a.tx.contractNameHint} (${selector})` : selector || "";
     const coverage = a.coverage;
     const covStr = coverage != null ? `${coverage.performed}/${coverage.total}${coverage.limited ? " " + (t("coverage_limited") || "limited") : ""}` : "";
     const verLevel = a.verificationLevel ?? "";
@@ -1626,10 +1661,13 @@
       if (addrIntel.tokenContract?.length)
         addrIntelLines.push(`tokenContract: ${addrIntel.tokenContract.map((l) => `[${escapeHtml(l)}]`).join(" ")}`);
     }
-    const decodedRaw = a.decoded?.raw;
+    const decodedRaw = isLoading ? null : a.decoded?.raw ?? null;
     const decodedStr = decodedRaw != null ? typeof decodedRaw === "string" ? decodedRaw : JSON.stringify(decodedRaw, null, 2) : "";
     const action = classifyAction(state.meta.method, state.meta.params);
-    const actionTitleStr = actionTitle(action);
+    const txData = a.tx?.data;
+    const isContractInteraction = action === "SEND_TX" && Boolean(a.toIsContract === true || selector || contractMethod || txData && txData !== "0x");
+    const actionTitleStr = isContractInteraction ? t("action_SEND_TX_contract_title") || "Interagir com contrato" : actionTitle(action);
+    const verdictText = isContractInteraction ? t("intent_CONTRACT_INTERACTION") || "Intera\xE7\xE3o com contrato" : actionTitleStr;
     const summaryArr = simpleSummary(action);
     const summaryStr = Array.isArray(summaryArr) ? summaryArr.join(" ") : String(summaryArr);
     const modeLabel = (settings.mode ?? "BALANCED").toString();
@@ -1637,17 +1675,31 @@
     const host = state.meta.host ?? "";
     const pillKey = a.recommend === "BLOCK" ? "block" : a.recommend === "WARN" ? "warn" : a.recommend === "HIGH" ? "high" : "low";
     const pillText = a.recommend === "BLOCK" ? t("severity_BLOCKED") || "BLOQUEADO" : a.recommend === "WARN" ? t("severity_WARN") || "ATEN\xC7\xC3O" : a.recommend === "HIGH" ? t("severity_HIGH") || "ALTO" : t("severity_LOW") || "OK";
-    const statusLine = a.knownSafe ? `${t("site_label") || "Site"}: ${escapeHtml(host)} \u2022 ${t("site_status_known") || "refer\xEAncia conhecida"}` : "";
+    const statusLine = !isLoading && a.knownSafe ? `${t("site_label") || "Site"}: ${escapeHtml(host)} \u2022 ${t("site_status_known") || "refer\xEAncia conhecida"}` : "";
     const bannerLocal = verLevel === "LOCAL" ? t("banner_local_verification") || "Aten\xE7\xE3o: verifica\xE7\xE3o local (cache). Revise os detalhes abaixo antes de prosseguir." : "";
     const bannerBasic = verLevel === "BASIC" ? t("banner_basic_verification") || "Aten\xE7\xE3o: verifica\xE7\xE3o b\xE1sica. Revise cuidadosamente os detalhes antes de prosseguir." : "";
+    const riskReasons = [];
+    if (verLevel === "LOCAL") riskReasons.push(t("banner_local_verification") || "Verifica\xE7\xE3o local (cache) \u2014 revise os detalhes abaixo.");
+    if (verLevel === "BASIC") riskReasons.push(t("banner_basic_verification") || "Verifica\xE7\xE3o parcial \u2014 revise com cuidado.");
+    if (a.knownBad || a.isPhishing) riskReasons.push(t("banner_block_known_threat") || "Amea\xE7a conhecida detectada.");
+    if (a.addressRisk?.flagged) riskReasons.push(t("addr_marked_public") || "Endere\xE7o marcado em base p\xFAblica.");
+    if (a.reasons?.length) riskReasons.push(...a.reasons.slice(0, 3));
+    const feeUnavailable = feeLikely === "\u2014" || feeMax === "\u2014";
+    const whatToDoNowText = action === "SEND_TX" ? feeUnavailable ? t("check_wallet_network_fee") || "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar." : t("default_human_contract_safe") || "Confira destino (to), rede, valor e taxa na carteira." : action === "SWITCH_CHAIN" || action === "ADD_CHAIN" ? t("default_human_switch_safe") || "Confirme a rede solicitada e se o site \xE9 o correto." : t("still_review_wallet") || "Mesmo assim, revise na carteira (valor, rede, destino e taxa).";
     const suggestedDomains = [...SUGGESTED_TRUSTED_DOMAINS];
-    const domainChipsHtml = suggestedDomains.map((d) => {
+    const maxDomainsShown = 8;
+    const domainsExpanded = !!state.domainsExpanded;
+    const domainsShown = domainsExpanded ? suggestedDomains : suggestedDomains.slice(0, maxDomainsShown);
+    const domainsRestCount = suggestedDomains.length - domainsShown.length;
+    const domainChipsHtml = domainsShown.map((d) => {
       const active = host && (d === host || host.endsWith("." + d));
       return `<span class="sg-domain-chip${active ? " sg-domain-chip-active" : ""}">${escapeHtml(d)}</span>`;
     }).join("");
+    const domainToggleHtml = !domainsExpanded && domainsRestCount > 0 ? `<button type="button" id="sg-domains-toggle" class="sg-link sg-domain-more">+${domainsRestCount} ${t("trusted_domain_ref_view_more") || "Ver mais"}</button>` : domainsExpanded ? `<button type="button" id="sg-domains-toggle" class="sg-link sg-domain-more">${t("btn_ver_menos") || "Ver menos"}</button>` : "";
     const feeLikelyUsd = showUsd && cost?.feeLikelyWei && usdPerNative ? (Number(cost.feeLikelyWei) / 1e18 * usdPerNative).toFixed(2) : null;
-    const valueRow = valueUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${valueUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`;
-    const feeLikelyRow = feeLikelyUsd ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${feeLikelyUsd}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`;
+    const valueRow = isLoading ? `<div class="sg-kv-stack"><div class="sg-skeleton" style="height:16px;width:100px;"></div><div class="sg-skeleton" style="height:12px;width:70px;margin-top:6px;"></div></div>` : valueUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${valueUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`;
+    const feeLikelyRow = isLoading ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeLikelyUsd ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${feeLikelyUsd}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`;
+    const moreExplanationsHtml = renderMoreExplanationsHtml(action, isContractInteraction);
     const html = `
 <div class="sg-backdrop">
   <div class="sg-modal">
@@ -1660,13 +1712,15 @@
       </div>
     </header>
     <div class="sg-body">
+      ${isLoading ? `<p class="sg-summary-sub" style="margin-bottom:12px;">${escapeHtml(t("gas_calculating") || "calculando\u2026")}</p>` : ""}
       <h2 class="sg-summary-title">${escapeHtml(actionTitleStr)}</h2>
       <p class="sg-summary-sub">${t("site_label") || "Site"}: ${escapeHtml(host)} \u2022 Carteira: ${escapeHtml(walletName)} \u2022 ${t("network_label") || "Rede"}: ${escapeHtml(chainName)}</p>
       ${statusLine ? `<p class="sg-summary-sub" style="color:var(--sg-success);">${statusLine}</p>` : ""}
-      <p class="sg-summary-sub"><strong>Parecer:</strong> ${escapeHtml(actionTitleStr)}</p>
-      ${covStr ? `<p class="sg-summary-sub">${t("coverage_label") || "Cobertura"}: ${escapeHtml(covStr)}${coverage?.limited ? " \u2022 " + (t("coverage_limited") || "cobertura limitada") : ""}</p>` : ""}
+      <p class="sg-summary-sub"><strong>Parecer:</strong> ${escapeHtml(verdictText)}</p>
+      ${!isLoading && covStr ? `<p class="sg-summary-sub">${t("coverage_label") || "Cobertura"}: ${escapeHtml(covStr)}${coverage?.limited ? " \u2022 " + (t("coverage_limited") || "cobertura limitada") : ""}</p>` : ""}
       ${bannerLocal ? `<div class="sg-banner-warn">${escapeHtml(bannerLocal)}</div>` : ""}
       ${bannerBasic ? `<div class="sg-banner-warn">${escapeHtml(bannerBasic)}</div>` : ""}
+      ${action === "SWITCH_CHAIN" || action === "ADD_CHAIN" ? `<div class="sg-card"><div class="sg-card-title">${t("network_requested") || "Rede solicitada"}</div><p class="sg-summary-sub">${escapeHtml(displayChainName)}</p></div>` : ""}
 
       <div class="sg-card">
         <div class="sg-card-title">${t("costs_title") || "CUSTOS E IMPACTO"}</div>
@@ -1678,6 +1732,14 @@
         ${toAddr ? `<div class="sg-kv" style="margin-top:8px;"><span class="sg-kv-label">${t("tx_destination") || "Destino"}</span><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(toAddr.slice(0, 10) + "\u2026" + toAddr.slice(-8))}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(toAddr)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
       </div>
       ${contractMethod ? `<div class="sg-card"><div class="sg-card-title">${t("tx_contract_method") || "Contrato/m\xE9todo"}</div><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(contractMethod)}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(contractMethod)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
+      <div class="sg-card">
+        <div class="sg-card-title">${t("risk_title") || "RISCO E POR QU\xCA"}</div>
+        <div class="sg-details-body">${riskReasons.length ? riskReasons.map((r) => `<p>${escapeHtml(r)}</p>`).join("") : "\u2014"}</div>
+      </div>
+      <div class="sg-card">
+        <div class="sg-card-title">${t("what_to_do_now") || "O QUE FAZER AGORA"}</div>
+        <div class="sg-details-body"><p>${escapeHtml(whatToDoNowText)}</p></div>
+      </div>
 
       ${checks.length ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_coverage_title") || "Cobertura de seguran\xE7a"}</div><div class="sg-grid" style="margin-top:8px;">${checkChips}</div></div>` : ""}
       ${sim || simRevert ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_simulation_title") || "Simula\xE7\xE3o"}</div>${simRevert ? `<div class="sg-simulation-revert-banner">${escapeHtml(t("simulation_tx_will_fail") || "ESTA TRANSA\xC7\xC3O DEVE FALHAR (REVERT)")}</div>` : ""}${sim ? `<p><strong>Status:</strong> ${escapeHtml(simStatus)}</p><p><strong>${t("cost_you_send") || "Voc\xEA envia"}:</strong> ${escapeHtml(simOutgoing)}</p><p><strong>Recebe:</strong> ${escapeHtml(simIncoming)}</p><p><strong>Gas usado:</strong> ${escapeHtml(simGas)}</p>${sim?.gasCostWei ? `<p>Gas cost: ${weiToEthString(BigInt(sim.gasCostWei))} ${nativeSymbol}</p>` : ""}${sim.isHighGas ? `<p class="sg-chip sg-chip-warn">${escapeHtml(t("cost_fee_unknown") || "Taxa alta")}</p>` : ""}${simStatus === "SKIPPED" && simMessage ? `<p class="sg-summary-sub">${escapeHtml(simMessage)}. ${t("simulation_skipped_caution") || "Sem simula\xE7\xE3o \u2014 valide com mais cautela."}</p>` : ""}` : ""}</div>` : ""}
@@ -1693,11 +1755,11 @@
       </details>
       <details class="sg-details" ${openByDefault ? "open" : ""}>
         <summary>${t("trusted_domain_ref_title") || "Dom\xEDnios confi\xE1veis (refer\xEAncia)"}</summary>
-        <div class="sg-details-body"><div class="sg-domain-chips">${domainChipsHtml}</div></div>
+        <div class="sg-details-body"><div class="sg-domain-chips">${domainChipsHtml}</div>${domainToggleHtml}</div>
       </details>
       <details class="sg-details" ${openByDefault ? "open" : ""}>
         <summary>${t("details_more_title") || "Mais explica\xE7\xF5es"}</summary>
-        <div class="sg-details-body">${escapeHtml(summaryStr)}</div>
+        <div class="sg-details-body">${moreExplanationsHtml}</div>
       </details>
     </div>
     <footer class="sg-footer">
@@ -1727,6 +1789,13 @@
         if (pre?.textContent) tryCopy(pre.textContent);
       });
     });
+    const domainsToggle = state.shadow.getElementById("sg-domains-toggle");
+    if (domainsToggle) {
+      domainsToggle.addEventListener("click", () => {
+        state.domainsExpanded = !state.domainsExpanded;
+        updateOverlay(state);
+      });
+    }
   }
   function cleanupOverlay() {
     if (__sgOverlay) {
@@ -1806,19 +1875,31 @@
       }
     })();
     const rpcMeta = payload?.meta ?? null;
-    const chainIdHex = payload?.chainIdHex || toChainIdHex(rpcMeta?.chainId) || toChainIdHex(payload?.chainId) || null;
+    const method = (payload?.method ?? "").toLowerCase();
+    const params = Array.isArray(payload?.params) ? payload.params : [];
+    const p0 = params[0] && typeof params[0] === "object" ? params[0] : null;
+    let chainIdHex = payload?.chainIdHex || toChainIdHex(rpcMeta?.chainId) || toChainIdHex(payload?.chainId) || null;
+    if (method === "wallet_switchethereumchain" && p0?.chainId) {
+      const fromParams = toChainIdHex(p0.chainId);
+      if (fromParams) chainIdHex = fromParams;
+    }
+    if (method === "wallet_addethereumchain" && p0?.chainId) {
+      const fromParams = toChainIdHex(p0.chainId);
+      if (fromParams) chainIdHex = fromParams;
+    }
+    const host = payload?.host && String(payload.host).trim() ? String(payload.host).trim() : inferHost(url);
     const meta = rpcMeta ? { ...rpcMeta, chainIdHex: chainIdHex ?? void 0 } : chainIdHex ? { chainIdHex: chainIdHex ?? void 0 } : void 0;
     const analyzePayload = {
       requestId,
       url,
       origin,
-      request: { method: payload?.method ?? "", params: Array.isArray(payload?.params) ? payload.params : [] },
+      request: { method: payload?.method ?? "", params },
       meta
     };
     const pending = {
       requestId,
       method: payload?.method ?? "",
-      host: payload?.host ?? "",
+      host,
       params: payload?.params,
       chainIdHex: chainIdHex ?? void 0,
       analysis: { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" }

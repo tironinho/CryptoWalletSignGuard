@@ -527,6 +527,7 @@ const dict: Record<Locale, Record<string, string>> = {
     chain_not_recognized: "Rede não reconhecida",
     simulation_skipped_caution: "Sem simulação — valide com mais cautela.",
     toast_copied: "Copiado",
+    btn_ver_menos: "Ver menos",
   },
   en: {
     tech_displayAction: "Action (classification)",
@@ -1048,6 +1049,7 @@ const dict: Record<Locale, Record<string, string>> = {
     chain_not_recognized: "Chain not recognized",
     simulation_skipped_caution: "No simulation — validate with extra care.",
     toast_copied: "Copied",
+    btn_ver_menos: "Show less",
   }
 };
 

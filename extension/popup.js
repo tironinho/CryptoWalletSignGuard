@@ -647,7 +647,8 @@ var dict = {
     btn_copy_json: "Copiar JSON",
     chain_not_recognized: "Rede n\xE3o reconhecida",
     simulation_skipped_caution: "Sem simula\xE7\xE3o \u2014 valide com mais cautela.",
-    toast_copied: "Copiado"
+    toast_copied: "Copiado",
+    btn_ver_menos: "Ver menos"
   },
   en: {
     tech_displayAction: "Action (classification)",
@@ -1151,7 +1152,8 @@ var dict = {
     btn_copy_json: "Copy JSON",
     chain_not_recognized: "Chain not recognized",
     simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
-    toast_copied: "Copied"
+    toast_copied: "Copied",
+    btn_ver_menos: "Show less"
   }
 };
 function format(template, params) {
