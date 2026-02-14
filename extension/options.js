@@ -30,6 +30,7 @@ var DEFAULT_SETTINGS = {
   addressIntelEnabled: true,
   cloudIntelOptIn: true,
   showUsd: true,
+  defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
   trustedDomains: [
@@ -578,7 +579,15 @@ var dict = {
     site_status_known: "refer\xEAncia conhecida",
     site_status_not_in_list: "Site n\xE3o est\xE1 na lista de refer\xEAncia",
     destination_contract: "Contrato",
-    destination_wallet: "Carteira"
+    destination_wallet: "Carteira",
+    overlay_coverage_title: "Cobertura de seguran\xE7a",
+    overlay_simulation_title: "Simula\xE7\xE3o",
+    overlay_address_intel_title: "Intel de endere\xE7os",
+    btn_copy: "Copiar",
+    btn_copy_json: "Copiar JSON",
+    chain_not_recognized: "Rede n\xE3o reconhecida",
+    simulation_skipped_caution: "Sem simula\xE7\xE3o \u2014 valide com mais cautela.",
+    toast_copied: "Copiado"
   },
   en: {
     tech_displayAction: "Action (classification)",
@@ -1074,7 +1083,15 @@ var dict = {
     site_status_known: "known reference",
     site_status_not_in_list: "Site is not on the reference list",
     destination_contract: "Contract",
-    destination_wallet: "Wallet"
+    destination_wallet: "Wallet",
+    overlay_coverage_title: "Security coverage",
+    overlay_simulation_title: "Simulation",
+    overlay_address_intel_title: "Address intel",
+    btn_copy: "Copy",
+    btn_copy_json: "Copy JSON",
+    chain_not_recognized: "Chain not recognized",
+    simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
+    toast_copied: "Copied"
   }
 };
 function format(template, params) {
@@ -1423,12 +1440,14 @@ function listToLines(v) {
 (async function init() {
   const s = await load();
   const showUsdEl = $("showUsd");
+  const defaultExpandDetailsEl = $("defaultExpandDetails");
   const addressIntelEl = $("addressIntel");
   const fortressModeEl = $("fortressMode");
   const whitelistInputEl = $("whitelistInput");
   const saveWhitelistBtn = $("saveWhitelist");
   const clearHistoryBtn = $("clearHistory");
   if (showUsdEl) showUsdEl.checked = s.showUsd !== false;
+  if (defaultExpandDetailsEl) defaultExpandDetailsEl.checked = s.defaultExpandDetails !== false;
   if (addressIntelEl) addressIntelEl.checked = s.addressIntelEnabled !== false;
   if (fortressModeEl) fortressModeEl.checked = s.fortressMode === true;
   const domains = (s.trustedDomains?.length ? s.trustedDomains : s.allowlist) ?? [];
@@ -1461,6 +1480,10 @@ function listToLines(v) {
   showUsdEl?.addEventListener("change", async () => {
     const next = await load();
     await save({ ...next, showUsd: showUsdEl.checked });
+  });
+  defaultExpandDetailsEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, defaultExpandDetails: defaultExpandDetailsEl.checked });
   });
   addressIntelEl?.addEventListener("change", async () => {
     const next = await load();

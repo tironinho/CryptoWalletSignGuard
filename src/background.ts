@@ -336,7 +336,10 @@ type HistoryEvent = {
   feeMaxEth?: string;
   totalLikelyEth?: string;
   totalMaxEth?: string;
+  /** @deprecated use usdPerNative + nativeSymbol */
   usdPerEth?: number;
+  nativeSymbol?: string;
+  usdPerNative?: number;
   decision: "ALLOW" | "BLOCK";
   score?: number;
   level?: string;

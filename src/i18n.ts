@@ -519,6 +519,14 @@ const dict: Record<Locale, Record<string, string>> = {
     site_status_not_in_list: "Site não está na lista de referência",
     destination_contract: "Contrato",
     destination_wallet: "Carteira",
+    overlay_coverage_title: "Cobertura de segurança",
+    overlay_simulation_title: "Simulação",
+    overlay_address_intel_title: "Intel de endereços",
+    btn_copy: "Copiar",
+    btn_copy_json: "Copiar JSON",
+    chain_not_recognized: "Rede não reconhecida",
+    simulation_skipped_caution: "Sem simulação — valide com mais cautela.",
+    toast_copied: "Copiado",
   },
   en: {
     tech_displayAction: "Action (classification)",
@@ -1032,6 +1040,14 @@ const dict: Record<Locale, Record<string, string>> = {
     site_status_not_in_list: "Site is not on the reference list",
     destination_contract: "Contract",
     destination_wallet: "Wallet",
+    overlay_coverage_title: "Security coverage",
+    overlay_simulation_title: "Simulation",
+    overlay_address_intel_title: "Address intel",
+    btn_copy: "Copy",
+    btn_copy_json: "Copy JSON",
+    chain_not_recognized: "Chain not recognized",
+    simulation_skipped_caution: "No simulation — validate with extra care.",
+    toast_copied: "Copied",
   }
 };
 

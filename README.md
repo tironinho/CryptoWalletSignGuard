@@ -2,21 +2,31 @@
 
 This extension intercepts key `window.ethereum.request()` calls **in the MAIN world** (MV3 `content_scripts[].world = "MAIN"`) and shows a risk overlay **before** the wallet popup.
 
-## Build
+## Build e instalação (Load unpacked)
 
-```bash
-npm i
-npm run build
-```
+1. **Instale dependências e gere a extensão:**
+   ```bash
+   npm i
+   npm run build
+   ```
+   (Ou apenas `npm run build-extension` se `dist/` já existir.)
 
-- **Output:** `dist/` (bundles) and **`extension/`** (ready for Load unpacked). The build flattens `dist/*` into `extension/`, writes `extension/manifest.json` from `src/manifest.template.json`, and keeps `_locales` at the root of `extension/`. **Always load the `extension/` folder** — the project root and `dist/` do not contain `manifest.json`; only `extension/` is valid for "Load unpacked".
+2. **Carregue no Chrome:**
+   - Abra `chrome://extensions`
+   - Ative **Developer mode**
+   - Clique em **Load unpacked**
+   - **Selecione a pasta `./extension`** (não selecione `./dist` nem a raiz do projeto).
+
+**Importante:** A pasta **`./dist`** **não** contém `manifest.json`. O Chrome só aceita uma pasta que tenha `manifest.json` na raiz. A pasta correta para "Load unpacked" é sempre **`./extension`**, gerada pelo build.
+
+- **Output do build:** `dist/` (bundles intermediários) e **`extension/`** (pasta final para Load unpacked). O script copia `dist/*` para `extension/`, gera `extension/manifest.json` a partir de `src/manifest.template.json` e mantém `_locales` e ícones em `extension/`.
 
 ## Load unpacked (testar local)
 
 - Open `chrome://extensions`
 - Enable **Developer mode**
 - Click **Load unpacked**
-- **Select the `extension/` folder** (created by `npm run build`). It contains `manifest.json` at the root and all scripts/assets. Do not select the project root or `dist/` — the Chrome unpacked loader requires the folder that contains `manifest.json` (i.e. `extension/`).
+- **Select the `extension/` folder** (created by `npm run build`). It contains `manifest.json` at the root and all scripts/assets. **Do not select `dist/` or the project root** — they do not contain `manifest.json`; only `extension/` is valid for "Load unpacked".
 
 ## Pack (publicar / loja)
 

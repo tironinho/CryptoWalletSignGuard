@@ -24,7 +24,9 @@ const CHAINS: ChainInfo[] = [
   { chainIdHex: "0x82750", name: "Scroll", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.scroll.io"] },
   { chainIdHex: "0xe708", name: "Linea", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.linea.build"] },
   { chainIdHex: "0x144", name: "zkSync Era", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.era.zksync.io"] },
+  { chainIdHex: "0x2a", name: "zkSync", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.zksync.io"] },
   { chainIdHex: "0x44d", name: "Polygon zkEVM", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] },
+  { chainIdHex: "0x13e31", name: "Polygon zkEVM (Chain 81489)", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] },
 ];
 
 const byChainId = new Map<string, ChainInfo>();

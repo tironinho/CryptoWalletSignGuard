@@ -576,6 +576,7 @@ var DEFAULT_SETTINGS = {
   addressIntelEnabled: true,
   cloudIntelOptIn: true,
   showUsd: true,
+  defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
   trustedDomains: [
@@ -1269,7 +1270,15 @@ var dict = {
     site_status_known: "refer\xEAncia conhecida",
     site_status_not_in_list: "Site n\xE3o est\xE1 na lista de refer\xEAncia",
     destination_contract: "Contrato",
-    destination_wallet: "Carteira"
+    destination_wallet: "Carteira",
+    overlay_coverage_title: "Cobertura de seguran\xE7a",
+    overlay_simulation_title: "Simula\xE7\xE3o",
+    overlay_address_intel_title: "Intel de endere\xE7os",
+    btn_copy: "Copiar",
+    btn_copy_json: "Copiar JSON",
+    chain_not_recognized: "Rede n\xE3o reconhecida",
+    simulation_skipped_caution: "Sem simula\xE7\xE3o \u2014 valide com mais cautela.",
+    toast_copied: "Copiado"
   },
   en: {
     tech_displayAction: "Action (classification)",
@@ -1765,7 +1774,15 @@ var dict = {
     site_status_known: "known reference",
     site_status_not_in_list: "Site is not on the reference list",
     destination_contract: "Contract",
-    destination_wallet: "Wallet"
+    destination_wallet: "Wallet",
+    overlay_coverage_title: "Security coverage",
+    overlay_simulation_title: "Simulation",
+    overlay_address_intel_title: "Address intel",
+    btn_copy: "Copy",
+    btn_copy_json: "Copy JSON",
+    chain_not_recognized: "Chain not recognized",
+    simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
+    toast_copied: "Copied"
   }
 };
 function format(template, params) {
@@ -1963,11 +1980,13 @@ var SUGGESTED_TRUSTED_DOMAINS = [
   "blur.io",
   "app.uniswap.org",
   "uniswap.org",
+  "looksrare.org",
+  "x2y2.io",
+  "etherscan.io",
+  "arbitrum.io",
   "app.aave.com",
   "curve.finance",
-  "etherscan.io",
   "revoke.cash",
-  // references (not necessarily dApps)
   "rabby.io",
   "metamask.io"
 ];
@@ -3024,7 +3043,9 @@ var CHAINS = [
   { chainIdHex: "0x82750", name: "Scroll", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.scroll.io"] },
   { chainIdHex: "0xe708", name: "Linea", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://rpc.linea.build"] },
   { chainIdHex: "0x144", name: "zkSync Era", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.era.zksync.io"] },
-  { chainIdHex: "0x44d", name: "Polygon zkEVM", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] }
+  { chainIdHex: "0x2a", name: "zkSync", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://mainnet.zksync.io"] },
+  { chainIdHex: "0x44d", name: "Polygon zkEVM", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] },
+  { chainIdHex: "0x13e31", name: "Polygon zkEVM (Chain 81489)", nativeSymbol: "ETH", coingeckoId: "ethereum", rpcUrls: ["https://zkevm-rpc.com"] }
 ];
 var byChainId = /* @__PURE__ */ new Map();
 for (const c of CHAINS) {

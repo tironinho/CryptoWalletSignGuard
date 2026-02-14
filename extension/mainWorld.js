@@ -2,6 +2,7 @@
 (() => {
   // src/mainWorld.ts
   var DEBUG_PREFIX = "\u{1F680} [SignGuard MainWorld]";
+  var SG_DECISION_EVENT = "__sg_decision__";
   function log(msg, ...args) {
     console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
   }
@@ -40,20 +41,40 @@
           }
         }, "*");
         return new Promise((resolve, reject) => {
-          const handler = (ev) => {
-            if (ev.data?.source === "signguard-content" && ev.data?.type === "SG_DECISION" && ev.data?.requestId === requestId) {
-              log(`\u2705 Decision received for ${requestId}: ${ev.data.allow}`);
-              window.removeEventListener("message", handler);
-              if (ev.data.allow) {
-                log("Executing original request...");
-                originalRequest(args).then(resolve).catch(reject);
-              } else {
-                log("Rejecting request (User Blocked).");
-                reject({ code: 4001, message: "SignGuard: Blocked by user" });
-              }
+          let resolved = false;
+          const onDecision = (ev) => {
+            const ce = ev;
+            const data = ce?.detail ?? null;
+            if (!data || data.type !== "SG_DECISION" || data.requestId !== requestId) return;
+            if (resolved) return;
+            resolved = true;
+            window.removeEventListener(SG_DECISION_EVENT, onDecision);
+            window.removeEventListener("message", onMessage);
+            log(`\u2705 Decision received for ${requestId}: ${data.allow}`);
+            if (data.allow) {
+              log("Executing original request...");
+              originalRequest(args).then(resolve).catch(reject);
+            } else {
+              log("Rejecting request (User Blocked).");
+              reject({ code: 4001, message: "SignGuard: Blocked by user" });
             }
           };
-          window.addEventListener("message", handler);
+          const onMessage = (ev) => {
+            if (resolved) return;
+            if (ev.data?.source !== "signguard-content" || ev.data?.type !== "SG_DECISION" || ev.data?.requestId !== requestId) return;
+            resolved = true;
+            window.removeEventListener(SG_DECISION_EVENT, onDecision);
+            window.removeEventListener("message", onMessage);
+            log(`\u2705 Decision (fallback postMessage) for ${requestId}: ${ev.data.allow}`);
+            if (ev.data.allow) originalRequest(args).then(resolve).catch(reject);
+            else reject({ code: 4001, message: "SignGuard: Blocked by user" });
+          };
+          window.addEventListener(SG_DECISION_EVENT, onDecision);
+          window.addEventListener("message", onMessage);
+          setTimeout(() => {
+            if (!resolved) {
+            }
+          }, 3e3);
         });
       },
       configurable: true,

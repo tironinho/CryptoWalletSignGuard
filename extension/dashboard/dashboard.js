@@ -30,6 +30,7 @@ var DEFAULT_SETTINGS = {
   addressIntelEnabled: true,
   cloudIntelOptIn: true,
   showUsd: true,
+  defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
   trustedDomains: [

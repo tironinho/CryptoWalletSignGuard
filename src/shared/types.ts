@@ -232,6 +232,8 @@ export type TxCostPreview = {
   totalLikelyWei?: string;          // decimal string
   totalMaxWei?: string;             // decimal string
   feeReasonKey?: string;            // i18n key when feeEstimated=false
+  /** USD per 1 unit of native token (for overlay). */
+  usdPerNative?: number;
 };
 
 export type TxSummary = {
@@ -395,6 +397,8 @@ export type Settings = {
   whitelistedDomains?: string[];
   /** Modo Fortaleza: bloqueia todas as aprovações de tokens exceto em sites confiáveis. */
   fortressMode?: boolean;
+  /** Expandir seções detalhadas (accordions) do overlay por padrão. */
+  defaultExpandDetails?: boolean;
 };
 
 /** Alias for Settings (spec: UserSettings). */
@@ -440,6 +444,7 @@ export const DEFAULT_SETTINGS: Settings = {
   addressIntelEnabled: true,
   cloudIntelOptIn: true,
   showUsd: true,
+  defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
   trustedDomains: [

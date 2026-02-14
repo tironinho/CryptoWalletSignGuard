@@ -154,6 +154,7 @@ function listToLines(v: string[]): string {
   const s = await load();
 
   const showUsdEl = $<HTMLInputElement>("showUsd");
+  const defaultExpandDetailsEl = $<HTMLInputElement>("defaultExpandDetails");
   const addressIntelEl = $<HTMLInputElement>("addressIntel");
   const fortressModeEl = $<HTMLInputElement>("fortressMode");
   const whitelistInputEl = $<HTMLTextAreaElement>("whitelistInput");
@@ -161,6 +162,7 @@ function listToLines(v: string[]): string {
   const clearHistoryBtn = $("clearHistory");
 
   if (showUsdEl) showUsdEl.checked = s.showUsd !== false;
+  if (defaultExpandDetailsEl) defaultExpandDetailsEl.checked = s.defaultExpandDetails !== false;
   if (addressIntelEl) addressIntelEl.checked = s.addressIntelEnabled !== false;
   if (fortressModeEl) fortressModeEl.checked = s.fortressMode === true;
   const domains = (s.trustedDomains?.length ? s.trustedDomains : s.allowlist) ?? [];
@@ -197,6 +199,10 @@ function listToLines(v: string[]): string {
   showUsdEl?.addEventListener("change", async () => {
     const next = await load();
     await save({ ...next, showUsd: showUsdEl.checked });
+  });
+  defaultExpandDetailsEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, defaultExpandDetails: defaultExpandDetailsEl.checked });
   });
   addressIntelEl?.addEventListener("change", async () => {
     const next = await load();
