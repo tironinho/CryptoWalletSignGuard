@@ -90,17 +90,46 @@
   function log(msg, ...args) {
     console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
   }
-  function parseHexOrDecToBigInt(v) {
+  function postToContent(type, requestId, payload) {
+    window.postMessage({ source: "signguard", type, requestId, payload }, "*");
+  }
+  function toDecStringWei(v) {
     try {
-      if (typeof v === "bigint") return v;
-      if (typeof v === "number" && Number.isFinite(v)) return BigInt(Math.trunc(v));
-      if (typeof v === "string") {
-        if (v.startsWith("0x")) return BigInt(v);
-        if (/^\d+$/.test(v)) return BigInt(v);
-      }
+      return BigInt(v ?? "0x0").toString(10);
     } catch {
+      return "0";
     }
-    return 0n;
+  }
+  async function buildTxCostPreview(providerRequest, tx) {
+    const valueWeiDec = toDecStringWei(tx?.value ?? "0x0");
+    try {
+      const fee = await estimateFee(providerRequest, tx);
+      if (!fee.ok) {
+        return {
+          valueWei: valueWeiDec,
+          feeEstimated: false,
+          feeReasonKey: fee.reason ?? "fee_unknown_wallet_will_estimate"
+        };
+      }
+      const valueWei = BigInt(valueWeiDec);
+      const feeLikelyWei = BigInt(fee.feeLikelyWei ?? 0n);
+      const feeMaxWei = BigInt(fee.feeMaxWei ?? 0n);
+      return {
+        valueWei: valueWeiDec,
+        feeEstimated: true,
+        gasLimitWei: (fee.gasLimit ?? 0n).toString(10),
+        feeLikelyWei: feeLikelyWei.toString(10),
+        feeMaxWei: feeMaxWei.toString(10),
+        totalLikelyWei: (valueWei + feeLikelyWei).toString(10),
+        totalMaxWei: (valueWei + feeMaxWei).toString(10)
+      };
+    } catch {
+      return {
+        valueWei: valueWeiDec,
+        feeEstimated: false,
+        feeReasonKey: "fee_unknown_wallet_will_estimate"
+      };
+    }
   }
   async function safeGetChainIdHex(provider) {
     try {
@@ -114,30 +143,6 @@
     } catch {
     }
     return null;
-  }
-  async function buildTxCostPreview(provider, tx) {
-    const valueWei = parseHexOrDecToBigInt(tx?.value ?? "0x0");
-    const fee = await estimateFee(provider.request.bind(provider), tx);
-    const out = {
-      valueWei: valueWei.toString(),
-      feeEstimated: fee.ok
-    };
-    if (fee.ok) {
-      const feeLikelyWei = fee.feeLikelyWei ?? 0n;
-      const feeMaxWei = fee.feeMaxWei ?? 0n;
-      const totalLikelyWei = valueWei + feeLikelyWei;
-      const totalMaxWei = valueWei + feeMaxWei;
-      out.gasLimitWei = (fee.gasLimit ?? 0n).toString();
-      out.maxFeePerGasWei = (fee.maxFeePerGas ?? 0n).toString();
-      out.maxPriorityFeePerGasWei = (fee.maxPriorityFeePerGas ?? 0n).toString();
-      out.feeLikelyWei = feeLikelyWei.toString();
-      out.feeMaxWei = feeMaxWei.toString();
-      out.totalLikelyWei = totalLikelyWei.toString();
-      out.totalMaxWei = totalMaxWei.toString();
-    } else {
-      out.feeReasonKey = fee.reason || "fee_unknown";
-    }
-    return out;
   }
   log("Script injected and started.");
   function patchProvider(provider) {
@@ -175,15 +180,6 @@
         if (!chainIdHex) {
           chainIdHex = await safeGetChainIdHex(provider);
         }
-        let txCostPreview;
-        if (isTx && tx && typeof tx === "object") {
-          const valueWei = parseHexOrDecToBigInt(tx.value ?? "0x0");
-          txCostPreview = {
-            valueWei: valueWei.toString(),
-            feeEstimated: false,
-            feeReasonKey: "fee_calculating"
-          };
-        }
         let chainIdRequested;
         if (m === "wallet_switchethereumchain" || m === "wallet_addethereumchain") {
           const p0 = Array.isArray(args.params) ? args.params[0] : void 0;
@@ -192,38 +188,30 @@
             if (typeof cidReq === "string") chainIdRequested = cidReq;
           }
         }
-        window.postMessage(
-          {
-            source: "signguard",
-            type: "SG_REQUEST",
-            requestId,
-            payload: {
-              method,
-              params: args.params,
-              host: window.location.hostname,
-              url: window.location.href,
-              chainIdHex: chainIdHex ?? void 0,
-              txCostPreview,
-              meta: chainIdRequested ? { chainIdRequested } : void 0
-            }
-          },
-          "*"
-        );
-        if (isTx && tx && typeof tx === "object") {
+        const initialPreview = method === "eth_sendTransaction" && tx && typeof tx === "object" ? { valueWei: toDecStringWei(tx?.value ?? "0x0"), feeEstimated: false, feeReasonKey: "fee_calculating" } : void 0;
+        postToContent("SG_REQUEST", requestId, {
+          method,
+          params: args.params,
+          host: window.location.hostname,
+          url: window.location.href,
+          chainIdHex: chainIdHex ?? void 0,
+          txCostPreview: initialPreview,
+          meta: chainIdRequested ? { chainIdRequested } : void 0
+        });
+        if (method === "eth_sendTransaction" && tx && typeof tx === "object") {
           (async () => {
+            let chainIdHexPreview = null;
             try {
-              const preview = await buildTxCostPreview(provider, tx);
-              window.postMessage(
-                {
-                  source: "signguard",
-                  type: "SG_PREVIEW_UPDATE",
-                  requestId,
-                  payload: { txCostPreview: preview }
-                },
-                "*"
-              );
+              const cid = await originalRequest({ method: "eth_chainId" });
+              if (typeof cid === "string") chainIdHexPreview = cid;
             } catch {
             }
+            const txCostPreview = await buildTxCostPreview(originalRequest, tx);
+            postToContent("SG_PREVIEW", requestId, {
+              chainIdHex: chainIdHexPreview ?? void 0,
+              txCostPreview
+            });
+            log("SG_PREVIEW posted");
           })();
         }
         return new Promise((resolve, reject) => {

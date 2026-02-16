@@ -1,5 +1,6 @@
 // ARQUIVO: src/mainWorld.ts
 import { estimateFee } from "./feeEstimate";
+import type { TxCostPreview } from "./shared/types";
 
 const DEBUG_PREFIX = "🚀 [SignGuard MainWorld]";
 /** CustomEvent name for decision (synchronous → preserves user activation for MetaMask). */
@@ -7,6 +8,52 @@ const SG_DECISION_EVENT = "__sg_decision__";
 
 function log(msg: string, ...args: any[]) {
   console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
+}
+
+function postToContent(type: "SG_REQUEST" | "SG_PREVIEW", requestId: string, payload: any) {
+  window.postMessage({ source: "signguard", type, requestId, payload }, "*");
+}
+
+function toDecStringWei(v: any): string {
+  try { return BigInt(v ?? "0x0").toString(10); } catch { return "0"; }
+}
+
+async function buildTxCostPreview(
+  providerRequest: (args: any) => Promise<any>,
+  tx: any
+): Promise<TxCostPreview> {
+  const valueWeiDec = toDecStringWei(tx?.value ?? "0x0");
+  try {
+    const fee = await estimateFee(providerRequest, tx);
+
+    if (!fee.ok) {
+      return {
+        valueWei: valueWeiDec,
+        feeEstimated: false,
+        feeReasonKey: fee.reason ?? "fee_unknown_wallet_will_estimate",
+      };
+    }
+
+    const valueWei = BigInt(valueWeiDec);
+    const feeLikelyWei = BigInt(fee.feeLikelyWei ?? 0n);
+    const feeMaxWei = BigInt(fee.feeMaxWei ?? 0n);
+
+    return {
+      valueWei: valueWeiDec,
+      feeEstimated: true,
+      gasLimitWei: (fee.gasLimit ?? 0n).toString(10),
+      feeLikelyWei: feeLikelyWei.toString(10),
+      feeMaxWei: feeMaxWei.toString(10),
+      totalLikelyWei: (valueWei + feeLikelyWei).toString(10),
+      totalMaxWei: (valueWei + feeMaxWei).toString(10),
+    };
+  } catch {
+    return {
+      valueWei: valueWeiDec,
+      feeEstimated: false,
+      feeReasonKey: "fee_unknown_wallet_will_estimate",
+    };
+  }
 }
 
 function parseHexOrDecToBigInt(v: any): bigint {
@@ -31,34 +78,6 @@ async function safeGetChainIdHex(provider: any): Promise<string | null> {
     if (typeof cid === "string" && cid.startsWith("0x")) return cid;
   } catch {}
   return null;
-}
-
-async function buildTxCostPreview(provider: any, tx: any): Promise<any> {
-  const valueWei = parseHexOrDecToBigInt(tx?.value ?? "0x0");
-  const fee = await estimateFee(provider.request.bind(provider), tx);
-
-  const out: any = {
-    valueWei: valueWei.toString(),
-    feeEstimated: fee.ok,
-  };
-
-  if (fee.ok) {
-    const feeLikelyWei = fee.feeLikelyWei ?? 0n;
-    const feeMaxWei = fee.feeMaxWei ?? 0n;
-    const totalLikelyWei = valueWei + feeLikelyWei;
-    const totalMaxWei = valueWei + feeMaxWei;
-
-    out.gasLimitWei = (fee.gasLimit ?? 0n).toString();
-    out.maxFeePerGasWei = (fee.maxFeePerGas ?? 0n).toString();
-    out.maxPriorityFeePerGasWei = (fee.maxPriorityFeePerGas ?? 0n).toString();
-    out.feeLikelyWei = feeLikelyWei.toString();
-    out.feeMaxWei = feeMaxWei.toString();
-    out.totalLikelyWei = totalLikelyWei.toString();
-    out.totalMaxWei = totalMaxWei.toString();
-  } else {
-    out.feeReasonKey = fee.reason || "fee_unknown";
-  }
-  return out;
 }
 
 log("Script injected and started.");
@@ -110,17 +129,6 @@ function patchProvider(provider: any) {
         chainIdHex = await safeGetChainIdHex(provider);
       }
 
-      // (1) Preview IMEDIATO: valueWei do params (não esperar gas estimate)
-      let txCostPreview: any | undefined;
-      if (isTx && tx && typeof tx === "object") {
-        const valueWei = parseHexOrDecToBigInt(tx.value ?? "0x0");
-        txCostPreview = {
-          valueWei: valueWei.toString(),
-          feeEstimated: false,
-          feeReasonKey: "fee_calculating",
-        };
-      }
-
       let chainIdRequested: string | undefined;
       if (m === "wallet_switchethereumchain" || m === "wallet_addethereumchain") {
         const p0 = Array.isArray(args.params) ? args.params[0] : undefined;
@@ -130,40 +138,37 @@ function patchProvider(provider: any) {
         }
       }
 
-      // Envia para o content.ts (preview imediato)
-      window.postMessage(
-        {
-          source: "signguard",
-          type: "SG_REQUEST",
-          requestId,
-          payload: {
-            method,
-            params: args.params,
-            host: window.location.hostname,
-            url: window.location.href,
-            chainIdHex: chainIdHex ?? undefined,
-            txCostPreview,
-            meta: chainIdRequested ? { chainIdRequested } : undefined,
-          },
-        },
-        "*"
-      );
+      // (1) SG_REQUEST imediato (preview mínimo para value + "calculando" nos fees)
+      const initialPreview =
+        method === "eth_sendTransaction" && tx && typeof tx === "object"
+          ? { valueWei: toDecStringWei(tx?.value ?? "0x0"), feeEstimated: false, feeReasonKey: "fee_calculating" as const }
+          : undefined;
 
-      // (2) Preview COMPLETO assíncrono: estima gas+fee e envia SG_PREVIEW_UPDATE
-      if (isTx && tx && typeof tx === "object") {
+      postToContent("SG_REQUEST", requestId, {
+        method,
+        params: args.params,
+        host: window.location.hostname,
+        url: window.location.href,
+        chainIdHex: chainIdHex ?? undefined,
+        txCostPreview: initialPreview,
+        meta: chainIdRequested ? { chainIdRequested } : undefined,
+      });
+
+      // (2) PRE-FLIGHT em paralelo (eth_sendTransaction): estima fee e posta SG_PREVIEW
+      if (method === "eth_sendTransaction" && tx && typeof tx === "object") {
         (async () => {
+          let chainIdHexPreview: string | null = null;
           try {
-            const preview = await buildTxCostPreview(provider, tx);
-            window.postMessage(
-              {
-                source: "signguard",
-                type: "SG_PREVIEW_UPDATE",
-                requestId,
-                payload: { txCostPreview: preview },
-              },
-              "*"
-            );
+            const cid = await originalRequest({ method: "eth_chainId" });
+            if (typeof cid === "string") chainIdHexPreview = cid;
           } catch {}
+
+          const txCostPreview = await buildTxCostPreview(originalRequest, tx);
+          postToContent("SG_PREVIEW", requestId, {
+            chainIdHex: chainIdHexPreview ?? undefined,
+            txCostPreview,
+          });
+          log("SG_PREVIEW posted");
         })();
       }
 

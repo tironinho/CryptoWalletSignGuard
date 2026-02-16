@@ -1,5 +1,5 @@
 // ARQUIVO: src/content.ts
-import type { AnalyzeRequest, Analysis, Settings, CheckResult, FeeEstimateWire } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings, CheckResult, TxCostPreview, FeeEstimateWire } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import { SUGGESTED_TRUSTED_DOMAINS } from "./shared/constants";
 import { selectorToLabel } from "./shared/signatures";
@@ -28,6 +28,9 @@ console.log("📨 [SignGuard Content] Loaded cleanly (No manual injection).");
 
 /** CustomEvent name for decision (synchronous → preserves user activation for MetaMask). */
 const SG_DECISION_EVENT = "__sg_decision__";
+
+/** Cache de preflight (SG_PREVIEW) por requestId — pode chegar antes do SG_REQUEST. */
+const __sgPreflightCache = new Map<string, { chainIdHex?: string; txCostPreview?: TxCostPreview }>();
 
 function sendDecisionToMainWorld(requestId: string, allow: boolean) {
   window.dispatchEvent(
@@ -310,24 +313,22 @@ function updateOverlay(state: OverlayState) {
           return typeof fromSummary === "string" && fromSummary.length ? fromSummary : fromWei;
         })();
 
-  const hasFeeData = !!(cost as any)?.feeLikelyWei || !!(cost as any)?.totalLikelyWei;
-  const feeLikely = isLoading && !hasFeeData ? "—" : (cost?.feeLikelyWei ? weiToEthFmt(BigInt(cost.feeLikelyWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
-  const feeMax = isLoading && !hasFeeData ? "—" : (cost?.feeMaxWei ? weiToEthFmt(BigInt(cost.feeMaxWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
-  const totalLikely = isLoading && !hasFeeData ? "—" : (cost?.totalLikelyWei ? weiToEthFmt(BigInt(cost.totalLikelyWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
-  const totalMax = isLoading && !hasFeeData ? "—" : (cost?.totalMaxWei ? weiToEthFmt(BigInt(cost.totalMaxWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
+  const hasFeeData = !!(cost as any)?.feeLikelyWei || !!(cost as any)?.feeMaxWei;
+  const isFeeCalculating = (cost as any)?.feeReasonKey === "fee_calculating";
+  const feeFallbackText = !hasFeeData && (cost as any)?.feeReasonKey && !isFeeCalculating
+    ? (t((cost as any).feeReasonKey) || (cost as any).feeReasonKey)
+    : null;
 
-  const isNumStr = (s: any) => typeof s === "string" && /^-?[0-9]+(\.[0-9]+)?$/.test(s);
-  const valueEthNum = isNumStr(valueEth) ? parseFloat(valueEth) : 0;
-  const feeLikelyNum = isNumStr(feeLikely) ? parseFloat(feeLikely) : 0;
-  const feeMaxNum = isNumStr(feeMax) ? parseFloat(feeMax) : 0;
-  const totalLikelyNum = isNumStr(totalLikely) ? parseFloat(totalLikely) : 0;
-  const totalMaxNum = isNumStr(totalMax) ? parseFloat(totalMax) : 0;
+  const feeLikely = isLoading && !hasFeeData && !feeFallbackText ? "—" : (cost?.feeLikelyWei ? weiToEthFmt(BigInt(cost.feeLikelyWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? (isFeeCalculating ? "…" : feeFallbackText ?? "—"));
+  const feeMax = isLoading && !hasFeeData && !feeFallbackText ? "—" : (cost?.feeMaxWei ? weiToEthFmt(BigInt(cost.feeMaxWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? (isFeeCalculating ? "…" : feeFallbackText ?? "—"));
+  const totalLikely = isLoading && !hasFeeData && !feeFallbackText ? "—" : (cost?.totalLikelyWei ? weiToEthFmt(BigInt(cost.totalLikelyWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? (isFeeCalculating ? "…" : feeFallbackText ?? "—"));
+  const totalMax = isLoading && !hasFeeData && !feeFallbackText ? "—" : (cost?.totalMaxWei ? weiToEthFmt(BigInt(cost.totalMaxWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? (isFeeCalculating ? "…" : feeFallbackText ?? "—"));
 
-  const valueUsd = showUsd && usdPerNative ? valueEthNum * usdPerNative : null;
-  const feeLikelyUsd = showUsd && usdPerNative ? feeLikelyNum * usdPerNative : null;
-  const feeMaxUsd = showUsd && usdPerNative ? feeMaxNum * usdPerNative : null;
-  const totalLikelyUsd = showUsd && usdPerNative ? totalLikelyNum * usdPerNative : null;
-  const totalMaxUsd = showUsd && usdPerNative ? totalMaxNum * usdPerNative : null;
+  const valueUsd = showUsd && usdPerNative ? (Number(valueWeiStr) / 1e18) * usdPerNative : null;
+  const feeLikelyUsd = showUsd && usdPerNative && (cost as any)?.feeLikelyWei ? (Number((cost as any).feeLikelyWei) / 1e18) * usdPerNative : null;
+  const feeMaxUsd = showUsd && usdPerNative && (cost as any)?.feeMaxWei ? (Number((cost as any).feeMaxWei) / 1e18) * usdPerNative : null;
+  const totalLikelyUsd = showUsd && usdPerNative && (cost as any)?.totalLikelyWei ? (Number((cost as any).totalLikelyWei) / 1e18) * usdPerNative : null;
+  const totalMaxUsd = showUsd && usdPerNative && (cost as any)?.totalMaxWei ? (Number((cost as any).totalMaxWei) / 1e18) * usdPerNative : null;
 
   const rawTxObj = Array.isArray(state.meta.params) ? state.meta.params[0] : null;
   const toAddr =
@@ -412,7 +413,7 @@ function updateOverlay(state: OverlayState) {
   const bannerLocal = verLevel === "LOCAL" ? (t("banner_local_verification") || "Atenção: verificação local (cache). Revise os detalhes abaixo antes de prosseguir.") : "";
   const bannerBasic = verLevel === "BASIC" ? (t("banner_basic_verification") || "Atenção: verificação básica. Revise cuidadosamente os detalhes antes de prosseguir.") : "";
 
-  const isCostCalculating = (action === "SEND_TX") && (!cost?.feeEstimated);
+  const isCostCalculating = (action === "SEND_TX") && (isFeeCalculating);
 
   const riskReasons: string[] = [];
   const human = a.human as { risks?: string[]; safeNotes?: string[]; safe?: string[]; nextSteps?: string[] } | undefined;
@@ -497,6 +498,35 @@ function updateOverlay(state: OverlayState) {
       ? `<div class="sg-card"><div class="sg-card-title">REDE SOLICITADA</div><div class="sg-kv"><span class="sg-kv-label">ChainId</span><span class="sg-kv-value">${escapeHtml(String(chainIdRequested || "—"))}</span></div><div class="sg-summary-sub" style="margin-top:8px;color:var(--sg-success);">Isso não envia fundos. Normalmente não há gas nesta etapa.</div></div>`
       : "";
 
+  const feeLikelyRow = isFeeCalculating
+    ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>`
+    : feeFallbackText && !hasFeeData
+      ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>`
+      : feeLikelyUsd != null
+        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeLikelyUsd.toFixed(2)}</span></div>`
+        : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`;
+  const feeMaxRow = isFeeCalculating
+    ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>`
+    : feeFallbackText && !hasFeeData
+      ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>`
+      : feeMaxUsd != null
+        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeMaxUsd.toFixed(2)}</span></div>`
+        : `<span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span>`;
+  const totalLikelyRow = isFeeCalculating
+    ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>`
+    : feeFallbackText && !hasFeeData
+      ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>`
+      : totalLikelyUsd != null
+        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalLikelyUsd.toFixed(2)}</span></div>`
+        : `<span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span>`;
+  const totalMaxRow = isFeeCalculating
+    ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>`
+    : feeFallbackText && !hasFeeData
+      ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>`
+      : totalMaxUsd != null
+        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalMaxUsd.toFixed(2)}</span></div>`
+        : `<span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span>`;
+
   const costsCardHtml =
     action === "SWITCH_CHAIN" || action === "ADD_CHAIN"
       ? ""
@@ -504,10 +534,10 @@ function updateOverlay(state: OverlayState) {
       <div class="sg-card">
         <div class="sg-card-title">${t("costs_title") || "CUSTOS E IMPACTO"}</div>
         <div class="sg-kv"><span class="sg-kv-label">${t("cost_you_send") || "Você envia"}</span>${isLoading && !(cost as any)?.valueWei ? `<div class="sg-kv-stack"><div class="sg-skeleton" style="height:16px;width:100px;"></div><div class="sg-skeleton" style="height:12px;width:70px;margin-top:6px;"></div></div>` : valueUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${valueUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_fee") || "Taxa estimada (provável)"}</span>${isLoading && !hasFeeData ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_gas_fee") || "Taxa máxima (pior caso)"}</span>${feeMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span>`}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_total") || "Total provável"}</span>${totalLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span>`}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_total") || "Total máximo"}</span>${totalMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span>`}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("cost_fee") || "Taxa estimada (provável)"}</span>${feeLikelyRow}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_gas_fee") || "Taxa máxima (pior caso)"}</span>${feeMaxRow}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("cost_total") || "Total provável"}</span>${totalLikelyRow}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_total") || "Total máximo"}</span>${totalMaxRow}</div>
         ${toAddr ? `<div class="sg-kv" style="margin-top:8px;"><span class="sg-kv-label">${t("tx_destination") || "Destino"}</span><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(toAddr.slice(0, 10) + "…" + toAddr.slice(-8))}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(toAddr)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
       </div>`;
 
@@ -773,26 +803,27 @@ function requestFeeEstimateFromMainWorld(requestId: string, tx: unknown): Promis
 window.addEventListener("message", async (ev) => {
   if (ev.source !== window || !ev.data || ev.data.source !== "signguard") return;
 
-  if (ev.data?.type === "SG_PREVIEW_UPDATE") {
-    const requestId = ev.data.requestId;
-    const preview = ev.data?.payload?.txCostPreview;
-    if (!requestId || !preview) return;
+  const { requestId, payload, type } = ev.data;
 
-    const item = requestQueue.find((x) => x.requestId === requestId);
-    if (item) {
-      (item.analysis as any).txCostPreview = preview;
-    }
+  if (type === "SG_PREVIEW") {
+    const chainIdHex = payload?.chainIdHex;
+    const txCostPreview = payload?.txCostPreview;
 
-    if (__sgOverlay && __sgOverlay.requestId === requestId) {
-      __sgOverlay.analysis = { ...__sgOverlay.analysis, txCostPreview: preview };
-      updateOverlay(__sgOverlay);
+    __sgPreflightCache.set(requestId, { chainIdHex, txCostPreview });
+    console.log("📨 [SignGuard Content] SG_PREVIEW received");
+
+    const cur = requestQueue.find((r) => r.requestId === requestId);
+    if (cur) {
+      if (chainIdHex) cur.chainIdHex = chainIdHex;
+      if (txCostPreview) (cur.analysis as any).txCostPreview = txCostPreview;
+
+      if (requestQueue[0]?.requestId === requestId) showCurrentPending();
     }
     return;
   }
 
-  if (ev.data.type !== "SG_REQUEST") return;
+  if (type !== "SG_REQUEST") return;
 
-  const { requestId, payload } = ev.data;
   console.log("📨 [SignGuard Content] Request received:", payload?.method);
 
   const url = payload?.url ?? window.location.href;
@@ -821,26 +852,27 @@ window.addEventListener("message", async (ev) => {
 
   const host = (payload?.host && String(payload.host).trim()) ? String(payload.host).trim() : inferHost(url);
 
-  const meta = rpcMeta
-    ? { ...rpcMeta, chainIdHex: chainIdHex ?? undefined, chainIdRequested: rpcMeta?.chainIdRequested ?? undefined }
-    : chainIdHex || (rpcMeta as any)?.chainIdRequested
-      ? { chainIdHex: chainIdHex ?? undefined, chainIdRequested: (rpcMeta as any)?.chainIdRequested ?? undefined }
+  const cached = __sgPreflightCache.get(requestId);
+  const mergedChainIdHex =
+    (payload as any)?.chainIdHex || chainIdHex || cached?.chainIdHex || null;
+  const mergedMeta = rpcMeta
+    ? { ...rpcMeta, chainIdHex: mergedChainIdHex ?? undefined, chainIdRequested: rpcMeta?.chainIdRequested ?? undefined }
+    : mergedChainIdHex || (rpcMeta as any)?.chainIdRequested
+      ? { chainIdHex: mergedChainIdHex ?? undefined, chainIdRequested: (rpcMeta as any)?.chainIdRequested ?? undefined }
       : undefined;
 
-  let feeEstimate: FeeEstimateWire | undefined;
-  if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && p0 && typeof p0 === "object") {
-    try { feeEstimate = await requestFeeEstimateFromMainWorld(requestId, p0); } catch {}
-  }
+  const txCostPreviewMerged = cached?.txCostPreview ?? (payload as any)?.txCostPreview;
 
   const analyzePayload: AnalyzeRequest = {
     requestId,
     url,
     origin,
-    request: { method: payload?.method ?? "", params },
-    meta,
-    txCostPreview: (payload as any)?.txCostPreview,
-    feeEstimate,
+    request: { method: payload?.method ?? "", params: Array.isArray(payload?.params) ? payload.params : [] },
+    meta: mergedMeta,
   };
+  if (txCostPreviewMerged) analyzePayload.txCostPreview = txCostPreviewMerged;
+
+  if (cached) __sgPreflightCache.delete(requestId);
 
   const chainIdRequested = (rpcMeta as any)?.chainIdRequested ?? (p0 as any)?.chainId;
 
@@ -849,11 +881,11 @@ window.addEventListener("message", async (ev) => {
     method: payload?.method ?? "",
     host,
     params: payload?.params,
-    chainIdHex: chainIdHex ?? undefined,
+    chainIdHex: mergedChainIdHex ?? undefined,
     chainIdRequested: typeof chainIdRequested === "string" ? chainIdRequested : undefined,
     analysis: { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" } as unknown as Analysis,
   };
-  (pending.analysis as any).txCostPreview = (payload as any)?.txCostPreview;
+  if (txCostPreviewMerged) (pending.analysis as any).txCostPreview = txCostPreviewMerged;
   requestQueue.push(pending);
 
   if (requestQueue.length === 1) {
