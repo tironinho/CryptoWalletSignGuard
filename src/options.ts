@@ -40,6 +40,7 @@ type ListsStatus = {
     userBlockedDomains: number;
     userBlockedAddresses: number;
     userScamTokens: number;
+    userTrustedTokens: number;
   };
 };
 
@@ -57,7 +58,7 @@ async function loadDiagnosticsTab() {
     }
     if (countsEl && resp?.ok && resp?.counts) {
       const c = resp.counts;
-      countsEl.textContent = `trusted: ${c.trustedDomains + c.userTrustedDomains}, blocked domains: ${c.blockedDomains + c.userBlockedDomains}, blocked addresses: ${c.blockedAddresses + c.userBlockedAddresses}, scam tokens: ${c.scamTokens + c.userScamTokens}`;
+      countsEl.textContent = `trusted: ${c.trustedDomains + c.userTrustedDomains}, blocked domains: ${c.blockedDomains + c.userBlockedDomains}, blocked addresses: ${c.blockedAddresses + c.userBlockedAddresses}, scam tokens: ${c.scamTokens + c.userScamTokens}, trusted tokens: ${(c as any).userTrustedTokens ?? 0}`;
     } else if (countsEl) {
       countsEl.textContent = "—";
     }
@@ -73,17 +74,19 @@ async function loadListsTab() {
   const statEls = document.querySelectorAll(".list-stat-n");
   const lastUpdatedEl = document.getElementById("listsLastUpdated");
   try {
-    const resp = await safeSendMessage<ListsStatus>({ type: "SG_LISTS_STATUS" }, 3000);
+      const resp = await safeSendMessage<ListsStatus>({ type: "SG_LISTS_STATUS" }, 3000);
     if (resp?.ok && resp?.counts) {
       const c = resp.counts;
       const totalTrusted = c.trustedDomains + c.userTrustedDomains;
       const totalBlockedD = c.blockedDomains + c.userBlockedDomains;
       const totalBlockedA = c.blockedAddresses + c.userBlockedAddresses;
       const totalScam = c.scamTokens + c.userScamTokens;
+      const totalTrustedTokens = (c as { userTrustedTokens?: number }).userTrustedTokens ?? 0;
       if (statEls[0]) statEls[0].textContent = String(totalTrusted);
       if (statEls[1]) statEls[1].textContent = String(totalBlockedD);
       if (statEls[2]) statEls[2].textContent = String(totalBlockedA);
       if (statEls[3]) statEls[3].textContent = String(totalScam);
+      if (statEls[4]) statEls[4].textContent = String(totalTrustedTokens);
     }
     if (lastUpdatedEl) {
       lastUpdatedEl.textContent = resp?.updatedAt
@@ -320,12 +323,14 @@ function listToLines(v: string[]): string {
 
   const listsAddTokenChain = document.getElementById("listsAddTokenChain") as HTMLInputElement | null;
   const listsAddTokenAddr = document.getElementById("listsAddTokenAddr") as HTMLInputElement | null;
+  const listsAddTokenKind = document.getElementById("listsAddTokenKind") as HTMLSelectElement | null;
   document.getElementById("listsAddTokenBtn")?.addEventListener("click", async () => {
     const chainId = listsAddTokenChain?.value?.trim();
     const tokenAddress = listsAddTokenAddr?.value?.trim();
+    const kind = (listsAddTokenKind?.value || "userScamTokens") as "userTrustedTokens" | "userScamTokens";
     if (!chainId || !tokenAddress || !tokenAddress.startsWith("0x")) return;
     try {
-      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userScamTokens", chainId, tokenAddress } }, 3000);
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: kind, chainId, tokenAddress } }, 3000);
       if (listsAddTokenAddr) listsAddTokenAddr.value = "";
       loadListsTab();
     } catch {}

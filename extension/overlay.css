@@ -245,6 +245,13 @@
 
 .sg-list li:last-child { margin-bottom: 0; }
 
+.sg-banner-ok { border: 1px solid rgba(34,197,94,.35); background: rgba(34,197,94,.08); color: #bbf7d0; padding: 12px; border-radius: 12px; }
+.sg-banner-warn { border: 1px solid rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #fde68a; padding: 12px; border-radius: 12px; }
+.sg-banner-bad { border: 1px solid rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #fecaca; padding: 12px; border-radius: 12px; }
+.sg-text-ok { color: #86efac; }
+.sg-text-risk { color: #fecaca; }
+.sg-usd { color: var(--sg-muted); font-size: 12px; margin-left: 8px; }
+
 .sg-accordion {
   border: 1px solid var(--sg-border);
   border-radius: var(--sg-radius-md);

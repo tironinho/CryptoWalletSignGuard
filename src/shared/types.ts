@@ -64,6 +64,18 @@ export type PendingRequestPayload = {
   providerSource?: "window.ethereum" | "ethereum.providers[i]" | "eip6963";
 };
 
+export type FeeEstimateWire = {
+  ok: boolean;
+  gasLimitHex?: string;
+  feeLikelyWeiHex?: string;
+  feeMaxWeiHex?: string;
+  feeEstimated?: boolean;
+  feeReasonKey?: string;
+  error?: string;
+};
+
+export type TxContextKind = "SWITCH_NETWORK" | "NFT_PURCHASE" | "TOKEN_SWAP" | "VALUE_TRANSFER" | "CONTRACT_CALL" | "APPROVAL";
+
 export type AnalyzeRequest = {
   requestId: string;
   url: string;
@@ -73,10 +85,12 @@ export type AnalyzeRequest = {
   wallet?: WalletInfo;
   providerHint?: { kind: ProviderKind; name?: string };
   txCostPreview?: TxCostPreview;
+  feeEstimate?: FeeEstimateWire;
   meta?: {
     chainId?: string;
     chainIdHex?: string;
     chainIdRequested?: string;
+    txContext?: { kind: TxContextKind };
     preflight?: {
       tx?: any;
       valueWei?: string; // decimal
@@ -116,6 +130,7 @@ export type ListsCacheV1 = {
   userBlockedDomains: string[];
   userBlockedAddresses: string[];
   userScamTokens: Array<{ chainId: string; address: string; symbol?: string; name?: string }>;
+  userTrustedTokens: Array<{ chainId: string; address: string }>;
 };
 
 export type ThreatIntelAddress = {
@@ -211,6 +226,7 @@ export type HumanExplanation = {
   whyAsked?: string[];
   risks: string[];
   safeNotes: string[];
+  safe?: string[];
   nextSteps: string[];
   recommendation: string;
   links?: Array<{ text: string; href: string }>;
@@ -243,10 +259,12 @@ export type TxSummary = {
   selector?: string;        // 0x + 8 hex
   gasLimit?: string;        // decimal
   maxFeePerGasWei?: string; // decimal
+  maxPriorityFeePerGasWei?: string; // decimal (EIP-1559 tip)
   maxGasFeeEth?: string;    // ETH
   maxTotalEth?: string;     // ETH (value + maxGasFee)
   feeKnown?: boolean;
   contractNameHint?: string;
+  dataLen?: number;         // raw data length
 };
 
 export type Intent = "NFT_PURCHASE" | "SWAP" | "APPROVAL" | "SEND" | "ETH_TRANSFER" | "TOKEN_TRANSFER" | "NFT_TRANSFER" | "CONTRACT_INTERACTION" | "CONNECT" | "SIGN" | "SIGNATURE" | "TYPED_DATA" | "CHAIN" | "SWITCH_CHAIN" | "ADD_CHAIN" | "WATCH_ASSET" | "SOLANA" | "UNKNOWN";
@@ -285,6 +303,7 @@ export type Analysis = {
   txCostPreview?: TxCostPreview;
   txExtras?: TxExtras;
   intent?: Intent;
+  txContext?: { kind: TxContextKind };
   chainTarget?: { chainIdHex: string; chainName?: string };
   addChainInfo?: { chainId: string; chainName?: string; rpcUrls?: string[]; nativeCurrencySymbol?: string };
   watchAssetInfo?: { type: string; address?: string; symbol?: string; decimals?: number; image?: string };
@@ -345,6 +364,10 @@ export type Analysis = {
   };
   /** True when simulation predicted revert (show "ESTA TRANSAÇÃO VAI FALHAR"). */
   simulationRevert?: boolean;
+  /** Token confidence: SCAM, TRUSTED, LOW (new/unverified), UNKNOWN. */
+  tokenConfidence?: "SCAM" | "TRUSTED" | "LOW" | "UNKNOWN";
+  /** First-seen timestamp for token (when LOW/UNKNOWN). */
+  tokenFirstSeenAt?: number;
   /** True when honeypot detected (buy but cannot sell / transfer). */
   isHoneypot?: boolean;
   /** True when protection is temporarily paused (allow without showing overlay). */

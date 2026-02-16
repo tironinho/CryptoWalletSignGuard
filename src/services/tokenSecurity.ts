@@ -10,7 +10,9 @@ export type TokenEntry = { s: string; l: string; v: boolean };
 export type TokenMap = Record<string, TokenEntry>;
 
 const TOKEN_CACHE_KEY = "tokenCache";
+const TOKEN_FIRST_SEEN_KEY = "sg_token_first_seen_v1";
 const CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const NEW_TOKEN_DAYS = 7; // tokens seen < 7 days ago = "low confidence"
 const UNISWAP_LIST_URL = "https://gateway.ipfs.io/ipns/tokens.uniswap.org";
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -103,6 +105,47 @@ export function getTokenInfo(address: string): TokenEntry | undefined {
 /** Legacy: whether the address is in the verified (Uniswap) list. */
 export function isTokenVerified(_intel: unknown, address: string): boolean {
   return getTokenInfo(address)?.v ?? false;
+}
+
+function tokenKey(chainIdHex: string, address: string): string {
+  const c = String(chainIdHex ?? "").trim().toLowerCase();
+  const a = normalizeAddr(address);
+  if (!a) return "";
+  const ch = c.startsWith("0x") ? c : "0x" + parseInt(c || "0", 10).toString(16);
+  return ch + ":" + a;
+}
+
+/** Get first-seen timestamp for a token (chainId, address). Returns null if never seen. */
+export async function getTokenFirstSeen(chainIdHex: string, address: string): Promise<number | null> {
+  const key = tokenKey(chainIdHex, address);
+  if (!key) return null;
+  try {
+    const raw = await new Promise<Record<string, number>>((resolve) => {
+      chrome.storage.local.get(TOKEN_FIRST_SEEN_KEY, (r) => resolve((r as any)?.[TOKEN_FIRST_SEEN_KEY] ?? {}));
+    });
+    const ts = raw?.[key];
+    return typeof ts === "number" ? ts : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Mark token as seen; stores timestamp only if not already present. */
+export async function markTokenSeen(chainIdHex: string, address: string): Promise<void> {
+  const key = tokenKey(chainIdHex, address);
+  if (!key) return;
+  try {
+    const raw = await new Promise<Record<string, number>>((resolve) => {
+      chrome.storage.local.get(TOKEN_FIRST_SEEN_KEY, (r) => resolve((r as any)?.[TOKEN_FIRST_SEEN_KEY] ?? {}));
+    });
+    const map = { ...(raw || {}) };
+    if (typeof map[key] !== "number") {
+      map[key] = Date.now();
+      await new Promise<void>((resolve, reject) => {
+        chrome.storage.local.set({ [TOKEN_FIRST_SEEN_KEY]: map }, () => (chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()));
+      });
+    }
+  } catch {}
 }
 
 /** Resolve token address for a tx: contract (to) for ERC20, or from decoded action */

@@ -1,5 +1,5 @@
 // ARQUIVO: src/content.ts
-import type { AnalyzeRequest, Analysis, Settings, CheckResult } from "./shared/types";
+import type { AnalyzeRequest, Analysis, Settings, CheckResult, FeeEstimateWire } from "./shared/types";
 import { DEFAULT_SETTINGS } from "./shared/types";
 import { SUGGESTED_TRUSTED_DOMAINS } from "./shared/constants";
 import { selectorToLabel } from "./shared/signatures";
@@ -169,7 +169,7 @@ function renderMoreExplanationsHtml(action: SGAction, isContractInteraction: boo
 type OverlayState = {
   requestId: string;
   analysis: Analysis;
-  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any; chainIdHex?: string | null };
+  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any; chainIdHex?: string | null; chainIdRequested?: string };
   container: HTMLDivElement;
   shadow: ShadowRoot;
   app: HTMLDivElement;
@@ -200,7 +200,7 @@ function ensureOverlayCss(shadow: ShadowRoot) {
 function showOverlay(
   requestId: string,
   analysis: Analysis,
-  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any; chainIdHex?: string | null }
+  meta: { host: string; method: string; params?: any; rawShape?: string; rpcMeta?: any; chainIdHex?: string | null; chainIdRequested?: string }
 ) {
   console.log("🎨 [SignGuard UI] showOverlay CALLED for:", requestId);
 
@@ -263,9 +263,16 @@ function updateOverlay(state: OverlayState) {
 
   const displayChainIdHex =
     state.meta.chainIdHex ??
+    (a as { chainIdHex?: string }).chainIdHex ??
     (a as { chainTarget?: { chainIdHex: string } }).chainTarget?.chainIdHex ??
     toChainIdHex((a as { addChainInfo?: { chainId: string } }).addChainInfo?.chainId) ??
     null;
+  const priceChainIdHex = displayChainIdHex ?? "0x1";
+  const chainKey = displayChainIdHex ? String(displayChainIdHex).toLowerCase() : "";
+  const priceChainKey = String(priceChainIdHex).toLowerCase();
+
+  fetchNativeUsdAndRerender(priceChainIdHex);
+
   const chainTarget = (a as { chainTarget?: { chainName?: string } }).chainTarget;
   const addChainInfo = (a as { addChainInfo?: { chainName?: string } }).addChainInfo;
   const displayChainName =
@@ -273,29 +280,62 @@ function updateOverlay(state: OverlayState) {
     addChainInfo?.chainName ??
     (displayChainIdHex ? (getChainInfo(displayChainIdHex)?.name ?? (t("chain_not_recognized") || "Chain not recognized")) : "—");
 
-  const chainKey = displayChainIdHex ? String(displayChainIdHex).toLowerCase() : "";
   const chainInfo = displayChainIdHex ? getChainInfo(displayChainIdHex) : null;
   const nativeSymbol = chainInfo?.nativeSymbol ?? getNativeSymbol(displayChainIdHex ?? undefined);
   const chainName = displayChainName;
   const usdPerNative =
-    (a.txCostPreview as { usdPerNative?: number } | undefined)?.usdPerNative ?? __sgNativeUsd[chainKey]?.usd;
+    (a.txCostPreview as { usdPerNative?: number } | undefined)?.usdPerNative ?? __sgNativeUsd[priceChainKey]?.usd;
   const showUsd = !isLoading && settings.showUsd !== false && usdPerNative != null && usdPerNative > 0;
 
-  fetchNativeUsdAndRerender(displayChainIdHex);
-
   const cost = a.txCostPreview;
-  const valueWei = cost?.valueWei ?? (a.tx as { valueWei?: string } | undefined)?.valueWei ?? "0";
-  const valueEth = isLoading
-    ? "—"
-    : cost?.valueWei
-      ? weiToEthFmt(BigInt(cost.valueWei))
-      : (a.tx as { valueEth?: string } | undefined)?.valueEth ?? (valueWei ? weiToEthFmt(BigInt(valueWei)) : "0");
-  const feeLikely = isLoading ? "—" : (cost?.feeLikelyWei ? weiToEthFmt(BigInt(cost.feeLikelyWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
-  const feeMax = isLoading ? "—" : (cost?.feeMaxWei ? weiToEthFmt(BigInt(cost.feeMaxWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
-  const totalLikely = isLoading ? "—" : (cost?.totalLikelyWei ? weiToEthFmt(BigInt(cost.totalLikelyWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
-  const totalMax = isLoading ? "—" : (cost?.totalMaxWei ? weiToEthFmt(BigInt(cost.totalMaxWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
-  const valueUsd = !isLoading && showUsd && usdPerNative ? (Number(valueWei) / 1e18) * usdPerNative : null;
-  const toAddr = isLoading ? "" : (a.tx?.to ?? (a.decoded as { to?: string } | undefined)?.to ?? "");
+  const rawTx = extractTx(state.meta.params);
+  const rawValueWeiBI = rawTx?.valueHex ? hexToBigInt(rawTx.valueHex) : 0n;
+
+  const valueWeiStr =
+    (cost as any)?.valueWei ??
+    (a.tx as any)?.valueWei ??
+    (rawValueWeiBI ? rawValueWeiBI.toString() : "0");
+
+  const valueWeiBI = (() => {
+    try { return BigInt(valueWeiStr); } catch { return rawValueWeiBI; }
+  })();
+
+  const valueEth =
+    isLoading && !(cost as any)?.valueWei
+      ? "—"
+      : (() => {
+          const fromWei = weiToEthFmt(valueWeiBI);
+          if (fromWei && fromWei !== "0" && fromWei !== "0.000000") return fromWei;
+          const fromSummary = (a.tx as any)?.valueEth;
+          return typeof fromSummary === "string" && fromSummary.length ? fromSummary : fromWei;
+        })();
+
+  const hasFeeData = !!(cost as any)?.feeLikelyWei || !!(cost as any)?.totalLikelyWei;
+  const feeLikely = isLoading && !hasFeeData ? "—" : (cost?.feeLikelyWei ? weiToEthFmt(BigInt(cost.feeLikelyWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
+  const feeMax = isLoading && !hasFeeData ? "—" : (cost?.feeMaxWei ? weiToEthFmt(BigInt(cost.feeMaxWei)) : (a.tx as { maxGasFeeEth?: string } | undefined)?.maxGasFeeEth ?? "—");
+  const totalLikely = isLoading && !hasFeeData ? "—" : (cost?.totalLikelyWei ? weiToEthFmt(BigInt(cost.totalLikelyWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
+  const totalMax = isLoading && !hasFeeData ? "—" : (cost?.totalMaxWei ? weiToEthFmt(BigInt(cost.totalMaxWei)) : (a.tx as { maxTotalEth?: string } | undefined)?.maxTotalEth ?? "—");
+
+  const isNumStr = (s: any) => typeof s === "string" && /^-?[0-9]+(\.[0-9]+)?$/.test(s);
+  const valueEthNum = isNumStr(valueEth) ? parseFloat(valueEth) : 0;
+  const feeLikelyNum = isNumStr(feeLikely) ? parseFloat(feeLikely) : 0;
+  const feeMaxNum = isNumStr(feeMax) ? parseFloat(feeMax) : 0;
+  const totalLikelyNum = isNumStr(totalLikely) ? parseFloat(totalLikely) : 0;
+  const totalMaxNum = isNumStr(totalMax) ? parseFloat(totalMax) : 0;
+
+  const valueUsd = showUsd && usdPerNative ? valueEthNum * usdPerNative : null;
+  const feeLikelyUsd = showUsd && usdPerNative ? feeLikelyNum * usdPerNative : null;
+  const feeMaxUsd = showUsd && usdPerNative ? feeMaxNum * usdPerNative : null;
+  const totalLikelyUsd = showUsd && usdPerNative ? totalLikelyNum * usdPerNative : null;
+  const totalMaxUsd = showUsd && usdPerNative ? totalMaxNum * usdPerNative : null;
+
+  const rawTxObj = Array.isArray(state.meta.params) ? state.meta.params[0] : null;
+  const toAddr =
+    (a.tx as any)?.to ??
+    (a.decoded as any)?.to ??
+    (rawTx as any)?.to ??
+    (rawTxObj && typeof rawTxObj === "object" ? (rawTxObj as any).to : undefined) ??
+    "";
   const selector = (a.tx as { selector?: string } | undefined)?.selector ?? "";
   const contractMethod = isLoading
     ? ""
@@ -353,9 +393,8 @@ function updateOverlay(state: OverlayState) {
   const isContractInteraction =
     action === "SEND_TX" &&
     Boolean(a.toIsContract === true || selector || contractMethod || (txData && txData !== "0x"));
-  const actionTitleStr = isContractInteraction
-    ? (t("action_SEND_TX_contract_title") || "Interagir com contrato")
-    : actionTitle(action);
+  const actionTitleStr = (a as { title?: string }).title ||
+    (isContractInteraction ? (t("action_SEND_TX_contract_title") || "Interagir com contrato") : actionTitle(action));
   const verdictText = isContractInteraction
     ? (t("intent_CONTRACT_INTERACTION") || "Interação com contrato")
     : actionTitleStr;
@@ -367,26 +406,50 @@ function updateOverlay(state: OverlayState) {
   const host = state.meta.host ?? "";
   const pillKey = a.recommend === "BLOCK" ? "block" : a.recommend === "WARN" ? "warn" : a.recommend === "HIGH" ? "high" : "low";
   const pillText = a.recommend === "BLOCK" ? (t("severity_BLOCKED") || "BLOQUEADO") : a.recommend === "WARN" ? (t("severity_WARN") || "ATENÇÃO") : a.recommend === "HIGH" ? (t("severity_HIGH") || "ALTO") : (t("severity_LOW") || "OK");
+  const tokenConf = (a as { tokenConfidence?: "SCAM" | "TRUSTED" | "LOW" | "UNKNOWN" }).tokenConfidence;
+  const tokenBadgeHtml = tokenConf === "TRUSTED" ? `<span class="sg-chip sg-banner-ok" style="display:inline-block;padding:4px 8px;margin-left:8px;">Confiável</span>` : tokenConf === "LOW" ? `<span class="sg-chip sg-banner-warn" style="display:inline-block;padding:4px 8px;margin-left:8px;">Baixa confiança</span>` : tokenConf === "SCAM" ? `<span class="sg-chip sg-banner-bad" style="display:inline-block;padding:4px 8px;margin-left:8px;">Scam</span>` : "";
   const statusLine = !isLoading && a.knownSafe ? `${t("site_label") || "Site"}: ${escapeHtml(host)} • ${t("site_status_known") || "referência conhecida"}` : "";
   const bannerLocal = verLevel === "LOCAL" ? (t("banner_local_verification") || "Atenção: verificação local (cache). Revise os detalhes abaixo antes de prosseguir.") : "";
   const bannerBasic = verLevel === "BASIC" ? (t("banner_basic_verification") || "Atenção: verificação básica. Revise cuidadosamente os detalhes antes de prosseguir.") : "";
 
-  const riskReasons: string[] = [];
-  if (verLevel === "LOCAL") riskReasons.push(t("banner_local_verification") || "Verificação local (cache) — revise os detalhes abaixo.");
-  if (verLevel === "BASIC") riskReasons.push(t("banner_basic_verification") || "Verificação parcial — revise com cuidado.");
-  if (a.knownBad || a.isPhishing) riskReasons.push(t("banner_block_known_threat") || "Ameaça conhecida detectada.");
-  if ((a as { addressRisk?: { flagged?: boolean } }).addressRisk?.flagged) riskReasons.push(t("addr_marked_public") || "Endereço marcado em base pública.");
-  if (a.reasons?.length) riskReasons.push(...a.reasons.slice(0, 3));
+  const isCostCalculating = (action === "SEND_TX") && (!cost?.feeEstimated);
 
+  const riskReasons: string[] = [];
+  const human = a.human as { risks?: string[]; safeNotes?: string[]; safe?: string[]; nextSteps?: string[] } | undefined;
+  if (human?.risks?.length) {
+    riskReasons.push(...human.risks.slice(0, 5));
+  } else if (a.reasons?.length) {
+    riskReasons.push(...a.reasons.slice(0, 5));
+  } else {
+    if (verLevel === "LOCAL") riskReasons.push(t("banner_local_verification") || "Verificação local (cache) — revise os detalhes abaixo.");
+    if (verLevel === "BASIC") riskReasons.push(t("banner_basic_verification") || "Verificação parcial — revise com cuidado.");
+    if (a.knownBad || a.isPhishing) riskReasons.push(t("banner_block_known_threat") || "Ameaça conhecida detectada.");
+    if ((a as { addressRisk?: { flagged?: boolean } }).addressRisk?.flagged) riskReasons.push(t("addr_marked_public") || "Endereço marcado em base pública.");
+    if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") riskReasons.push("Trocar rede normalmente não transfere fundos. Confirme se a rede solicitada é a esperada.");
+    if (action === "SEND_TX" || isContractInteraction) riskReasons.push("Transação on-chain: confira destino, valor e taxa antes de confirmar.");
+    if (riskReasons.length === 0) riskReasons.push("Revise os detalhes na carteira antes de prosseguir.");
+  }
+
+  const safeNotesForDisplay = human?.safe ?? human?.safeNotes ?? [];
+  const isVerdictSafe = (a.recommend === "ALLOW" || (a.recommend === "WARN" && a.knownSafe)) && !a.knownBad && !a.isPhishing && !(a as { maybeSpoofed?: boolean }).maybeSpoofed;
+
+  const intent = (a as { intent?: string }).intent;
+  const txCtx = (a as { txContext?: { kind?: string } }).txContext?.kind;
+  const isNftPurchase = intent === "NFT_PURCHASE" || txCtx === "NFT_PURCHASE";
+  const isTokenSwap = txCtx === "TOKEN_SWAP";
   const feeUnavailable = feeLikely === "—" || feeMax === "—";
-  const whatToDoNowText =
-    action === "SEND_TX"
-      ? feeUnavailable
-        ? (t("check_wallet_network_fee") || "Você ainda não viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.")
-        : (t("default_human_contract_safe") || "Confira destino (to), rede, valor e taxa na carteira.")
-      : action === "SWITCH_CHAIN" || action === "ADD_CHAIN"
-        ? (t("default_human_switch_safe") || "Confirme a rede solicitada e se o site é o correto.")
-        : (t("still_review_wallet") || "Mesmo assim, revise na carteira (valor, rede, destino e taxa).");
+  let whatToDoNowText: string;
+  if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") {
+    whatToDoNowText = "Trocar rede NÃO transfere fundos. Apenas muda a rede ativa na carteira. Confirme se a rede solicitada é a esperada pelo site.";
+  } else if (action === "SEND_TX" && (isNftPurchase || isTokenSwap)) {
+    whatToDoNowText = "Se confirmar, os valores serão transferidos e a aquisição será realizada (NFT/Token). Revise destino (to), rede, valor e taxa na carteira; se bater com o esperado, prossiga.";
+  } else if (action === "SEND_TX") {
+    whatToDoNowText = feeUnavailable
+      ? (t("check_wallet_network_fee") || "Você ainda não viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar.")
+      : "Se confirmar, a transação será enviada on-chain e não pode ser desfeita. Confira destino (to), rede, valor e taxa na carteira.";
+  } else {
+    whatToDoNowText = (t("still_review_wallet") || "Mesmo assim, revise na carteira (valor, rede, destino e taxa).");
+  }
 
   const suggestedDomains = [...SUGGESTED_TRUSTED_DOMAINS];
   const maxDomainsShown = 8;
@@ -406,21 +469,101 @@ function updateOverlay(state: OverlayState) {
         ? `<button type="button" id="sg-domains-toggle" class="sg-link sg-domain-more">${t("btn_ver_menos") || "Ver menos"}</button>`
         : "";
 
-  const feeLikelyUsd = showUsd && cost?.feeLikelyWei && usdPerNative ? ((Number(cost.feeLikelyWei) / 1e18) * usdPerNative).toFixed(2) : null;
-  const valueRow =
-    isLoading
-      ? `<div class="sg-kv-stack"><div class="sg-skeleton" style="height:16px;width:100px;"></div><div class="sg-skeleton" style="height:12px;width:70px;margin-top:6px;"></div></div>`
-      : valueUsd != null
-        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${valueUsd.toFixed(2)}</span></div>`
-        : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`;
-  const feeLikelyRow =
-    isLoading
-      ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>`
-      : feeLikelyUsd
-        ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeLikelyUsd}</span></div>`
-        : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`;
+  const chainIdRequested =
+    (state.meta as any)?.chainIdRequested ?? (state.meta as any)?.rpcMeta?.chainIdRequested;
 
-  const moreExplanationsHtml = renderMoreExplanationsHtml(action, isContractInteraction);
+  const tokenRiskHigh = (a as { tokenRisk?: { level?: string } }).tokenRisk?.level === "HIGH";
+  const showWarnBanner = !cost?.feeEstimated || (a.simulationOutcome?.status === "SKIPPED");
+  const verdictBanner = isVerdictSafe
+    ? `<div class="sg-banner-ok"><strong>✅ Seguro:</strong> ação comum em domínio confiável. Revise valor e taxa na carteira antes de confirmar.</div>`
+    : (pillKey === "block" || pillKey === "high" || a.knownBad || a.isPhishing || tokenRiskHigh)
+      ? `<div class="sg-banner-bad"><strong>⛔ Atenção:</strong> há sinais de risco. Revise destino/contrato e valores — se algo não bater, cancele.</div>`
+      : showWarnBanner
+        ? `<div class="sg-banner-warn"><strong>⚠ Atenção:</strong> ${!cost?.feeEstimated ? "Taxa ainda sendo calculada. " : ""}Revise destino, valor e rede antes de confirmar.</div>`
+        : "";
+
+  const okBanner =
+    pillKey === "low" && a.knownSafe
+      ? `<div class="sg-banner-ok"><div class="sg-banner-ok-text">OK: ação comum neste site.</div><div class="sg-banner-ok-sub">Se destino, rede e valores baterem com o esperado, pode continuar.</div></div>`
+      : "";
+
+  const riskBanner =
+    pillKey === "block" || pillKey === "high"
+      ? `<div class="sg-blocked-banner sg-banner-risk">RISCO: esta ação pode permitir movimentação de fundos ou permissões perigosas. Revise com atenção.</div>`
+      : "";
+
+  const requestedChainCard =
+    action === "SWITCH_CHAIN" || action === "ADD_CHAIN"
+      ? `<div class="sg-card"><div class="sg-card-title">REDE SOLICITADA</div><div class="sg-kv"><span class="sg-kv-label">ChainId</span><span class="sg-kv-value">${escapeHtml(String(chainIdRequested || "—"))}</span></div><div class="sg-summary-sub" style="margin-top:8px;color:var(--sg-success);">Isso não envia fundos. Normalmente não há gas nesta etapa.</div></div>`
+      : "";
+
+  const costsCardHtml =
+    action === "SWITCH_CHAIN" || action === "ADD_CHAIN"
+      ? ""
+      : `
+      <div class="sg-card">
+        <div class="sg-card-title">${t("costs_title") || "CUSTOS E IMPACTO"}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("cost_you_send") || "Você envia"}</span>${isLoading && !(cost as any)?.valueWei ? `<div class="sg-kv-stack"><div class="sg-skeleton" style="height:16px;width:100px;"></div><div class="sg-skeleton" style="height:12px;width:70px;margin-top:6px;"></div></div>` : valueUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${valueUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("cost_fee") || "Taxa estimada (provável)"}</span>${isLoading && !hasFeeData ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_gas_fee") || "Taxa máxima (pior caso)"}</span>${feeMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${feeMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span>`}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("cost_total") || "Total provável"}</span>${totalLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span>`}</div>
+        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_total") || "Total máximo"}</span>${totalMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span><span class="sg-kv-sub">≈ US$ ${totalMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span>`}</div>
+        ${toAddr ? `<div class="sg-kv" style="margin-top:8px;"><span class="sg-kv-label">${t("tx_destination") || "Destino"}</span><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(toAddr.slice(0, 10) + "…" + toAddr.slice(-8))}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(toAddr)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
+      </div>`;
+
+  const txDetailsLines: string[] = [];
+  txDetailsLines.push(`Tipo: ${action}`);
+  if (displayChainIdHex) txDetailsLines.push(`Rede atual: ${chainName} (${displayChainIdHex})`);
+  if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") {
+    if (chainIdRequested) txDetailsLines.push(`Rede solicitada: ${chainIdRequested}`);
+    txDetailsLines.push("O que isso faz: apenas muda a rede da carteira. Não envia fundos.");
+    txDetailsLines.push("Custo: normalmente sem gas. A próxima transação pode ter taxa de rede.");
+  } else if (action === "SEND_TX" || isContractInteraction) {
+    const dec = a.decodedAction as { kind?: string } | undefined;
+    const isApproval = dec?.kind === "APPROVE_ERC20" || dec?.kind === "SET_APPROVAL_FOR_ALL";
+    if (action === "SEND_TX" || isContractInteraction || isApproval) {
+      if (toAddr) txDetailsLines.push(`Destino (to): ${toAddr}`);
+      txDetailsLines.push(`Você envia: ${valueEth} ${nativeSymbol}${valueUsd != null ? ` (≈ US$ ${valueUsd.toFixed(2)})` : ""}`);
+      if ((cost as any)?.feeLikelyWei) txDetailsLines.push(`Taxa provável: ${feeLikely} ${nativeSymbol}${feeLikelyUsd != null ? ` (≈ US$ ${feeLikelyUsd.toFixed(2)})` : ""}`);
+      if ((cost as any)?.totalLikelyWei) txDetailsLines.push(`Total provável: ${totalLikely} ${nativeSymbol}${totalLikelyUsd != null ? ` (≈ US$ ${totalLikelyUsd.toFixed(2)})` : ""}`);
+    }
+  }
+  const txDetailsBodyHtml =
+    txDetailsLines.length ? txDetailsLines.map((l) => escapeHtml(l)).join("<br/>") : "—";
+
+  const moreExplainLines = (() => {
+    if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN")
+      return [
+        "O que isso faz:",
+        "• Troca a rede da carteira para o site funcionar corretamente.",
+        "Riscos:",
+        "• Normalmente baixo risco (não move fundos).",
+        "Próximos passos:",
+        "• Confirme se a rede solicitada faz sentido para este site.",
+      ];
+    const dec = a.decodedAction as { kind?: string } | undefined;
+    if (action === "SEND_TX" || isContractInteraction) {
+      if (dec?.kind === "APPROVE_ERC20" || dec?.kind === "SET_APPROVAL_FOR_ALL")
+        return [
+          "O que isso faz:",
+          "• Concede permissão para um contrato gastar seus tokens/NFTs.",
+          "Riscos:",
+          "• Pode permitir drenagem se o spender for malicioso.",
+          "Próximos passos:",
+          "• Só aprove se reconhecer o contrato/spender e o site for confiável.",
+        ];
+      return [
+        "O que isso faz:",
+        "• Envia uma transação on-chain (pode mover ETH/tokens via contrato).",
+        "Riscos:",
+        "• Se o destino (to) ou valor estiverem diferentes do esperado, cancele.",
+        "Próximos passos:",
+        "• Confira destino (to), rede, valor e a taxa (Network fee) na carteira antes de confirmar.",
+      ];
+    }
+    return summaryArr;
+  })();
+  const moreExplainHtml = escapeHtml(moreExplainLines.join("\n")).replaceAll("\n", "<br/>");
 
   const html = `
 <div class="sg-backdrop">
@@ -430,37 +573,33 @@ function updateOverlay(state: OverlayState) {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span class="sg-chip">Modo: ${escapeHtml(modeLabel)}</span>
         <span class="sg-pill sg-pill-${pillKey}">${escapeHtml(pillText)}</span>
+        ${tokenBadgeHtml}
         <button type="button" class="sg-close-btn" id="sg-close" aria-label="Close">×</button>
       </div>
     </header>
     <div class="sg-body">
-      ${isLoading ? `<p class="sg-summary-sub" style="margin-bottom:12px;">${escapeHtml(t("gas_calculating") || "calculando…")}</p>` : ""}
+      ${isCostCalculating ? `<p class="sg-summary-sub" style="margin-bottom:12px;">${escapeHtml(t("gas_calculating") || "calculando…")}</p>` : ""}
       <h2 class="sg-summary-title">${escapeHtml(actionTitleStr)}</h2>
       <p class="sg-summary-sub">${t("site_label") || "Site"}: ${escapeHtml(host)} • Carteira: ${escapeHtml(walletName)} • ${t("network_label") || "Rede"}: ${escapeHtml(chainName)}</p>
       ${statusLine ? `<p class="sg-summary-sub" style="color:var(--sg-success);">${statusLine}</p>` : ""}
+      ${verdictBanner}
+      ${(isNftPurchase || isTokenSwap) ? `<div class="sg-summary-sub" style="margin-top:8px;color:var(--sg-muted);">Se confirmar, os valores serão transferidos e a aquisição será realizada (NFT/Token).</div>` : ""}
+      ${!verdictBanner ? riskBanner : ""}
+      ${okBanner}
       <p class="sg-summary-sub"><strong>Parecer:</strong> ${escapeHtml(verdictText)}</p>
       ${!isLoading && covStr ? `<p class="sg-summary-sub">${t("coverage_label") || "Cobertura"}: ${escapeHtml(covStr)}${coverage?.limited ? " • " + (t("coverage_limited") || "cobertura limitada") : ""}</p>` : ""}
       ${bannerLocal ? `<div class="sg-banner-warn">${escapeHtml(bannerLocal)}</div>` : ""}
       ${bannerBasic ? `<div class="sg-banner-warn">${escapeHtml(bannerBasic)}</div>` : ""}
-      ${action === "SWITCH_CHAIN" || action === "ADD_CHAIN" ? `<div class="sg-card"><div class="sg-card-title">${t("network_requested") || "Rede solicitada"}</div><p class="sg-summary-sub">${escapeHtml(displayChainName)}</p></div>` : ""}
-
-      <div class="sg-card">
-        <div class="sg-card-title">${t("costs_title") || "CUSTOS E IMPACTO"}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_you_send") || "Você envia"}</span>${valueRow}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_fee") || "Taxa estimada (provável)"}</span>${feeLikelyRow}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_gas_fee") || "Taxa máxima (pior caso)"}</span><span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span></div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_total") || "Total provável"}</span><span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span></div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_total") || "Total máximo"}</span><span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span></div>
-        ${toAddr ? `<div class="sg-kv" style="margin-top:8px;"><span class="sg-kv-label">${t("tx_destination") || "Destino"}</span><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(toAddr.slice(0, 10) + "…" + toAddr.slice(-8))}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(toAddr)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
-      </div>
+      ${requestedChainCard}
+      ${costsCardHtml}
       ${contractMethod ? `<div class="sg-card"><div class="sg-card-title">${t("tx_contract_method") || "Contrato/método"}</div><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(contractMethod)}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(contractMethod)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
       <div class="sg-card">
         <div class="sg-card-title">${t("risk_title") || "RISCO E POR QUÊ"}</div>
-        <div class="sg-details-body">${riskReasons.length ? riskReasons.map((r) => `<p>${escapeHtml(r)}</p>`).join("") : "—"}</div>
+        <div class="sg-details-body">${riskReasons.length ? riskReasons.map((r) => `<p class="${!isVerdictSafe ? "sg-text-risk" : ""}">• ${escapeHtml(r)}</p>`).join("") : "—"}${safeNotesForDisplay.length && isVerdictSafe ? safeNotesForDisplay.map((n) => `<p class="sg-text-ok">• ${escapeHtml(n)}</p>`).join("") : ""}</div>
       </div>
       <div class="sg-card">
         <div class="sg-card-title">${t("what_to_do_now") || "O QUE FAZER AGORA"}</div>
-        <div class="sg-details-body"><p>${escapeHtml(whatToDoNowText)}</p></div>
+        <div class="sg-details-body"><p>${escapeHtml(whatToDoNowText)}</p>${human?.nextSteps?.length ? human.nextSteps.map((s) => `<p>• ${escapeHtml(s)}</p>`).join("") : ""}</div>
       </div>
 
       ${checks.length ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_coverage_title") || "Cobertura de segurança"}</div><div class="sg-grid" style="margin-top:8px;">${checkChips}</div></div>` : ""}
@@ -469,7 +608,7 @@ function updateOverlay(state: OverlayState) {
 
       <details class="sg-details" ${openByDefault ? "open" : ""}>
         <summary>${t("details_tx_title") || "Detalhes da transação"}</summary>
-        <div class="sg-details-body">${escapeHtml(a.reasons?.length ? a.reasons.join("\n") : "—")}</div>
+        <div class="sg-details-body">${txDetailsBodyHtml}</div>
       </details>
       <details class="sg-details" ${openByDefault ? "open" : ""}>
         <summary>${t("details_tech_title") || "Detalhes técnicos"}</summary>
@@ -481,7 +620,7 @@ function updateOverlay(state: OverlayState) {
       </details>
       <details class="sg-details" ${openByDefault ? "open" : ""}>
         <summary>${t("details_more_title") || "Mais explicações"}</summary>
-        <div class="sg-details-body">${moreExplanationsHtml}</div>
+        <div class="sg-details-body">${moreExplainHtml}</div>
       </details>
     </div>
     <footer class="sg-footer">
@@ -549,6 +688,7 @@ function showCurrentPending() {
       method: cur.method,
       params: cur.params,
       chainIdHex: cur.chainIdHex ?? null,
+      chainIdRequested: (cur as { chainIdRequested?: string }).chainIdRequested,
     });
   }
 }
@@ -610,10 +750,46 @@ function decideCurrentAndAdvance(allow: boolean) {
   if (requestQueue.length > 0) setTimeout(showCurrentPending, 100);
 }
 
+function requestFeeEstimateFromMainWorld(requestId: string, tx: unknown): Promise<FeeEstimateWire> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      window.removeEventListener("message", handler);
+      resolve({ ok: false, feeEstimated: false, error: "timeout" });
+    }, 2200);
+    const handler = (ev: MessageEvent) => {
+      if (ev.source !== window || ev.data?.source !== "signguard" || ev.data?.type !== "SG_FEE_ESTIMATE_RES") return;
+      if (ev.data.requestId !== requestId) return;
+      clearTimeout(timeout);
+      window.removeEventListener("message", handler);
+      resolve(ev.data.feeEstimate ?? { ok: false, feeEstimated: false });
+    };
+    window.addEventListener("message", handler);
+    window.postMessage({ source: "signguard-content", type: "SG_FEE_ESTIMATE_REQ", payload: { requestId, tx } }, "*");
+  });
+}
+
 // --- LISTENER DE MENSAGENS ---
 
 window.addEventListener("message", async (ev) => {
   if (ev.source !== window || !ev.data || ev.data.source !== "signguard") return;
+
+  if (ev.data?.type === "SG_PREVIEW_UPDATE") {
+    const requestId = ev.data.requestId;
+    const preview = ev.data?.payload?.txCostPreview;
+    if (!requestId || !preview) return;
+
+    const item = requestQueue.find((x) => x.requestId === requestId);
+    if (item) {
+      (item.analysis as any).txCostPreview = preview;
+    }
+
+    if (__sgOverlay && __sgOverlay.requestId === requestId) {
+      __sgOverlay.analysis = { ...__sgOverlay.analysis, txCostPreview: preview };
+      updateOverlay(__sgOverlay);
+    }
+    return;
+  }
+
   if (ev.data.type !== "SG_REQUEST") return;
 
   const { requestId, payload } = ev.data;
@@ -646,10 +822,15 @@ window.addEventListener("message", async (ev) => {
   const host = (payload?.host && String(payload.host).trim()) ? String(payload.host).trim() : inferHost(url);
 
   const meta = rpcMeta
-    ? { ...rpcMeta, chainIdHex: chainIdHex ?? undefined }
-    : chainIdHex
-      ? { chainIdHex: chainIdHex ?? undefined }
+    ? { ...rpcMeta, chainIdHex: chainIdHex ?? undefined, chainIdRequested: rpcMeta?.chainIdRequested ?? undefined }
+    : chainIdHex || (rpcMeta as any)?.chainIdRequested
+      ? { chainIdHex: chainIdHex ?? undefined, chainIdRequested: (rpcMeta as any)?.chainIdRequested ?? undefined }
       : undefined;
+
+  let feeEstimate: FeeEstimateWire | undefined;
+  if ((method === "eth_sendtransaction" || method === "wallet_sendtransaction") && p0 && typeof p0 === "object") {
+    try { feeEstimate = await requestFeeEstimateFromMainWorld(requestId, p0); } catch {}
+  }
 
   const analyzePayload: AnalyzeRequest = {
     requestId,
@@ -657,7 +838,11 @@ window.addEventListener("message", async (ev) => {
     origin,
     request: { method: payload?.method ?? "", params },
     meta,
+    txCostPreview: (payload as any)?.txCostPreview,
+    feeEstimate,
   };
+
+  const chainIdRequested = (rpcMeta as any)?.chainIdRequested ?? (p0 as any)?.chainId;
 
   const pending = {
     requestId,
@@ -665,8 +850,10 @@ window.addEventListener("message", async (ev) => {
     host,
     params: payload?.params,
     chainIdHex: chainIdHex ?? undefined,
+    chainIdRequested: typeof chainIdRequested === "string" ? chainIdRequested : undefined,
     analysis: { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" } as unknown as Analysis,
   };
+  (pending.analysis as any).txCostPreview = (payload as any)?.txCostPreview;
   requestQueue.push(pending);
 
   if (requestQueue.length === 1) {

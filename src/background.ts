@@ -21,8 +21,8 @@ import { hexToBigInt, weiToEth } from "./txMath";
 import { assessDomainRisk } from "./domainRisk";
 import { runSimulation } from "./services/simulationService";
 import { runHoneypotCheck } from "./services/honeypotService";
-import { initTokenSecurity, getTokenInfo, getTokenAddressForTx } from "./services/tokenSecurity";
-import { getLists, refresh as refreshLists, getDomainDecision, isBlockedAddress, isScamToken, upsertUserOverride, deleteUserOverride } from "./services/listManager";
+import { initTokenSecurity, getTokenInfo, getTokenAddressForTx, markTokenSeen, getTokenFirstSeen } from "./services/tokenSecurity";
+import { getLists, refresh as refreshLists, getDomainDecision, isBlockedAddress, isScamToken, isTrustedToken, upsertUserOverride, deleteUserOverride, normalizeOverridePayload } from "./services/listManager";
 import { getNativeUsd, getTokenUsd } from "./services/priceService";
 import { getTokenMeta } from "./services/tokenMetaService";
 import { initTelemetry, telemetry } from "./services/telemetryService";
@@ -100,12 +100,12 @@ async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender):
       }
       case "SG_LISTS_STATUS": {
         const lists = await getLists();
-        return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length }, sources: lists.sources };
+        return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length, userTrustedTokens: (lists.userTrustedTokens ?? []).length }, sources: lists.sources };
       }
       case "SG_LISTS_REFRESH_NOW": {
         try {
           const lists = await refreshLists(true);
-          return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length }, sources: lists.sources };
+          return { ok: true, updatedAt: lists.updatedAt, counts: { trustedDomains: lists.trustedDomains.length, blockedDomains: lists.blockedDomains.length, blockedAddresses: lists.blockedAddresses.length, scamTokens: lists.scamTokens.length, userTrustedDomains: lists.userTrustedDomains.length, userBlockedDomains: lists.userBlockedDomains.length, userBlockedAddresses: lists.userBlockedAddresses.length, userScamTokens: lists.userScamTokens.length, userTrustedTokens: (lists.userTrustedTokens ?? []).length }, sources: lists.sources };
         } catch (e) {
           return { ok: false, error: String((e as Error)?.message ?? e) };
         }
@@ -138,10 +138,21 @@ async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender):
         return { ok: true, items, page, pageSize };
       }
       case "SG_LISTS_OVERRIDE_ADD": {
-        const overrideType = msg.payload?.type;
-        const payload = msg.payload?.payload ?? {};
+        const p = msg.payload ?? {};
+        const typeRaw = p.type ?? p.overrideType;
+        let overrideType: string;
+        let payload: Record<string, unknown>;
+        if (p.payload && typeof p.payload === "object") {
+          overrideType = (typeRaw ?? p.payload.type ?? "").toString();
+          payload = p.payload as Record<string, unknown>;
+        } else {
+          overrideType = (typeRaw ?? "").toString();
+          payload = p as Record<string, unknown>;
+        }
+        const norm = normalizeOverridePayload(overrideType, payload);
+        if (!norm) return { ok: false, error: "invalid_payload" };
         try {
-          await upsertUserOverride(overrideType, payload);
+          await upsertUserOverride(norm.type, norm.payload);
           const lists = await getLists();
           return { ok: true, updatedAt: lists.updatedAt };
         } catch (e) {
@@ -149,10 +160,24 @@ async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender):
         }
       }
       case "SG_LISTS_OVERRIDE_REMOVE": {
-        const overrideType = msg.payload?.type;
-        const payload = msg.payload?.payload ?? {};
+        const p = msg.payload ?? {};
+        const typeRaw = p.type ?? p.overrideType;
+        let overrideType: string;
+        let payload: Record<string, unknown>;
+        if (p.payload && typeof p.payload === "object") {
+          overrideType = (typeRaw ?? p.payload.type ?? "").toString();
+          payload = p.payload as Record<string, unknown>;
+        } else {
+          overrideType = (typeRaw ?? "").toString();
+          payload = p as Record<string, unknown>;
+        }
+        const norm = normalizeOverridePayload(overrideType, payload);
+        if (!norm) return { ok: false, error: "invalid_payload" };
+        const val = (norm.payload.value ?? norm.payload.address ?? "").toString();
+        const chainId = (norm.payload.chainId ?? "").toString();
+        const addr = (norm.payload.address ?? norm.payload.tokenAddress ?? "").toString();
         try {
-          await deleteUserOverride(overrideType, payload);
+          await deleteUserOverride(norm.type, val, (norm.type === "scam_token" || norm.type === "trusted_token") ? chainId : undefined, (norm.type === "scam_token" || norm.type === "trusted_token") ? addr : undefined);
           const lists = await getLists();
           return { ok: true, updatedAt: lists.updatedAt };
         } catch (e) {
@@ -161,7 +186,14 @@ async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender):
       }
       case "SG_LISTS_EXPORT": {
         const lists = await getLists();
-        return { ok: true, data: lists };
+        const data = {
+          userTrustedDomains: lists.userTrustedDomains ?? [],
+          userBlockedDomains: lists.userBlockedDomains ?? [],
+          userBlockedAddresses: lists.userBlockedAddresses ?? [],
+          userScamTokens: lists.userScamTokens ?? [],
+          userTrustedTokens: lists.userTrustedTokens ?? [],
+        };
+        return { ok: true, data };
       }
       case "SG_LISTS_IMPORT": {
         const data = msg.payload?.data;
@@ -265,7 +297,34 @@ async function handleBgRequest(msg: any, sender?: chrome.runtime.MessageSender):
         const tabId = sender?.tab?.id;
         const analysis = await analyze(req, settings, intel, tabId, addrIntel);
         if (req.wallet) analysis.wallet = req.wallet;
-        if (req.txCostPreview) analysis.txCostPreview = req.txCostPreview;
+        if (req.txCostPreview) {
+          analysis.txCostPreview = { ...req.txCostPreview };
+          const tx = analysis.tx as { feeMaxWei?: string; totalMaxWei?: string; valueWei?: string } | undefined;
+          if (tx && !(analysis.txCostPreview as any).feeMaxWei && tx.feeMaxWei) {
+            (analysis.txCostPreview as any).feeMaxWei = tx.feeMaxWei;
+            (analysis.txCostPreview as any).totalMaxWei = tx.totalMaxWei;
+            (analysis.txCostPreview as any).feeEstimated = true;
+          }
+        }
+        const feeEst = req.feeEstimate;
+        if (feeEst?.ok && feeEst.feeEstimated && (feeEst.feeLikelyWeiHex || feeEst.feeMaxWeiHex)) {
+          const preview = analysis.txCostPreview || { valueWei: "0", feeEstimated: false };
+          const valueWei = BigInt(preview.valueWei || (analysis.tx as any)?.valueWei || "0");
+          const feeLikelyWei = feeEst.feeLikelyWeiHex ? BigInt(feeEst.feeLikelyWeiHex) : 0n;
+          const feeMaxWei = feeEst.feeMaxWeiHex ? BigInt(feeEst.feeMaxWeiHex) : feeLikelyWei;
+          analysis.txCostPreview = {
+            ...preview,
+            valueWei: valueWei.toString(),
+            gasLimitWei: feeEst.gasLimitHex ? BigInt(feeEst.gasLimitHex).toString() : preview.gasLimitWei,
+            feeLikelyWei: feeLikelyWei.toString(),
+            feeMaxWei: feeMaxWei.toString(),
+            totalLikelyWei: (valueWei + feeLikelyWei).toString(),
+            totalMaxWei: (valueWei + feeMaxWei).toString(),
+            feeEstimated: true,
+          };
+        }
+        const chainIdHex = (req.txCostPreview as any)?.chainIdHex ?? (req.meta as any)?.preflight?.chainIdHex ?? (req.meta as any)?.chainIdHex;
+        if (chainIdHex) (analysis as any).chainIdHex = chainIdHex;
         await enrichWithSimulation(req, analysis, settings);
         applyPolicy(analysis, settings);
         if (!settings.riskWarnings) {
@@ -793,7 +852,9 @@ function summarizeTx(method: string, params: any[]): any | null {
 
   const gasLimit = hexToBigInt((tx as any).gas || (tx as any).gasLimit || "0x0");
   const maxFeePerGas = hexToBigInt((tx as any).maxFeePerGas || "0x0");
+  const maxPriorityFeePerGas = hexToBigInt((tx as any).maxPriorityFeePerGas || "0x0");
   const gasPrice = hexToBigInt((tx as any).gasPrice || "0x0");
+  const dataLen = typeof (tx as any).data === "string" ? (tx as any).data.length : 0;
 
   const hasGas = gasLimit > 0n;
   const hasFeePerGas = maxFeePerGas > 0n || gasPrice > 0n;
@@ -802,17 +863,38 @@ function summarizeTx(method: string, params: any[]): any | null {
   const feePerGas = maxFeePerGas > 0n ? maxFeePerGas : gasPrice;
   let maxGasFeeEth = "";
   let maxTotalEth = "";
+  let feeMaxWeiStr = "";
+  let totalMaxWeiStr = "";
   if (feeKnown && gasLimit > 0n && feePerGas > 0n) {
     const gasFeeWei = gasLimit * feePerGas;
     maxGasFeeEth = weiToEth(gasFeeWei);
     maxTotalEth = weiToEth(valueWei + gasFeeWei);
+    feeMaxWeiStr = gasFeeWei.toString();
+    totalMaxWeiStr = (valueWei + gasFeeWei).toString();
   }
 
   const selector =
     data && data.startsWith("0x") && data.length >= 10 ? data.slice(0, 10) : "";
 
   const contractNameHint = to && data && data !== "0x" && data.toLowerCase() !== "0x" ? shortAddr(to) : undefined;
-  return { to, valueEth, maxGasFeeEth, maxTotalEth, selector, feeKnown, contractNameHint };
+  return {
+    to,
+    valueWei: valueWei.toString(),
+    valueEth,
+    gasLimitWei: gasLimit > 0n ? gasLimit.toString() : undefined,
+    gasLimit: gasLimit > 0n ? gasLimit.toString() : undefined,
+    maxFeePerGasWei: maxFeePerGas > 0n ? maxFeePerGas.toString() : undefined,
+    maxPriorityFeePerGasWei: maxPriorityFeePerGas > 0n ? maxPriorityFeePerGas.toString() : undefined,
+    gasPriceWei: gasPrice > 0n ? gasPrice.toString() : undefined,
+    dataLen: dataLen > 0 ? dataLen : undefined,
+    feeMaxWei: feeMaxWeiStr || undefined,
+    totalMaxWei: totalMaxWeiStr || undefined,
+    maxGasFeeEth,
+    maxTotalEth,
+    selector,
+    feeKnown,
+    contractNameHint,
+  };
 }
 
 function isProtectionPaused(settings: Settings): boolean {
@@ -875,24 +957,24 @@ function intentFromTxDataAndValue(data: string, valueWei: bigint, selector: stri
   const hasData = !!dataNorm && dataNorm !== "0x" && dataNorm.toLowerCase() !== "0x";
   const hasValue = valueWei > 0n;
 
+  const s = String(selector || "").toLowerCase();
+  if (hasData && s && s.startsWith("0x") && s.length === 10) {
+    if (s === "0x095ea7b3" || s === "0xa22cb465") return "APPROVAL";
+    const swap = new Set([
+      "0x38ed1739", "0x7ff36ab5", "0x18cbafe5", "0x04e45aaf", "0xb858183f", "0x5023b4df", "0x09b81346",
+    ]);
+    if (swap.has(s)) return "SWAP";
+    const nftPurchase = new Set([
+      "0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12",
+      "0xab834bab", "0x24856bc3", "0xa6f97b27", "0x1b14e9e1",
+    ]);
+    if (nftPurchase.has(s)) return "NFT_PURCHASE";
+  }
+
   if (hasData && hasValue) return "CONTRACT_INTERACTION";
   if (hasData) return "CONTRACT_INTERACTION";
   if (!hasData && hasValue) return "ETH_TRANSFER";
-
-  const s = String(selector || "").toLowerCase();
   if (!s || !s.startsWith("0x") || s.length !== 10) return "UNKNOWN";
-  if (s === "0x095ea7b3" || s === "0xa22cb465") return "APPROVAL";
-
-  const swap = new Set([
-    "0x38ed1739", "0x7ff36ab5", "0x18cbafe5", "0x04e45aaf", "0xb858183f", "0x5023b4df", "0x09b81346",
-  ]);
-  if (swap.has(s)) return "SWAP";
-
-  const seaport = new Set([
-    "0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12",
-  ]);
-  if (seaport.has(s)) return "NFT_PURCHASE";
-
   return "CONTRACT_INTERACTION";
 }
 
@@ -906,12 +988,35 @@ function intentFromSelector(selector: string): Intent {
   ]);
   if (swap.has(s)) return "SWAP";
 
-  const seaport = new Set([
+  const nftPurchase = new Set([
     "0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12",
+    "0xab834bab", "0x24856bc3", "0xa6f97b27", "0x1b14e9e1",
   ]);
-  if (seaport.has(s)) return "NFT_PURCHASE";
+  if (nftPurchase.has(s)) return "NFT_PURCHASE";
 
   return "CONTRACT_INTERACTION";
+}
+
+type TxContextKind = "SWITCH_NETWORK" | "NFT_PURCHASE" | "TOKEN_SWAP" | "VALUE_TRANSFER" | "CONTRACT_CALL" | "APPROVAL";
+
+function detectTxContext(opts: { host: string; txTo: string; data: string; valueWei: bigint; selector: string }): TxContextKind {
+  const { host, data, valueWei, selector } = opts;
+  const s = String(selector || "").toLowerCase();
+  const h = (host || "").toLowerCase();
+  const hasData = !!data && data !== "0x" && data.toLowerCase() !== "0x";
+  const hasValue = valueWei > 0n;
+
+  const approveSelectors = new Set(["0x095ea7b3", "0xa22cb465"]);
+  if (approveSelectors.has(s)) return "APPROVAL";
+
+  const swapSelectors = new Set(["0x38ed1739", "0x7ff36ab5", "0x18cbafe5", "0x04e45aaf", "0xb858183f", "0x5023b4df", "0x09b81346"]);
+  if (swapSelectors.has(s)) return "TOKEN_SWAP";
+
+  const seaportSelectors = new Set(["0xfb0f3ee1", "0xb3a34c4c", "0xed98a574", "0xf2d12b12", "0xab834bab", "0x24856bc3", "0xa6f97b27", "0x1b14e9e1"]);
+  if (seaportSelectors.has(s)) return "NFT_PURCHASE";
+
+  if (!hasData && hasValue) return "VALUE_TRANSFER";
+  return "CONTRACT_CALL";
 }
 
 function addChecksAndVerdict(
@@ -1731,6 +1836,21 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
       level = "HIGH";
       score = Math.max(score, 95);
     }
+    let tokenConfidencePartial: Partial<Analysis> = {};
+    if (tokenForAsset && listCache) {
+      await markTokenSeen(chainIdHex, tokenForAsset);
+      const firstSeen = await getTokenFirstSeen(chainIdHex, tokenForAsset);
+      const tokenScam = isScamToken(chainIdHex, tokenForAsset, listCache);
+      const tokenTrusted = isTrustedToken(chainIdHex, tokenForAsset, listCache) || !!(tokenInfo?.v);
+      const isNew = firstSeen ? (Date.now() - firstSeen < 7 * 24 * 60 * 60 * 1000) : true;
+      let tokenConfidence: "SCAM" | "TRUSTED" | "LOW" | "UNKNOWN" = "UNKNOWN";
+      if (tokenScam) tokenConfidence = "SCAM";
+      else if (tokenTrusted) tokenConfidence = "TRUSTED";
+      else if (isNew) tokenConfidence = "LOW";
+      tokenConfidencePartial = { tokenConfidence, tokenFirstSeenAt: firstSeen ?? undefined };
+      if (tokenConfidence === "LOW") reasons.push("Token não verificado/recém visto — cautela.");
+    }
+    Object.assign(tokenMeta, tokenConfidencePartial);
     if (decodedAction && tokenForAsset && (settings.assetEnrichmentEnabled ?? true) && tabId) {
       try { asset = await getAssetInfo(chainId || "0x1", tokenForAsset, tabId); } catch {}
     }
@@ -1916,6 +2036,12 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
     const feeGtValue = !!(txSummary?.feeKnown && txSummary.maxGasFeeEth && txSummary.valueEth && parseFloat(txSummary.maxGasFeeEth) > parseFloat(txSummary.valueEth));
     if (feeGtValue) reasons.unshift(t("fee_gt_value"));
     const toIsContract = await getToIsContract(to || undefined, tabId);
+    const host = hostFromUrl(req.url || "");
+    const txCtx = detectTxContext({ host, txTo: to, data, valueWei, selector });
+    if (intent === "NFT_PURCHASE") reasons.push("Compra de NFT: ao confirmar, valor será transferido e NFT adquirido.");
+    if (intent === "SWAP") reasons.push("Swap/compra de token via contrato: ao confirmar, você troca ativo por token.");
+    if (valueWei > 0n) reasons.push("Envia valor nativo (ETH).");
+    if (reasons.length === 0) reasons.push("Transação on-chain: confirme valor, destino e rede.");
     const defaultRecommend = level === "HIGH" ? (settings.blockHighRisk ? "BLOCK" : "WARN") : (level === "WARN" ? "WARN" : "ALLOW");
     return {
       level: hasAddrIntelHit && addrIntelRecommend === "BLOCK" ? "HIGH" : level,
@@ -1930,6 +2056,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
       tx: txSummary || undefined,
       txExtras,
       intent,
+      txContext: { kind: txCtx },
       safeDomain,
       asset: asset || undefined,
       flaggedAddress: flaggedAddr,
@@ -1945,6 +2072,7 @@ async function analyze(req: AnalyzeRequest, settings: Settings, intel: ThreatInt
         whatItDoes: lists.whatItDoes,
         risks: lists.risks,
         safeNotes: lists.safeNotes,
+        safe: lists.safeNotes,
         nextSteps: lists.nextSteps,
         recommendation: trust.verdict === "SUSPICIOUS" ? t("human_tx_reco_suspicious") : t("human_tx_reco_ok"),
       }

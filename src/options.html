@@ -90,6 +90,7 @@
             <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios bloqueados</span></div>
             <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Endereços bloqueados</span></div>
             <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens scam</span></div>
+            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens confiáveis</span></div>
           </div>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <span id="listsLastUpdated" style="color:var(--text-muted);font-size:0.9rem;">—</span>
@@ -119,7 +120,8 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <input type="text" id="listsAddTokenChain" placeholder="ChainId (ex: 0x1)" style="width:100px;" />
             <input type="text" id="listsAddTokenAddr" placeholder="Endereço do token 0x..." style="width:320px;" />
-            <button id="listsAddTokenBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar token scam</button>
+            <select id="listsAddTokenKind"><option value="userTrustedTokens">Token confiável</option><option value="userScamTokens">Token scam</option></select>
+            <button id="listsAddTokenBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar token</button>
           </div>
         </div>
         <div class="card">

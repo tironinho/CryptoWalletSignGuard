@@ -1,16 +1,150 @@
 "use strict";
 (() => {
+  // src/feeEstimate.ts
+  var RPC_TIMEOUT_MS = 2500;
+  async function tryRpc(providerRequest, method, params, timeoutMs = RPC_TIMEOUT_MS) {
+    let t;
+    const timeout = new Promise((res) => {
+      t = setTimeout(() => res(null), timeoutMs);
+    });
+    try {
+      const r = await Promise.race([providerRequest({ method, params }).then((x) => x), timeout]);
+      clearTimeout(t);
+      return r;
+    } catch {
+      clearTimeout(t);
+      return null;
+    }
+  }
+  async function estimateFee(providerRequest, tx) {
+    try {
+      let gasLimit;
+      const gasHex = await tryRpc(providerRequest, "eth_estimateGas", [tx]);
+      if (gasHex != null && typeof gasHex === "string") {
+        try {
+          gasLimit = BigInt(gasHex);
+        } catch {
+          gasLimit = 150000n;
+        }
+      } else {
+        const hasData = tx?.data && String(tx.data) !== "0x" && String(tx.data).toLowerCase() !== "0x";
+        const valueWei = BigInt(tx?.value || "0x0");
+        gasLimit = hasData ? 150000n : valueWei > 0n ? 21000n : 150000n;
+      }
+      const maxFeePerGas = tx?.maxFeePerGas ? BigInt(tx.maxFeePerGas) : void 0;
+      const maxPriorityFeePerGas = tx?.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : void 0;
+      const gasPrice = tx?.gasPrice ? BigInt(tx.gasPrice) : void 0;
+      let computedMaxFee = maxFeePerGas;
+      let computedPriority = maxPriorityFeePerGas;
+      if (!computedMaxFee && !gasPrice) {
+        let baseFee;
+        const fh = await tryRpc(providerRequest, "eth_feeHistory", ["0x1", "latest", []]);
+        const arr = fh?.baseFeePerGas;
+        if (Array.isArray(arr) && arr.length > 0) {
+          try {
+            baseFee = BigInt(arr[arr.length - 1]);
+          } catch {
+            baseFee = void 0;
+          }
+        } else {
+          baseFee = void 0;
+        }
+        if (baseFee != null) {
+          computedPriority = computedPriority ?? 1000000000n;
+          computedMaxFee = baseFee * 2n + computedPriority;
+        } else {
+          const gpHex = await tryRpc(providerRequest, "eth_gasPrice", []);
+          if (gpHex != null && gpHex !== "") return finalizeLegacy(gasLimit, BigInt(gpHex));
+          return { ok: false, reason: "fee_unknown_wallet_will_estimate" };
+        }
+      }
+      if (gasPrice) return finalizeLegacy(gasLimit, gasPrice);
+      if (!computedMaxFee) {
+        return { ok: false, reason: "fee_unknown_wallet_will_estimate" };
+      }
+      const maxP = computedMaxFee;
+      const prio = computedPriority ?? 0n;
+      const likelyPerGas = (maxP + prio) / 2n;
+      const feeMaxWei = gasLimit * maxP;
+      const feeLikelyWei = gasLimit * likelyPerGas;
+      return {
+        ok: true,
+        gasLimit,
+        maxFeePerGas: maxP,
+        maxPriorityFeePerGas: prio,
+        feeMaxWei,
+        feeLikelyWei
+      };
+    } catch {
+      return { ok: false, reason: "fee_unknown_wallet_will_estimate" };
+    }
+  }
+  function finalizeLegacy(gasLimit, gasPrice) {
+    const feeMaxWei = gasLimit * gasPrice;
+    return { ok: true, gasLimit, gasPrice, feeMaxWei, feeLikelyWei: feeMaxWei };
+  }
+
   // src/mainWorld.ts
   var DEBUG_PREFIX = "\u{1F680} [SignGuard MainWorld]";
   var SG_DECISION_EVENT = "__sg_decision__";
   function log(msg, ...args) {
     console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
   }
+  function parseHexOrDecToBigInt(v) {
+    try {
+      if (typeof v === "bigint") return v;
+      if (typeof v === "number" && Number.isFinite(v)) return BigInt(Math.trunc(v));
+      if (typeof v === "string") {
+        if (v.startsWith("0x")) return BigInt(v);
+        if (/^\d+$/.test(v)) return BigInt(v);
+      }
+    } catch {
+    }
+    return 0n;
+  }
+  async function safeGetChainIdHex(provider) {
+    try {
+      const direct = provider?.chainId;
+      if (typeof direct === "string" && direct.startsWith("0x")) return direct;
+    } catch {
+    }
+    try {
+      const cid = await provider?.request?.({ method: "eth_chainId", params: [] });
+      if (typeof cid === "string" && cid.startsWith("0x")) return cid;
+    } catch {
+    }
+    return null;
+  }
+  async function buildTxCostPreview(provider, tx) {
+    const valueWei = parseHexOrDecToBigInt(tx?.value ?? "0x0");
+    const fee = await estimateFee(provider.request.bind(provider), tx);
+    const out = {
+      valueWei: valueWei.toString(),
+      feeEstimated: fee.ok
+    };
+    if (fee.ok) {
+      const feeLikelyWei = fee.feeLikelyWei ?? 0n;
+      const feeMaxWei = fee.feeMaxWei ?? 0n;
+      const totalLikelyWei = valueWei + feeLikelyWei;
+      const totalMaxWei = valueWei + feeMaxWei;
+      out.gasLimitWei = (fee.gasLimit ?? 0n).toString();
+      out.maxFeePerGasWei = (fee.maxFeePerGas ?? 0n).toString();
+      out.maxPriorityFeePerGasWei = (fee.maxPriorityFeePerGas ?? 0n).toString();
+      out.feeLikelyWei = feeLikelyWei.toString();
+      out.feeMaxWei = feeMaxWei.toString();
+      out.totalLikelyWei = totalLikelyWei.toString();
+      out.totalMaxWei = totalMaxWei.toString();
+    } else {
+      out.feeReasonKey = fee.reason || "fee_unknown";
+    }
+    return out;
+  }
   log("Script injected and started.");
   function patchProvider(provider) {
     if (!provider || provider._sg_patched) return;
     log("Patching found provider:", provider);
     const originalRequest = provider.request.bind(provider);
+    provider.__sg_originalRequest = originalRequest;
     Object.defineProperty(provider, "request", {
       value: async (args) => {
         const method = args?.method;
@@ -29,17 +163,69 @@
         }
         log(`\u{1F6D1} HOLDING Request: ${method}. Sending to Content Script...`);
         const requestId = crypto.randomUUID();
-        window.postMessage({
-          source: "signguard",
-          type: "SG_REQUEST",
-          requestId,
-          payload: {
-            method,
-            params: args.params,
-            host: window.location.hostname,
-            url: window.location.href
+        const m = String(method || "").toLowerCase();
+        const tx = Array.isArray(args.params) ? args.params[0] : void 0;
+        const isTx = m === "eth_sendtransaction" || m === "wallet_sendtransaction";
+        let chainIdHex = null;
+        try {
+          const direct = provider?.chainId;
+          if (typeof direct === "string" && direct.startsWith("0x")) chainIdHex = direct;
+        } catch {
+        }
+        if (!chainIdHex) {
+          chainIdHex = await safeGetChainIdHex(provider);
+        }
+        let txCostPreview;
+        if (isTx && tx && typeof tx === "object") {
+          const valueWei = parseHexOrDecToBigInt(tx.value ?? "0x0");
+          txCostPreview = {
+            valueWei: valueWei.toString(),
+            feeEstimated: false,
+            feeReasonKey: "fee_calculating"
+          };
+        }
+        let chainIdRequested;
+        if (m === "wallet_switchethereumchain" || m === "wallet_addethereumchain") {
+          const p0 = Array.isArray(args.params) ? args.params[0] : void 0;
+          if (p0 && typeof p0 === "object") {
+            const cidReq = p0.chainId;
+            if (typeof cidReq === "string") chainIdRequested = cidReq;
           }
-        }, "*");
+        }
+        window.postMessage(
+          {
+            source: "signguard",
+            type: "SG_REQUEST",
+            requestId,
+            payload: {
+              method,
+              params: args.params,
+              host: window.location.hostname,
+              url: window.location.href,
+              chainIdHex: chainIdHex ?? void 0,
+              txCostPreview,
+              meta: chainIdRequested ? { chainIdRequested } : void 0
+            }
+          },
+          "*"
+        );
+        if (isTx && tx && typeof tx === "object") {
+          (async () => {
+            try {
+              const preview = await buildTxCostPreview(provider, tx);
+              window.postMessage(
+                {
+                  source: "signguard",
+                  type: "SG_PREVIEW_UPDATE",
+                  requestId,
+                  payload: { txCostPreview: preview }
+                },
+                "*"
+              );
+            } catch {
+            }
+          })();
+        }
         return new Promise((resolve, reject) => {
           let resolved = false;
           const onDecision = (ev) => {
@@ -107,5 +293,38 @@
     }, 1e3);
   }
   init();
+  window.addEventListener("message", async (ev) => {
+    if (ev.source !== window || ev.data?.source !== "signguard-content" || ev.data?.type !== "SG_FEE_ESTIMATE_REQ") return;
+    const { requestId, tx } = ev.data?.payload ?? {};
+    if (!requestId || !tx) return;
+    const eth = window.ethereum;
+    const orig = eth?.__sg_originalRequest ?? eth?.request?.bind?.(eth);
+    if (!orig) {
+      window.postMessage({ source: "signguard", type: "SG_FEE_ESTIMATE_RES", requestId, feeEstimate: { ok: false, feeEstimated: false, error: "no_provider" } }, "*");
+      return;
+    }
+    try {
+      const fee = await estimateFee((args) => orig(args), tx);
+      const valueWei = typeof tx?.value === "string" ? BigInt(tx.value) : BigInt(tx?.value || "0x0");
+      const gasLimit = fee.gasLimit ?? 150000n;
+      const feeLikelyWei = fee.feeLikelyWei ?? 0n;
+      const feeMaxWei = fee.feeMaxWei ?? 0n;
+      window.postMessage({
+        source: "signguard",
+        type: "SG_FEE_ESTIMATE_RES",
+        requestId,
+        feeEstimate: {
+          ok: fee.ok,
+          gasLimitHex: fee.ok && gasLimit ? "0x" + gasLimit.toString(16) : void 0,
+          feeLikelyWeiHex: fee.ok && feeLikelyWei ? "0x" + feeLikelyWei.toString(16) : void 0,
+          feeMaxWeiHex: fee.ok && feeMaxWei ? "0x" + feeMaxWei.toString(16) : void 0,
+          feeEstimated: fee.ok,
+          feeReasonKey: fee.reason
+        }
+      }, "*");
+    } catch (e) {
+      window.postMessage({ source: "signguard", type: "SG_FEE_ESTIMATE_RES", requestId, feeEstimate: { ok: false, feeEstimated: false, error: String(e?.message ?? e) } }, "*");
+    }
+  });
 })();
 //# sourceMappingURL=mainWorld.js.map

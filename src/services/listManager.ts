@@ -32,7 +32,22 @@ function emptyCache(): ListsCacheV1 {
     userBlockedDomains: [],
     userBlockedAddresses: [],
     userScamTokens: [],
+    userTrustedTokens: [],
   };
+}
+
+function normalizeChain(c: string): string {
+  const s = String(c ?? "").trim().toLowerCase();
+  if (!s) return "";
+  return s.startsWith("0x") ? s : "0x" + parseInt(s, 10).toString(16);
+}
+
+export function isTrustedToken(chainIdHex: string, tokenAddress: string, cache: ListsCacheV1): boolean {
+  const c = normalizeChain(chainIdHex);
+  const a = normalizeAddress(tokenAddress);
+  if (!c || !a) return false;
+  const list = cache.userTrustedTokens ?? [];
+  return list.some((t) => normalizeChain(t.chainId) === c && normalizeAddress(t.address) === a);
 }
 
 function getStorage(): Promise<ListsCacheV1 | null> {
@@ -186,7 +201,10 @@ function parseMewAddresses(body: string): string[] {
 
 export async function getLists(): Promise<ListsCacheV1> {
   const cache = await getStorage();
-  if (cache) return cache;
+  if (cache) {
+    if (!cache.userTrustedTokens) (cache as ListsCacheV1).userTrustedTokens = [];
+    return cache;
+  }
   const fresh = emptyCache();
   fresh.trustedDomains = [...new Set(TRUSTED_DOMAINS_SEED.map((d) => normalizeHost(d)).filter(Boolean))];
   fresh.blockedDomains = [...new Set(BLOCKED_DOMAINS_SEED.map((d) => normalizeHost(d)).filter(Boolean))];
@@ -346,25 +364,51 @@ export async function refresh(forceRefresh?: boolean): Promise<ListsCacheV1> {
   return updated;
 }
 
-export type OverrideType = "trusted_domain" | "blocked_domain" | "blocked_address" | "scam_token";
-export type OverridePayload = { type: OverrideType; value: string; chainId?: string; address?: string };
+export type OverrideType = "trusted_domain" | "blocked_domain" | "blocked_address" | "scam_token" | "trusted_token";
+export type OverridePayload = { type?: OverrideType; value?: string; chainId?: string; address?: string; tokenAddress?: string };
+
+/** Normalize legacy options payloads to canonical override format. */
+export function normalizeOverridePayload(typeRaw: string, payload: Record<string, unknown>): { type: OverrideType; payload: OverridePayload } | null {
+  const t = (typeRaw ?? "").toString().toLowerCase();
+  const domain = (payload.domain ?? payload.value ?? "").toString().trim();
+  const address = (payload.address ?? payload.tokenAddress ?? payload.value ?? "").toString().trim();
+  const chainId = (payload.chainId ?? "").toString().trim();
+  if (t === "usertrusteddomains" && domain) return { type: "trusted_domain", payload: { value: domain } };
+  if (t === "userblockeddomains" && domain) return { type: "blocked_domain", payload: { value: domain } };
+  if (t === "userblockedaddresses" && address) return { type: "blocked_address", payload: { value: address, address } };
+  if (t === "userscamtokens" && chainId && address) return { type: "scam_token", payload: { chainId, address } };
+  if (t === "usertrustedtokens" && chainId && address) return { type: "trusted_token", payload: { chainId, address } };
+  if (t === "trusted_domain" && domain) return { type: "trusted_domain", payload: { value: domain } };
+  if (t === "blocked_domain" && domain) return { type: "blocked_domain", payload: { value: domain } };
+  if (t === "blocked_address" && address) return { type: "blocked_address", payload: { value: address, address } };
+  if (t === "scam_token" && chainId && address) return { type: "scam_token", payload: { chainId, address } };
+  if (t === "trusted_token" && chainId && address) return { type: "trusted_token", payload: { chainId, address } };
+  return null;
+}
 
 export async function upsertUserOverride(type: OverrideType, payload: OverridePayload): Promise<ListsCacheV1> {
   const cache = await getLists();
-  const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], updatedAt: Date.now() };
+  const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], userTrustedTokens: [...(cache.userTrustedTokens ?? [])], updatedAt: Date.now() };
   if (type === "trusted_domain") {
-    const v = normalizeHost(payload.value);
+    const v = normalizeHost(payload.value ?? "");
     if (v && !next.userTrustedDomains.includes(v)) next.userTrustedDomains.push(v);
   } else if (type === "blocked_domain") {
-    const v = normalizeHost(payload.value);
+    const v = normalizeHost(payload.value ?? "");
     if (v && !next.userBlockedDomains.includes(v)) next.userBlockedDomains.push(v);
   } else if (type === "blocked_address") {
     const v = normalizeAddress(payload.value || payload.address || "");
     if (v && !next.userBlockedAddresses.includes(v)) next.userBlockedAddresses.push(v);
   } else if (type === "scam_token" && payload.chainId && payload.address) {
     const addr = normalizeAddress(payload.address);
-    if (addr && !next.userScamTokens.some((t) => t.chainId === payload.chainId && t.address === addr)) {
-      next.userScamTokens.push({ chainId: payload.chainId, address: addr });
+    const c = normalizeChain(payload.chainId);
+    if (addr && c && !next.userScamTokens.some((t) => normalizeChain(t.chainId) === c && t.address === addr)) {
+      next.userScamTokens.push({ chainId: c, address: addr });
+    }
+  } else if (type === "trusted_token" && payload.chainId && payload.address) {
+    const addr = normalizeAddress(payload.address);
+    const c = normalizeChain(payload.chainId);
+    if (addr && c && !next.userTrustedTokens.some((t) => normalizeChain(t.chainId) === c && t.address === addr)) {
+      next.userTrustedTokens.push({ chainId: c, address: addr });
     }
   }
   await setStorage(next);
@@ -373,11 +417,12 @@ export async function upsertUserOverride(type: OverrideType, payload: OverridePa
 
 export async function deleteUserOverride(type: OverrideType, value: string, chainId?: string, address?: string): Promise<ListsCacheV1> {
   const cache = await getLists();
-  const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], updatedAt: Date.now() };
+  const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], userTrustedTokens: [...(cache.userTrustedTokens ?? [])], updatedAt: Date.now() };
   if (type === "trusted_domain") next.userTrustedDomains = next.userTrustedDomains.filter((d) => d !== normalizeHost(value));
   else if (type === "blocked_domain") next.userBlockedDomains = next.userBlockedDomains.filter((d) => d !== normalizeHost(value));
   else if (type === "blocked_address") next.userBlockedAddresses = next.userBlockedAddresses.filter((a) => a !== normalizeAddress(value || address || ""));
-  else if (type === "scam_token" && chainId && address) next.userScamTokens = next.userScamTokens.filter((t) => !(t.chainId === chainId && t.address === normalizeAddress(address)));
+  else if (type === "scam_token" && chainId && address) next.userScamTokens = next.userScamTokens.filter((t) => !(normalizeChain(t.chainId) === normalizeChain(chainId) && t.address === normalizeAddress(address)));
+  else if (type === "trusted_token" && chainId && address) next.userTrustedTokens = next.userTrustedTokens.filter((t) => !(normalizeChain(t.chainId) === normalizeChain(chainId) && t.address === normalizeAddress(address)));
   await setStorage(next);
   return next;
 }
@@ -402,13 +447,15 @@ export async function importUserOverrides(data: {
   userBlockedDomains?: string[];
   userBlockedAddresses?: string[];
   userScamTokens?: Array<{ chainId: string; address: string; symbol?: string; name?: string }>;
+  userTrustedTokens?: Array<{ chainId: string; address: string }>;
 }): Promise<ListsCacheV1> {
   const cache = await getLists();
   const next = { ...cache, updatedAt: Date.now() };
   if (Array.isArray(data.userTrustedDomains)) next.userTrustedDomains = data.userTrustedDomains.map((d) => normalizeHost(String(d))).filter(Boolean);
   if (Array.isArray(data.userBlockedDomains)) next.userBlockedDomains = data.userBlockedDomains.map((d) => normalizeHost(String(d))).filter(Boolean);
   if (Array.isArray(data.userBlockedAddresses)) next.userBlockedAddresses = data.userBlockedAddresses.map((a) => normalizeAddress(String(a))).filter(Boolean);
-  if (Array.isArray(data.userScamTokens)) next.userScamTokens = data.userScamTokens.filter((t) => t && t.chainId && t.address).map((t) => ({ chainId: String(t.chainId), address: normalizeAddress(t.address), symbol: t.symbol, name: t.name }));
+  if (Array.isArray(data.userScamTokens)) next.userScamTokens = data.userScamTokens.filter((t) => t && t.chainId && t.address).map((t) => ({ chainId: normalizeChain(String(t.chainId)), address: normalizeAddress(t.address), symbol: t.symbol, name: t.name }));
+  if (Array.isArray(data.userTrustedTokens)) next.userTrustedTokens = data.userTrustedTokens.filter((t) => t && t.chainId && t.address).map((t) => ({ chainId: normalizeChain(String(t.chainId)), address: normalizeAddress(t.address) }));
   await setStorage(next);
   return next;
 }
