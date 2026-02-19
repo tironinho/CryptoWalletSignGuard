@@ -1,3 +1,63 @@
+// src/lists/cryptoTrustedDomainsSeed.ts
+var CRYPTO_TRUSTED_DOMAINS_SEED = [
+  // Explorers
+  "etherscan.io",
+  "etherscan.com",
+  "arbiscan.io",
+  "polygonscan.com",
+  "bscscan.com",
+  "basescan.org",
+  "snowtrace.io",
+  "optimistic.etherscan.io",
+  // NFTs
+  "opensea.io",
+  "blur.io",
+  "looksrare.org",
+  "x2y2.io",
+  "rarible.com",
+  "magiceden.io",
+  // DEX/DeFi
+  "uniswap.org",
+  "app.uniswap.org",
+  "1inch.io",
+  "app.1inch.io",
+  "aave.com",
+  "app.aave.com",
+  "curve.fi",
+  "app.curve.fi",
+  "balancer.fi",
+  "app.balancer.fi",
+  "sushiswap.fi",
+  "matcha.xyz",
+  "paraswap.io",
+  "cowswap.exchange",
+  // Bridges/L2
+  "bridge.arbitrum.io",
+  "optimism.io",
+  "base.org",
+  "arbitrum.io",
+  "polygon.technology",
+  "hop.exchange",
+  "stargate.finance",
+  "across.to",
+  "portalbridge.com",
+  "zksync.io",
+  // Infra / Wallets
+  "chain.link",
+  "lido.fi",
+  "stake.lido.fi",
+  "ens.domains",
+  "app.ens.domains",
+  "metamask.io",
+  "metamask.com",
+  "rabby.io",
+  "walletconnect.com",
+  "walletconnect.org",
+  "safe.global",
+  "revoke.cash",
+  "app.revoke.cash"
+];
+
 // src/shared/types.ts
 var SUPPORTED_WALLETS = [
   { name: "MetaMask", kind: "EVM" },
@@ -28,40 +88,27 @@ var DEFAULT_SETTINGS = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: true,
-  showUsd: true,
+  cloudIntelOptIn: false,
+  telemetryOptIn: false,
+  telemetryEnabled: false,
+  showUsd: false,
   defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
-  trustedDomains: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   supportedWalletsInfo: SUPPORTED_WALLETS,
-  allowlist: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   customBlockedDomains: [],
   customTrustedDomains: [],
+  allowlistSpenders: [],
+  denylistSpenders: [],
+  failMode: "fail_open",
   enableIntel: true,
   vault: {
     enabled: false,
-    lockedContracts: []
+    lockedContracts: [],
+    unlockedUntil: 0,
+    blockApprovals: false
   },
   simulation: {
     enabled: false,
@@ -73,193 +120,99 @@ var DEFAULT_SETTINGS = {
   fortressMode: false
 };
 
-// src/services/telemetryService.ts
-var SUPABASE_URL = "https://cjnzidctntqzamhwmwkt.supabase.co";
-var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqbnppZGN0bnRxemFtaHdtd2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MzIzNzQsImV4cCI6MjA4NjUwODM3NH0.NyUvGRPY1psOwpJytWG_d3IXwCwPxLtuSG6V1uX13mc";
-var INSTALL_ID_KEY = "installId";
-var getSettingsFn = null;
-async function getTermsAccepted() {
+// src/runtimeSafe.ts
+function hasRuntime(c) {
   try {
-    const r = await new Promise((resolve) => {
-      if (typeof chrome?.storage?.local?.get !== "function") return resolve({});
-      chrome.storage.local.get("termsAccepted", (res) => {
-        resolve(res ?? {});
-      });
-    });
-    return r?.termsAccepted === true;
+    return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
   } catch {
     return false;
   }
 }
-async function getOptIn() {
-  if (!await getTermsAccepted()) return false;
-  if (!getSettingsFn) return true;
-  try {
-    const s = await getSettingsFn();
-    return s?.cloudIntelOptIn !== false;
-  } catch {
-    return true;
-  }
+function getChromeApi() {
+  const localChrome = typeof chrome !== "undefined" ? chrome : null;
+  if (hasRuntime(localChrome)) return localChrome;
+  const globalChrome = typeof globalThis !== "undefined" ? globalThis.chrome : null;
+  if (hasRuntime(globalChrome)) return globalChrome;
+  return null;
 }
-async function sendToSupabase(table, data) {
-  try {
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal"
-      },
-      body: JSON.stringify(data)
-    });
-  } catch {
-  }
-}
-async function getOrCreateInstallationId() {
+async function safeStorageSet(obj) {
   return new Promise((resolve) => {
     try {
-      if (typeof chrome?.storage?.local?.get !== "function") {
-        resolve(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown");
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
+        resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.local.get(INSTALL_ID_KEY, (r) => {
-        if (chrome.runtime?.lastError) {
-          const id2 = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
-          chrome.storage.local.set({ [INSTALL_ID_KEY]: id2 }, () => resolve(id2));
-          return;
+      c.storage.sync.set(obj, () => {
+        try {
+          const err = c.runtime?.lastError;
+          if (err) {
+            resolve({ ok: false, error: err.message || String(err) });
+            return;
+          }
+          resolve({ ok: true, data: true });
+        } catch (e) {
+          resolve({ ok: false, error: e?.message || String(e) });
         }
-        const id = r?.[INSTALL_ID_KEY];
-        if (id && typeof id === "string") {
-          resolve(id);
-          return;
-        }
-        const newId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
-        chrome.storage.local.set({ [INSTALL_ID_KEY]: newId }, () => resolve(newId));
       });
-    } catch {
-      resolve("unknown");
+    } catch (e) {
+      resolve({ ok: false, error: e?.message || String(e) });
     }
   });
 }
-async function identifyUser() {
-  try {
-    if (!await getTermsAccepted()) return await getOrCreateInstallationId();
-    let uuid = await getOrCreateInstallationId();
-    if (uuid === "unknown") {
-      uuid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "unknown";
-      await new Promise((resolve) => {
-        chrome.storage.local.set({ [INSTALL_ID_KEY]: uuid }, () => resolve());
-      });
-    }
-    if (await getOptIn()) {
-      await sendToSupabase("installations", {
-        install_id: uuid,
-        user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-        language: typeof navigator !== "undefined" ? navigator.language : "",
-        timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "",
-        last_active_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    return uuid;
-  } catch {
-    return "unknown";
-  }
-}
-async function registerUser() {
-  await identifyUser();
-}
-async function syncUserWallets(_wallets) {
-}
-async function trackInterest(_category) {
-  if (!await getOptIn()) return;
-}
-async function trackTransaction(txData) {
-  if (!await getOptIn()) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    await sendToSupabase("tx_logs", {
-      install_id: installId,
-      created_at: (/* @__PURE__ */ new Date()).toISOString(),
-      chain_id: txData.chain_id ?? txData.chainId ? String(txData.chain_id ?? txData.chainId) : null,
-      asset_address: txData.asset_address ?? txData.contractAddress ?? null,
-      method: txData.method ?? "unknown",
-      status: txData.status ?? "simulated"
-    });
-  } catch {
-  }
-}
-async function trackTx(payload) {
-  await trackTransaction({
-    chain_id: payload.chainId,
-    asset_address: payload.contractAddress,
-    method: payload.method,
-    status: "simulated"
-  });
-}
-async function trackThreat(url, score, reasons, metadata) {
-  if (!await getOptIn()) return;
-  try {
-    const installId = await getOrCreateInstallationId();
-    let domain = "";
-    try {
-      domain = new URL(url).hostname;
-    } catch {
-      domain = url?.slice(0, 256) ?? "";
-    }
-    await sendToSupabase("threat_reports", {
-      install_id: installId,
-      url: url?.slice(0, 2048) ?? "",
-      domain,
-      risk_score: score,
-      risk_reason: Array.isArray(reasons) ? reasons.join(", ") : "Unknown",
-      created_at: (/* @__PURE__ */ new Date()).toISOString(),
-      ...metadata && typeof metadata === "object" ? metadata : {}
-    });
-  } catch {
-  }
-}
-async function reportThreat(threatData) {
-  await trackThreat(
-    threatData.url ?? "",
-    threatData.score ?? 100,
-    Array.isArray(threatData.reasons) ? threatData.reasons : [],
-    threatData.metadata
-  );
-}
-async function trackEvent(_eventName, _props) {
-  if (!await getOptIn()) return;
-}
-async function trackSession(_data) {
-  if (!await getOptIn()) return;
-}
-async function trackInteraction(_data) {
-  if (!await getOptIn()) return;
-}
-async function updateExtendedProfile(_data) {
-}
-var telemetry = {
-  identifyUser,
-  registerUser,
-  syncUserWallets,
-  trackInterest,
-  trackThreat,
-  reportThreat,
-  trackTransaction,
-  trackEvent,
-  trackTx,
-  trackSession,
-  trackInteraction,
-  updateExtendedProfile
+
+// src/shared/optionalOrigins.ts
+var OPTIONAL_ORIGINS = {
+  cloudIntel: [
+    "https://raw.githubusercontent.com/*",
+    "https://api.cryptoscamdb.org/*",
+    "https://gitlab.com/*",
+    "https://gateway.ipfs.io/*",
+    "https://api.llama.fi/*"
+  ],
+  pricing: [
+    "https://api.coingecko.com/*",
+    "https://api.dexscreener.com/*"
+  ],
+  simulation: ["https://api.tenderly.co/*"],
+  telemetry: ["https://cjnzidctntqzamhwmwkt.supabase.co/*"]
 };
+function getOriginsForFeature(feature) {
+  const list = OPTIONAL_ORIGINS[feature];
+  return list ? [...list] : [];
+}
+
+// src/permissions.ts
+async function requestOrigins(origins) {
+  if (!origins.length) return true;
+  try {
+    if (!chrome?.permissions?.request) return false;
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return false;
+  }
+}
+async function requestOptionalHostPermissions(feature) {
+  const origins = getOriginsForFeature(feature);
+  return requestOrigins(origins);
+}
 
 // src/onboarding.ts
 var acceptBtn = document.getElementById("sgOnbAccept");
 var refuseBtn = document.getElementById("sgOnbRefuse");
+var onbCloudIntel = document.getElementById("onbCloudIntel");
+var onbTelemetry = document.getElementById("onbTelemetry");
+var onbMessage = document.getElementById("onbMessage");
+function showMessage(text, isError = false) {
+  if (!onbMessage) return;
+  onbMessage.textContent = text;
+  onbMessage.classList.toggle("sg-onb-message--error", isError);
+  onbMessage.style.display = text ? "block" : "none";
+}
 async function onAccept() {
   if (!acceptBtn) return;
   acceptBtn.disabled = true;
+  showMessage("");
   try {
     await new Promise((resolve, reject) => {
       chrome.storage.local.set(
@@ -267,35 +220,60 @@ async function onAccept() {
         () => chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()
       );
     });
+    const cloudIntel = onbCloudIntel?.checked === true;
+    const telemetry = onbTelemetry?.checked === true;
     const current = await new Promise((resolve) => {
       chrome.storage.sync.get(DEFAULT_SETTINGS, (r) => {
         resolve(r ?? DEFAULT_SETTINGS);
       });
     });
-    await new Promise((resolve, reject) => {
-      chrome.storage.sync.set(
-        { ...current, cloudIntelOptIn: true },
-        () => chrome.runtime?.lastError ? reject(chrome.runtime.lastError) : resolve()
-      );
-    });
-    await telemetry.registerUser();
+    let cloudIntelFinal = false;
+    if (cloudIntel) {
+      const granted = await requestOptionalHostPermissions("cloudIntel");
+      if (!granted) {
+        showMessage("Sem permiss\xF5es, Cloud Intel permanecer\xE1 desativado. Voc\xEA pode ativar depois em Configura\xE7\xF5es.", true);
+      } else {
+        cloudIntelFinal = true;
+      }
+    }
+    let telemetryFinal = false;
+    if (telemetry) {
+      const granted = await requestOptionalHostPermissions("telemetry");
+      if (!granted) {
+        showMessage("Sem permiss\xF5es, telemetria permanecer\xE1 desativada. Voc\xEA pode ativar depois em Configura\xE7\xF5es.", true);
+      } else {
+        telemetryFinal = true;
+      }
+    }
+    const next = {
+      ...current,
+      cloudIntelOptIn: cloudIntelFinal,
+      telemetryOptIn: telemetryFinal
+    };
+    await safeStorageSet(next);
   } catch {
+    showMessage("Erro ao salvar. Tente novamente em Configura\xE7\xF5es.", true);
+    acceptBtn.disabled = false;
+    return;
   }
   try {
-    const url = typeof chrome.runtime?.getURL === "function" ? chrome.runtime.getURL("options.html") : "options.html";
-    if (typeof chrome?.tabs?.getCurrent === "function") {
-      chrome.tabs.getCurrent((tab) => {
-        if (tab?.id != null && chrome.tabs?.update) {
-          chrome.tabs.update(tab.id, { url });
-        } else {
-          window.location.href = url;
-        }
-      });
+    if (typeof chrome.runtime?.openOptionsPage === "function") {
+      chrome.runtime.openOptionsPage();
     } else {
-      window.location.href = url;
+      const url = typeof chrome.runtime?.getURL === "function" ? chrome.runtime.getURL("options.html") : "options.html";
+      if (typeof chrome?.tabs?.create === "function") {
+        chrome.tabs.create({ url });
+      } else {
+        window.location.href = url;
+      }
+    }
+    try {
+      window.close();
+    } catch {
     }
   } catch {
-    window.location.href = "options.html";
+    const url = typeof chrome.runtime?.getURL === "function" ? chrome.runtime.getURL("options.html") : "options.html";
+    window.location.href = url;
   }
 }
 function onRefuse() {

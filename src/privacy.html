@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignGuard — Privacidade</title>
+  <style>
+    body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; max-width: 640px; line-height: 1.5; }
+    a { color: #38bdf8; }
+    h1 { font-size: 1.25rem; margin-bottom: 16px; }
+    h2 { font-size: 1rem; margin-top: 20px; margin-bottom: 8px; }
+    p { margin: 0 0 12px 0; font-size: 0.9rem; color: #94a3b8; }
+    .back { display: inline-block; margin-bottom: 20px; padding: 8px 12px; background: #1e293b; border-radius: 8px; color: #f8fafc; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { background: #334155; }
+  </style>
+</head>
+<body>
+  <a href="options.html" class="back">← Voltar às opções</a>
+  <h1>Privacidade</h1>
+  <p>O SignGuard foi desenhado para respeitar a sua privacidade. As informações abaixo aplicam-se à extensão instalada localmente.</p>
+  <h2>O que não é recolhido</h2>
+  <p>Não recolhemos URLs que visita, endereços de carteira, seeds, chaves privadas nem conteúdo de transações fora da análise local.</p>
+  <h2>O que pode ser enviado (apenas com opt-in)</h2>
+  <p><strong>Telemetria anónima:</strong> Se ativar «Permitir telemetria anónima» nas opções (e aceitar os termos), a extensão pode enviar eventos mínimos (ex.: nível de risco de página, decisão permitir/bloquear). Não envia URLs completas, seeds nem dados da carteira.</p>
+  <p><strong>Cloud Intel:</strong> Se ativar «Permitir Cloud Intel», a extensão pode descarregar listas/feeds de ameaças (ex.: GitHub, APIs de reputação). Não envia transações brutas nem seeds.</p>
+  <p><strong>Preços (USD):</strong> Se ativar «Exibir valores em USD» e conceder permissões, a extensão pode pedir preços a serviços externos para mostrar valores em dólar.</p>
+  <p><strong>Simulação (Tenderly):</strong> Se configurar e ativar a simulação, a extensão envia dados de transação ao Tenderly para simulação; as chaves ficam no seu navegador.</p>
+  <h2>Como desativar</h2>
+  <p>Em Configurações → Segurança → Privacidade: desmarque «Permitir telemetria anónima» e «Permitir Cloud Intel». Para preços e simulação, desative os toggles correspondentes e revogue as permissões opcionais.</p>
+  <h2>Pedidos externos</h2>
+  <p>Nenhum pedido a servidores externos é feito sem opt-in e sem as permissões opcionais concedidas. Com todos os toggles desligados e sem permissões adicionais, a extensão funciona apenas com dados locais.</p>
+</body>
+</html>

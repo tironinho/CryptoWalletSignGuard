@@ -52,11 +52,13 @@
     <main class="content">
       <section id="tab-settings" class="tab-panel active">
         <h1 class="panel-title">Configurações Gerais</h1>
+        <p class="panel-desc" style="margin-bottom:16px;">O SignGuard exibe confirmação como overlay na página. O Chrome não permite abrir automaticamente o popup da toolbar durante uma transação.</p>
         <div class="card">
           <div class="setting-row">
-            <div><h3 style="margin:0 0 4px 0;">Exibir valores em USD</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Converte valores do ativo nativo (ETH/BNB/MATIC/AVAX…) para USD.</p></div>
+            <div><h3 style="margin:0 0 4px 0;">Exibir valores em USD</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Requer permissões de preços (Conceder em Segurança → Privacidade). Converte valores nativos para USD.</p></div>
             <label class="switch"><input type="checkbox" id="showUsd"><span class="slider"></span></label>
           </div>
+          <p id="showUsdError" style="display:none;color:var(--danger);font-size:0.85rem;margin:4px 0 0 0;"></p>
           <div class="setting-row">
             <div><h3 style="margin:0 0 4px 0;">Expandir detalhes por padrão</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Abrir seções detalhadas (custos, simulação, decoded) abertas ao exibir o overlay.</p></div>
             <label class="switch"><input type="checkbox" id="defaultExpandDetails"><span class="slider"></span></label>
@@ -71,8 +73,106 @@
         <h1 class="panel-title">Segurança Avançada</h1>
         <div class="card">
           <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Fail Mode (falha de análise)</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">fail_open: permitir com confirmação; fail_closed: bloquear por padrão.</p></div>
+            <select id="failMode" style="background:#1e293b;color:#f8fafc;border:1px solid var(--border);padding:8px 12px;border-radius:8px;">
+              <option value="fail_open">fail_open (permite com confirmação)</option>
+              <option value="fail_closed">fail_closed (bloqueia por padrão)</option>
+            </select>
+          </div>
+          <div class="setting-row">
             <div><h3 style="margin:0 0 4px 0;">🛡️ Modo Fortaleza</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Bloqueia aprovações em sites desconhecidos.</p></div>
             <label class="switch"><input type="checkbox" id="fortressMode"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">Spenders (Allow/Deny)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Spender = contrato que recebe aprovação/permissão (approve, permit2, setApprovalForAll). Um endereço por linha (com ou sem 0x).</p>
+          <p style="font-size:0.85rem;margin:0 0 4px 0;">Allowlist Spenders:</p>
+          <textarea id="allowlistSpenders" rows="3" placeholder="0x... ou 40 hex" style="font-family:monospace;font-size:12px;"></textarea>
+          <p style="font-size:0.85rem;margin:8px 0 4px 0;">Denylist Spenders:</p>
+          <textarea id="denylistSpenders" rows="3" placeholder="0x... ou 40 hex" style="font-family:monospace;font-size:12px;"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <button id="normalizeSpenders" class="sg-btn" type="button" style="background:#334155;">Normalizar</button>
+            <button id="applySpenders" class="sg-btn" type="button">Aplicar</button>
+            <button id="revertSpenders" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="clearSpenders" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+          </div>
+          <p id="spendersError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card" id="vault">
+          <h3 style="margin:0 0 6px 0;">Vault (Cofre)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Vault bloqueia interações com contratos listados até desbloqueio temporário (5 min / 30 min no overlay).</p>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Ativar Vault</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Contratos bloqueados sem desbloqueio explícito.</p></div>
+            <label class="switch"><input type="checkbox" id="vaultEnabled"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Bloquear também Approvals/Permits</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Quando spender está na lista.</p></div>
+            <label class="switch"><input type="checkbox" id="vaultBlockApprovals"><span class="slider"></span></label>
+          </div>
+          <p style="font-size:0.85rem;margin:0 0 4px 0;">Locked Contracts (um 0x... por linha):</p>
+          <textarea id="vaultLockedContracts" rows="4" placeholder="0x..." style="font-family:monospace;font-size:12px;"></textarea>
+          <p id="vaultStatus" style="font-size:0.85rem;color:var(--text-muted);margin:6px 0 0 0;">—</p>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button id="applyVault" class="sg-btn" type="button">Aplicar</button>
+            <button id="revertVault" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="clearVault" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+            <button id="vaultUnlockNow" class="sg-btn" type="button" style="background:#f59e0b;color:black;">Desbloquear agora (5 min)</button>
+          </div>
+          <p id="vaultError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">Simulation (Tenderly)</h3>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Habilitar simulação</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Simular transações antes de enviar.</p></div>
+            <label class="switch"><input type="checkbox" id="simulationEnabled"><span class="slider"></span></label>
+          </div>
+          <p style="font-size:0.85rem;margin:0 0 4px 0;">Account:</p>
+          <input type="text" id="tenderlyAccount" placeholder="tenderly-account" style="margin-bottom:8px;" />
+          <p style="font-size:0.85rem;margin:0 0 4px 0;">Project:</p>
+          <input type="text" id="tenderlyProject" placeholder="project-slug" style="margin-bottom:8px;" />
+          <p style="font-size:0.85rem;margin:0 0 4px 0;">Access Key (password):</p>
+          <input type="password" id="tenderlyKey" placeholder="••••••••" style="margin-bottom:8px;" />
+          <p style="color:var(--text-muted);font-size:0.8rem;margin:0 0 8px 0;">Chaves ficam localmente no chrome.storage.sync; não são hardcoded.</p>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button id="applySimulation" class="sg-btn" type="button">Aplicar</button>
+            <button id="testSimulation" class="sg-btn" type="button" style="background:#334155;">Testar simulação</button>
+          </div>
+          <p id="simulationError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">Privacidade</h3>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 8px 0;">Tudo desligado por padrão. Telemetria e Cloud Intel são independentes: ativar Cloud Intel não envia telemetria.</p>
+          <p style="margin:0 0 12px 0; font-size:0.85rem;"><a href="privacy.html" target="_blank" rel="noopener" style="color:var(--accent);">Privacidade</a> · <a href="terms.html" target="_blank" rel="noopener" style="color:var(--accent);">Termos de uso</a></p>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Aceito os termos de uso</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Obrigatório apenas se quiser ativar telemetria ou Cloud Intel. Pode desmarcar depois em qualquer momento.</p></div>
+            <label class="switch"><input type="checkbox" id="termsAccepted"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Permitir telemetria anônima</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Quando ligado e termos aceitos: envia apenas eventos mínimos (ex.: risco de página, decisão permitir/bloquear). Não envia URLs visitadas, seeds nem dados da carteira. Para desligar: desmarque aqui.</p></div>
+            <label class="switch"><input type="checkbox" id="telemetryOptIn"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><h3 style="margin:0 0 4px 0;">Permitir Cloud Intel</h3><p style="color:#94a3b8;margin:0;font-size:0.9rem;">Baixa listas/feeds de ameaça (GitHub, APIs de reputação). Não envia seed nem transação bruta. Não ativa telemetria.</p></div>
+            <label class="switch"><input type="checkbox" id="cloudIntelOptIn"><span class="slider"></span></label>
+          </div>
+          <div class="card" style="margin-top:12px; padding:14px; background:rgba(2,6,23,0.5);">
+            <h4 style="margin:0 0 8px 0; font-size:0.9rem;">Permissões por recurso</h4>
+            <p style="margin:0 0 10px 0; font-size:0.8rem; color:var(--text-muted);">Sem permissões concedidas, o recurso permanece desligado e não faz chamadas de rede.</p>
+            <p style="margin:0 0 6px 0; font-size:0.85rem;">Cloud Intel: <span id="cloudPermStatus">—</span> <button type="button" id="cloudPermGrantBtn" class="sg-btn" style="background:var(--accent);font-size:0.8rem;padding:6px 12px;">Conceder</button> <button type="button" id="cloudPermRevokeBtn" class="sg-btn" style="background:#334155;font-size:0.8rem;padding:6px 12px;">Revogar</button></p>
+            <p style="margin:0 0 6px 0; font-size:0.85rem;">Preços (USD): <span id="pricingPermStatus">—</span> <button type="button" id="pricingPermGrantBtn" class="sg-btn" style="background:var(--accent);font-size:0.8rem;padding:6px 12px;">Conceder</button> <button type="button" id="pricingPermRevokeBtn" class="sg-btn" style="background:#334155;font-size:0.8rem;padding:6px 12px;">Revogar</button> (toggle «Exibir valores em USD» em Geral)</p>
+            <p style="margin:0 0 6px 0; font-size:0.85rem;">Simulação (Tenderly): <span id="simPermStatus">—</span> <button type="button" id="simPermGrantBtn" class="sg-btn" style="background:var(--accent);font-size:0.8rem;padding:6px 12px;">Conceder</button> <button type="button" id="simPermRevokeBtn" class="sg-btn" style="background:#334155;font-size:0.8rem;padding:6px 12px;">Revogar</button></p>
+            <p style="margin:0 0 0 0; font-size:0.85rem;">Telemetria: <span id="telemetryPermStatus">—</span> <button type="button" id="telemetryPermGrantBtn" class="sg-btn" style="background:var(--accent);font-size:0.8rem;padding:6px 12px;">Conceder</button> <button type="button" id="telemetryPermRevokeBtn" class="sg-btn" style="background:#334155;font-size:0.8rem;padding:6px 12px;">Revogar</button></p>
+          </div>
+          <p id="cloudIntelError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+          <p id="telemetryPermError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">Domínios permitidos (Fortress)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Em fortressMode, apenas estes domínios podem disparar overlay/permitir fluxo. Um host por linha.</p>
+          <textarea id="whitelistedDomains" rows="4" placeholder="app.uniswap.org"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button id="applyWhitelistedDomains" class="sg-btn" type="button">Aplicar</button>
           </div>
         </div>
         <div class="card">
@@ -83,50 +183,67 @@
       </section>
       <section id="tab-lists" class="tab-panel hidden">
         <h1 class="panel-title">Listas (Whitelist / Blacklist)</h1>
-        <p class="panel-desc">Domínios confiáveis/bloqueados, endereços bloqueados e tokens scam. Atualização automática a cada 6h.</p>
+        <p class="panel-desc">Domínios confiáveis/bloqueados, endereços bloqueados e tokens scam. Feeds atualizam automaticamente; aqui você define seus overrides.</p>
         <div class="card">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
-            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios confiáveis</span></div>
-            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Domínios bloqueados</span></div>
-            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Endereços bloqueados</span></div>
-            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens scam</span></div>
-            <div class="list-stat"><span class="list-stat-n">0</span><span class="list-stat-l">Tokens confiáveis</span></div>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <span id="listsLastUpdated" style="color:var(--text-muted);font-size:0.9rem;">—</span>
-            <button id="listsRefreshNow" class="sg-btn" type="button" style="background:#334155;">Atualizar agora</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+            <div>
+              <span id="listsLastUpdated" style="color:var(--text-muted);font-size:0.9rem;">Atualizado em: —</span>
+              <div id="listsSources" style="margin-top:6px;font-size:0.85rem;color:var(--text-muted);">—</div>
+            </div>
+            <button id="listsRefreshNow" class="sg-btn" type="button">Atualizar feeds</button>
           </div>
         </div>
         <div class="card">
-          <h3 style="margin:0 0 10px 0;">Buscar</h3>
-          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-            <input type="text" id="listsSearchInput" placeholder="Domínio, endereço ou símbolo..." style="flex:1;min-width:180px;" />
-            <select id="listsSearchType"><option value="">Todos</option><option value="domain">Domínio</option><option value="address">Endereço</option><option value="token">Token</option></select>
-            <button id="listsSearchBtn" class="sg-btn" type="button" style="background:#334155;">Buscar</button>
+          <h3 style="margin:0 0 6px 0;">A) Domínios confiáveis (Whitelist)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Um domínio por linha</p>
+          <textarea id="listsTrustedDomains" rows="6" placeholder="app.uniswap.org&#10;opensea.io" style="font-family:monospace;font-size:13px;"></textarea>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            <button id="listsApplyTrusted" class="sg-btn" type="button">Aplicar</button>
+            <button id="listsRevertTrusted" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="listsClearTrusted" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+            <span id="listsTrustedCount" style="font-size:0.9rem;color:var(--text-muted);">Itens (override): 0 · Total efetivo: 0</span>
           </div>
-          <div id="listsSearchResults" style="min-height:80px;color:var(--text-muted);font-size:0.9rem;">Use a busca acima.</div>
+          <p id="listsTrustedError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
         </div>
         <div class="card">
-          <h3 style="margin:0 0 10px 0;">Overrides do usuário</h3>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-            <input type="text" id="listsAddDomain" placeholder="ex: example.com" style="width:200px;" />
-            <select id="listsAddDomainKind"><option value="userTrustedDomains">Confiável</option><option value="userBlockedDomains">Bloquear</option></select>
-            <button id="listsAddDomainBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar domínio</button>
+          <h3 style="margin:0 0 6px 0;">B) Domínios bloqueados (Blacklist)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Um domínio por linha</p>
+          <textarea id="listsBlockedDomains" rows="6" style="font-family:monospace;font-size:13px;"></textarea>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            <button id="listsApplyBlockedDomains" class="sg-btn" type="button">Aplicar</button>
+            <button id="listsRevertBlockedDomains" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="listsClearBlockedDomains" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+            <span id="listsBlockedDomainsCount" style="font-size:0.9rem;color:var(--text-muted);">Itens (override): 0 · Total efetivo: 0</span>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-            <input type="text" id="listsAddAddress" placeholder="0x..." style="width:320px;" />
-            <button id="listsAddAddressBtn" class="sg-btn" type="button" style="background:#334155;">Bloquear endereço</button>
+          <p id="listsBlockedDomainsError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">C) Endereços bloqueados (Blacklist)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Um endereço 0x... por linha</p>
+          <textarea id="listsBlockedAddresses" rows="6" style="font-family:monospace;font-size:13px;"></textarea>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            <button id="listsApplyBlockedAddresses" class="sg-btn" type="button">Aplicar</button>
+            <button id="listsRevertBlockedAddresses" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="listsClearBlockedAddresses" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+            <span id="listsBlockedAddressesCount" style="font-size:0.9rem;color:var(--text-muted);">Itens (override): 0 · Total efetivo: 0</span>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <input type="text" id="listsAddTokenChain" placeholder="ChainId (ex: 0x1)" style="width:100px;" />
-            <input type="text" id="listsAddTokenAddr" placeholder="Endereço do token 0x..." style="width:320px;" />
-            <select id="listsAddTokenKind"><option value="userTrustedTokens">Token confiável</option><option value="userScamTokens">Token scam</option></select>
-            <button id="listsAddTokenBtn" class="sg-btn" type="button" style="background:#334155;">Adicionar token</button>
+          <p id="listsBlockedAddressesError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px 0;">D) Tokens scam (Blacklist)</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 8px 0;">Formato: chainIdHex:0xAddress ou chainId,0xAddress</p>
+          <textarea id="listsScamTokens" rows="6" placeholder="0x1:0xTokenAddress" style="font-family:monospace;font-size:13px;"></textarea>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            <button id="listsApplyScamTokens" class="sg-btn" type="button">Aplicar</button>
+            <button id="listsRevertScamTokens" class="sg-btn" type="button" style="background:#334155;">Reverter</button>
+            <button id="listsClearScamTokens" class="sg-btn" type="button" style="background:#334155;">Limpar</button>
+            <span id="listsScamTokensCount" style="font-size:0.9rem;color:var(--text-muted);">Itens (override): 0 · Total efetivo: 0</span>
           </div>
+          <p id="listsScamTokensError" style="margin:6px 0 0 0;font-size:0.85rem;color:var(--danger);display:none;"></p>
         </div>
         <div class="card">
           <h3 style="margin:0 0 10px 0;">Importar / Exportar</h3>
-          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Apenas overrides do usuário (domínios e endereços que você adicionou).</p>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Export/Import afeta apenas overrides.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button id="listsExport" class="sg-btn" type="button" style="background:#334155;">Exportar JSON</button>
             <label class="sg-btn" style="background:#334155;cursor:pointer;display:inline-block;"><input type="file" id="listsImportFile" accept=".json" style="display:none;">Importar JSON</label>
@@ -156,6 +273,12 @@ document.documentElement.dataset.sgMainworld</pre>
           <h3 style="margin:0 0 10px 0;">Listas</h3>
           <p style="margin:0 0 8px 0;"><b>Última atualização:</b> <span id="diagnosticsLastRefresh">—</span></p>
           <p style="margin:0;"><b>Contagens:</b> <span id="diagnosticsCounts">—</span></p>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Exportar diagnóstico</h3>
+          <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 10px 0;">Gera um JSON com eventos recentes e configurações (sem segredos) para suporte.</p>
+          <button type="button" id="diagnosticsExportBtn" class="sg-btn" style="background:var(--accent);">Exportar diagnóstico (JSON)</button>
+          <p id="diagnosticsExportStatus" style="margin:8px 0 0 0;font-size:0.85rem;color:var(--text-muted);"></p>
         </div>
       </section>
       <section id="tab-history" class="tab-panel hidden">

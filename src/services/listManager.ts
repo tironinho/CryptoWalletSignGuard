@@ -42,6 +42,56 @@ function normalizeChain(c: string): string {
   return s.startsWith("0x") ? s : "0x" + parseInt(s, 10).toString(16);
 }
 
+/** Normalize domain from user input: strip protocol/path, lowercase hostname. */
+export function normalizeDomainInput(input: string): string {
+  const s = (input ?? "").trim();
+  if (!s) return "";
+  try {
+    if (s.includes("://") || s.toLowerCase().startsWith("http")) {
+      return new URL(s.startsWith("http") ? s : "https://" + s).hostname.replace(/^www\./, "").toLowerCase().trim() || "";
+    }
+    return (s.replace(/^www\./, "").toLowerCase().replace(/\.+$/, "").trim()) || "";
+  } catch {
+    return (s.replace(/^www\./, "").toLowerCase().replace(/\.+$/, "").trim()) || "";
+  }
+}
+
+/** Normalize address: 0x + 40 hex lower. Returns "" if invalid. */
+export function normalizeAddressInput(addr: string): string {
+  const s = (addr ?? "").trim();
+  const hex = s.startsWith("0x") ? s.slice(2) : s;
+  if (hex.length !== 40 || !/^[a-fA-F0-9]{40}$/.test(hex)) return "";
+  return "0x" + hex.toLowerCase();
+}
+
+/** Parse scam token input: "0x1:0xTOKEN", "1,0xTOKEN", "0x1,0xTOKEN" -> { chainId: "0x1", address: "0xtoken" } or null. */
+export function normalizeScamTokenInput(input: string): { chainId: string; address: string } | null {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  let chainId = "";
+  let address = "";
+  if (s.includes(":")) {
+    const [c, a] = s.split(":").map((x) => x.trim());
+    chainId = normalizeChain(c ?? "");
+    address = normalizeAddressInput(a ?? "");
+  } else if (s.includes(",")) {
+    const [c, a] = s.split(",").map((x) => x.trim());
+    chainId = normalizeChain(c ?? "");
+    address = normalizeAddressInput(a ?? "");
+  } else {
+    return null;
+  }
+  if (!chainId || !address) return null;
+  return { chainId, address };
+}
+
+/** Canonical scam token key: chainIdHex:addressLower */
+export function scamTokenToCanonical(chainId: string, address: string): string {
+  const c = normalizeChain(chainId);
+  const a = normalizeAddressInput(address);
+  return c && a ? `${c}:${a}` : "";
+}
+
 export function isTrustedToken(chainIdHex: string, tokenAddress: string, cache: ListsCacheV1): boolean {
   const c = normalizeChain(chainIdHex);
   const a = normalizeAddress(tokenAddress);
@@ -199,7 +249,47 @@ function parseMewAddresses(body: string): string[] {
   }
 }
 
+const MIGRATED_KEY = "sg_lists_migrated_v1";
+
+/** Migrate settings.trustedDomains (sync) to userTrustedDomains (local) once. */
+async function migrateTrustedDomainsFromSettings(): Promise<void> {
+  try {
+    const done = await new Promise<boolean>((resolve) => {
+      if (!chrome?.storage?.local) return resolve(true);
+      chrome.storage.local.get(MIGRATED_KEY, (r) => resolve(!!(r as any)?.[MIGRATED_KEY]));
+    });
+    if (done) return;
+    const [cached, sync] = await Promise.all([
+      getStorage(),
+      new Promise<Record<string, unknown>>((resolve) => {
+        if (!chrome?.storage?.sync) return resolve({});
+        chrome.storage.sync.get(["trustedDomains", "allowlist"], (r) => resolve((r as Record<string, unknown>) ?? {}));
+      }),
+    ]);
+    const fromSettings = (sync.trustedDomains ?? sync.allowlist) as string[] | undefined;
+    const arr = Array.isArray(fromSettings) ? fromSettings : [];
+    const userTrusted = cached?.userTrustedDomains ?? [];
+    if (arr.length > 0 && userTrusted.length === 0) {
+      const merged = [...new Set([...arr.map((d) => normalizeHost(String(d))).filter(Boolean), ...userTrusted])];
+      if (cached) {
+        (cached as ListsCacheV1).userTrustedDomains = merged;
+        (cached as ListsCacheV1).updatedAt = Date.now();
+        await setStorage(cached);
+      } else {
+        const fresh = emptyCache();
+        fresh.userTrustedDomains = merged;
+        fresh.updatedAt = Date.now();
+        await setStorage(fresh);
+      }
+    }
+    await new Promise<void>((r) => { chrome.storage.local.set({ [MIGRATED_KEY]: true }, () => r()); });
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function getLists(): Promise<ListsCacheV1> {
+  await migrateTrustedDomainsFromSettings();
   const cache = await getStorage();
   if (cache) {
     if (!cache.userTrustedTokens) (cache as ListsCacheV1).userTrustedTokens = [];
@@ -439,6 +529,113 @@ export async function getLastRefresh(): Promise<number> {
       resolve(0);
     }
   });
+}
+
+export type OverrideKind = "trustedDomains" | "blockedDomains" | "blockedAddresses" | "scamTokens";
+
+export type SetOverridesResult = { ok: boolean; cache: ListsCacheV1; invalidCount?: number; invalidExamples?: string[] };
+
+/** Replace entire user override list. Validates each item; invalid ones are skipped and reported. */
+export async function setOverrides(kind: OverrideKind, values: string[]): Promise<SetOverridesResult> {
+  const cache = await getLists();
+  const next = { ...cache, updatedAt: Date.now() };
+  const invalid: string[] = [];
+  const raw = Array.isArray(values) ? values : [];
+
+  if (kind === "trustedDomains" || kind === "blockedDomains") {
+    const normalized: string[] = [];
+    for (const v of raw) {
+      const n = normalizeDomainInput(v);
+      if (n) normalized.push(n);
+      else if (v.trim()) invalid.push(v);
+    }
+    next.userTrustedDomains = kind === "trustedDomains" ? [...new Set(normalized)] : [...next.userTrustedDomains];
+    next.userBlockedDomains = kind === "blockedDomains" ? [...new Set(normalized)] : [...next.userBlockedDomains];
+  } else if (kind === "blockedAddresses") {
+    const normalized: string[] = [];
+    for (const v of raw) {
+      const n = normalizeAddressInput(v);
+      if (n) normalized.push(n);
+      else if (v.trim()) invalid.push(v);
+    }
+    next.userBlockedAddresses = [...new Set(normalized)];
+  } else if (kind === "scamTokens") {
+    const tokens: Array<{ chainId: string; address: string }> = [];
+    const seen = new Set<string>();
+    for (const v of raw) {
+      const parsed = normalizeScamTokenInput(v);
+      if (parsed) {
+        const key = `${parsed.chainId}:${parsed.address}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          tokens.push(parsed);
+        }
+      } else if (v.trim()) invalid.push(v);
+    }
+    next.userScamTokens = tokens;
+  }
+
+  await setStorage(next);
+  return {
+    ok: true,
+    cache: next,
+    invalidCount: invalid.length,
+    invalidExamples: invalid.length > 0 ? invalid.slice(0, 5) : undefined,
+  };
+}
+
+export type ListsExportSnapshot = {
+  updatedAt: number;
+  sources: Array<{ name: string; ok: boolean; count?: number; error?: string }>;
+  overrides: {
+    trustedDomains: string[];
+    blockedDomains: string[];
+    blockedAddresses: string[];
+    scamTokens: Array<{ chainId: string; address: string }>;
+  };
+  totals: {
+    trustedDomainsTotal: number;
+    blockedDomainsTotal: number;
+    blockedAddressesTotal: number;
+    scamTokensTotal: number;
+  };
+};
+
+/** Export full snapshot for UI: overrides + totals + source stats. */
+export async function exportSnapshot(): Promise<ListsExportSnapshot> {
+  const cache = await getLists();
+  const trustedEffective = [...new Set([...cache.trustedDomains, ...cache.userTrustedDomains])];
+  const blockedDomainsEffective = [...new Set([...cache.blockedDomains, ...cache.userBlockedDomains])];
+  const blockedAddressesEffective = [...new Set([...cache.blockedAddresses, ...cache.userBlockedAddresses])];
+  const scamKeys = new Set<string>();
+  for (const t of cache.scamTokens) scamKeys.add(normalizeTokenKey(t.chainId, t.address));
+  for (const t of cache.userScamTokens) scamKeys.add(normalizeTokenKey(t.chainId, t.address));
+
+  const sourceList: Array<{ name: string; ok: boolean; count?: number; error?: string }> = [];
+  const src = cache.sources;
+  if (src.metamask) sourceList.push({ name: "MetaMask", ok: !!src.metamask.ok, error: src.metamask.error });
+  if (src.scamsniffer) sourceList.push({ name: "ScamSniffer", ok: !!src.scamsniffer.ok, error: src.scamsniffer.error });
+  if (src.cryptoscamdb) sourceList.push({ name: "CryptoScamDB", ok: !!src.cryptoscamdb.ok, error: src.cryptoscamdb.error });
+  if (src.mew) sourceList.push({ name: "MEW", ok: !!src.mew.ok, error: src.mew.error });
+  if (src.dappradar) sourceList.push({ name: "DappRadar", ok: !!src.dappradar.ok, error: src.dappradar.error });
+  if (src.seed) sourceList.push({ name: "Seed", ok: !!src.seed.ok });
+
+  return {
+    updatedAt: cache.updatedAt,
+    sources: sourceList,
+    overrides: {
+      trustedDomains: cache.userTrustedDomains ?? [],
+      blockedDomains: cache.userBlockedDomains ?? [],
+      blockedAddresses: cache.userBlockedAddresses ?? [],
+      scamTokens: (cache.userScamTokens ?? []).map((t) => ({ chainId: t.chainId, address: t.address })),
+    },
+    totals: {
+      trustedDomainsTotal: trustedEffective.length,
+      blockedDomainsTotal: blockedDomainsEffective.length,
+      blockedAddressesTotal: blockedAddressesEffective.length,
+      scamTokensTotal: scamKeys.size,
+    },
+  };
 }
 
 /** Merge only user overrides from imported data; validates and saves. */

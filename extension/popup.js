@@ -1,3 +1,63 @@
+// src/lists/cryptoTrustedDomainsSeed.ts
+var CRYPTO_TRUSTED_DOMAINS_SEED = [
+  // Explorers
+  "etherscan.io",
+  "etherscan.com",
+  "arbiscan.io",
+  "polygonscan.com",
+  "bscscan.com",
+  "basescan.org",
+  "snowtrace.io",
+  "optimistic.etherscan.io",
+  // NFTs
+  "opensea.io",
+  "blur.io",
+  "looksrare.org",
+  "x2y2.io",
+  "rarible.com",
+  "magiceden.io",
+  // DEX/DeFi
+  "uniswap.org",
+  "app.uniswap.org",
+  "1inch.io",
+  "app.1inch.io",
+  "aave.com",
+  "app.aave.com",
+  "curve.fi",
+  "app.curve.fi",
+  "balancer.fi",
+  "app.balancer.fi",
+  "sushiswap.fi",
+  "matcha.xyz",
+  "paraswap.io",
+  "cowswap.exchange",
+  // Bridges/L2
+  "bridge.arbitrum.io",
+  "optimism.io",
+  "base.org",
+  "arbitrum.io",
+  "polygon.technology",
+  "hop.exchange",
+  "stargate.finance",
+  "across.to",
+  "portalbridge.com",
+  "zksync.io",
+  // Infra / Wallets
+  "chain.link",
+  "lido.fi",
+  "stake.lido.fi",
+  "ens.domains",
+  "app.ens.domains",
+  "metamask.io",
+  "metamask.com",
+  "rabby.io",
+  "walletconnect.com",
+  "walletconnect.org",
+  "safe.global",
+  "revoke.cash",
+  "app.revoke.cash"
+];
+
 // src/shared/types.ts
 var SUPPORTED_WALLETS = [
   { name: "MetaMask", kind: "EVM" },
@@ -28,40 +88,27 @@ var DEFAULT_SETTINGS = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: true,
-  showUsd: true,
+  cloudIntelOptIn: false,
+  telemetryOptIn: false,
+  telemetryEnabled: false,
+  showUsd: false,
   defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
-  trustedDomains: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   supportedWalletsInfo: SUPPORTED_WALLETS,
-  allowlist: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   customBlockedDomains: [],
   customTrustedDomains: [],
+  allowlistSpenders: [],
+  denylistSpenders: [],
+  failMode: "fail_open",
   enableIntel: true,
   vault: {
     enabled: false,
-    lockedContracts: []
+    lockedContracts: [],
+    unlockedUntil: 0,
+    blockApprovals: false
   },
   simulation: {
     enabled: false,
@@ -74,31 +121,31 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/runtimeSafe.ts
-function canUseRuntime() {
+function hasRuntime(c) {
   try {
-    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
     return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
   } catch {
     return false;
   }
 }
-function isRuntimeUsable() {
-  try {
-    return canUseRuntime();
-  } catch {
-    return false;
-  }
+function getChromeApi() {
+  const localChrome = typeof chrome !== "undefined" ? chrome : null;
+  if (hasRuntime(localChrome)) return localChrome;
+  const globalChrome = typeof globalThis !== "undefined" ? globalThis.chrome : null;
+  if (hasRuntime(globalChrome)) return globalChrome;
+  return null;
 }
 async function safeStorageGet(keys) {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.get(keys, (items) => {
+      c.storage.sync.get(keys, (items) => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -116,13 +163,14 @@ async function safeStorageGet(keys) {
 async function safeStorageSet(obj) {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.set(obj, () => {
+      c.storage.sync.set(obj, () => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -161,6 +209,29 @@ var dict = {
     // Brand
     extName: "Crypto Wallet SignGuard",
     // Overlay - generic labels
+    overlay_analyzing: "Analisando Transa\xE7\xE3o...",
+    overlay_simulating: "O SignGuard est\xE1 a simular o resultado.",
+    overlay_safe: "Parece Seguro",
+    overlay_attention: "Aten\xE7\xE3o Detectada",
+    overlay_action: "A\xE7\xE3o",
+    overlay_simulation_balance: "Simula\xE7\xE3o de Balan\xE7o",
+    overlay_approvals_detected: "Aprova\xE7\xF5es detectadas",
+    overlay_confirm_allow_msg: "Tem certeza? Isso ignora prote\xE7\xE3o.",
+    overlay_confirm_allow: "Confirmar permitir 1 vez",
+    overlay_try_again: "Tentar novamente",
+    overlay_analysis_taking_long: "A an\xE1lise est\xE1 demorando.",
+    overlay_fee_calculated: "Taxas calculadas.",
+    overlay_finishing: "Finalizando an\xE1lise...",
+    overlay_typed_data_card_title: "Assinatura (EIP-712)",
+    overlay_typed_data_sign_warning: "Assinar isso pode permitir gasto futuro sem nova confirma\xE7\xE3o.",
+    overlay_allowance_loading: "Allowance atual: \u2026",
+    overlay_allowance_current: "Allowance atual: ",
+    overlay_allowance_approved: "Aprovado",
+    overlay_allowance_not_approved: "N\xE3o aprovado",
+    overlay_allowance_unlimited: "Ilimitado",
+    simulation_no_changes: "Nenhuma mudan\xE7a de saldo detetada.",
+    tx_unknown: "Transa\xE7\xE3o Desconhecida",
+    dapp_unknown: "DApp Desconhecido",
     overlay_requested_title: "O que est\xE1 sendo solicitado",
     overlay_site_trusted_title: "Site confi\xE1vel?",
     overlay_summary_title: "Resumo (linguagem simples)",
@@ -308,6 +379,7 @@ var dict = {
     summary_UNKNOWN_2: "Se n\xE3o souber o que \xE9, cancele.",
     // Costs / TX labels
     btn_cancel: "Cancelar",
+    btn_block: "Bloquear",
     btn_continue: "Continuar",
     toast_request_expired: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
     simulation_tx_will_fail: "ESTA TRANSA\xC7\xC3O VAI FALHAR",
@@ -330,6 +402,7 @@ var dict = {
     severity_WARN: "ATEN\xC7\xC3O",
     severity_LOW: "BAIXO",
     cost_you_send: "Voc\xEA envia",
+    cost_you_receive: "Voc\xEA recebe",
     cost_fee_only: "apenas taxa",
     cost_value: "Valor",
     cost_fee: "Taxa estimada",
@@ -432,6 +505,16 @@ var dict = {
     vaultInvalidAddress: "Endere\xE7o inv\xE1lido. Use 0x e 40 caracteres hexadecimais.",
     vaultAlreadyAdded: "Este contrato j\xE1 est\xE1 no cofre.",
     vaultBlockedMessage: "SignGuard: Ativo Bloqueado no Cofre. Desbloqueie nas op\xE7\xF5es para continuar.",
+    vaultBlockedTitle: "Cofre bloqueou esta a\xE7\xE3o",
+    vaultBlockedReason: "O contrato/ativo est\xE1 no Cofre. Desbloqueie temporariamente para prosseguir.",
+    vault_unlock_5min: "Desbloquear 5 min",
+    vault_unlock_30min: "Desbloquear 30 min",
+    vault_unlocked_toast: "Desbloqueado por {n} min",
+    overlay_temp_allow_10min: "Permitir por 10 min",
+    overlay_temp_allow_toast: "Permitido por 10 min",
+    page_risk_warning: "P\xE1gina com poss\xEDvel risco detectado.",
+    reason_page_risk_high: "P\xE1gina com risco alto detectado (ex.: lookalike, clickjacking).",
+    reason_page_risk_medium: "P\xE1gina com risco m\xE9dio (ex.: frases suspeitas, overlay).",
     addSuggested: "Adicionar sugeridos",
     save: "Salvar",
     saved: "Salvo",
@@ -550,6 +633,22 @@ var dict = {
     chainChangeTitle: "Solicita\xE7\xE3o de troca/adicionar rede",
     watchAssetTitle: "Solicita\xE7\xE3o de adicionar ativo",
     domainPunycodeReason: "Dom\xEDnio usa punycode (xn--); verifique a URL.",
+    reason_high_gas: "Taxa de gas alta em rela\xE7\xE3o ao valor.",
+    reason_new_spender: "Novo spender \u2014 verifique.",
+    reason_contract_target: "Destino \xE9 contrato.",
+    reason_known_bad_spender: "Spender bloqueado.",
+    reason_known_safe_spender: "Spender na allowlist.",
+    reason_unlimited_approval: "Simula\xE7\xE3o: aprova\xE7\xE3o ilimitada detectada.",
+    reason_set_approval_for_all: "Simula\xE7\xE3o: ApprovalForAll (permite mover todos os NFTs).",
+    reason_snap_invoke: "Snaps podem executar c\xF3digo na carteira. Confirme a origem.",
+    reason_sign_tx: "Assinatura de transa\xE7\xE3o sem envio imediato. Pode ser usada depois para broadcast.",
+    reason_raw_broadcast: "Broadcast de transa\xE7\xE3o j\xE1 assinada. N\xE3o h\xE1 confirma\xE7\xE3o visual pr\xE9via do conte\xFAdo.",
+    reason_read_permissions: "O site est\xE1 a ler as permiss\xF5es j\xE1 concedidas \xE0 carteira.",
+    summary_title_snaps: "Snaps / Extens\xF5es da carteira",
+    summary_title_read_permissions: "Leitura de permiss\xF5es",
+    summary_title_sign_tx: "Assinatura de transa\xE7\xE3o",
+    summary_title_raw_tx: "Broadcast de transa\xE7\xE3o assinada",
+    summary_title_switch_chain: "Troca de rede",
     domainDoubleDashReason: "Dom\xEDnio cont\xE9m h\xEDfen duplo (suspeito).",
     domainNumberPatternReason: "Dom\xEDnio com muitos n\xFAmeros (comum em phishing).",
     domainLookalikeReason: "Poss\xEDvel imita\xE7\xE3o do dom\xEDnio oficial de {legit}.",
@@ -666,6 +765,29 @@ var dict = {
     // Brand
     extName: "Crypto Wallet SignGuard",
     // Overlay - generic labels
+    overlay_analyzing: "Analyzing Transaction...",
+    overlay_simulating: "SignGuard is simulating the outcome.",
+    overlay_safe: "Looks Safe",
+    overlay_attention: "Attention Detected",
+    overlay_action: "Action",
+    overlay_simulation_balance: "Balance Simulation",
+    overlay_approvals_detected: "Approvals detected",
+    overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
+    overlay_confirm_allow: "Confirm allow once",
+    overlay_try_again: "Try again",
+    overlay_analysis_taking_long: "Analysis is taking too long.",
+    overlay_fee_calculated: "Fees calculated.",
+    overlay_finishing: "Finishing analysis...",
+    overlay_typed_data_card_title: "Signature (EIP-712)",
+    overlay_typed_data_sign_warning: "Signing this may allow future spending without another confirmation.",
+    overlay_allowance_loading: "Current allowance: \u2026",
+    overlay_allowance_current: "Current allowance: ",
+    overlay_allowance_approved: "Approved",
+    overlay_allowance_not_approved: "Not approved",
+    overlay_allowance_unlimited: "Unlimited",
+    simulation_no_changes: "No balance changes detected.",
+    tx_unknown: "Unknown Transaction",
+    dapp_unknown: "Unknown DApp",
     overlay_requested_title: "What is being requested",
     overlay_site_trusted_title: "Is the site trusted?",
     overlay_summary_title: "Summary (plain language)",
@@ -813,6 +935,7 @@ var dict = {
     summary_UNKNOWN_2: "If you don't recognize it, cancel.",
     // Buttons / friction
     btn_cancel: "Cancel",
+    btn_block: "Block",
     btn_continue: "Continue",
     toast_request_expired: "Request expired. Please retry the action on the site.",
     simulation_tx_will_fail: "THIS TRANSACTION WILL FAIL",
@@ -835,6 +958,7 @@ var dict = {
     severity_WARN: "WARNING",
     severity_LOW: "LOW",
     cost_you_send: "You send",
+    cost_you_receive: "You receive",
     cost_fee_only: "fee only",
     cost_value: "Value",
     cost_fee: "Estimated fee",
@@ -937,6 +1061,16 @@ var dict = {
     vaultInvalidAddress: "Invalid address. Use 0x and 40 hex characters.",
     vaultAlreadyAdded: "This contract is already in the vault.",
     vaultBlockedMessage: "SignGuard: Asset Locked in Vault. Unlock in options to continue.",
+    vaultBlockedTitle: "Vault blocked this action",
+    vaultBlockedReason: "The contract/asset is in the Vault. Unlock temporarily to proceed.",
+    vault_unlock_5min: "Unlock 5 min",
+    vault_unlock_30min: "Unlock 30 min",
+    vault_unlocked_toast: "Unlocked for {n} min",
+    overlay_temp_allow_10min: "Allow for 10 min",
+    overlay_temp_allow_toast: "Allowed for 10 min",
+    page_risk_warning: "Possible risk detected on this page.",
+    reason_page_risk_high: "High-risk page detected (e.g. lookalike, clickjacking).",
+    reason_page_risk_medium: "Medium-risk page (e.g. suspicious phrases, overlay).",
     addSuggested: "Add suggested",
     save: "Save",
     saved: "Saved",
@@ -1055,6 +1189,22 @@ var dict = {
     chainChangeTitle: "Network switch/add request",
     watchAssetTitle: "Add asset request",
     domainPunycodeReason: "Domain uses punycode (xn--); verify the URL.",
+    reason_high_gas: "High gas fee relative to value.",
+    reason_new_spender: "New spender \u2014 verify.",
+    reason_contract_target: "Destination is a contract.",
+    reason_known_bad_spender: "Spender blocked.",
+    reason_known_safe_spender: "Spender on allowlist.",
+    reason_unlimited_approval: "Simulation: unlimited approval detected.",
+    reason_set_approval_for_all: "Simulation: ApprovalForAll (allows moving all NFTs).",
+    reason_snap_invoke: "Snaps can run code in your wallet. Confirm the source.",
+    reason_sign_tx: "Transaction signature without immediate send. May be used later for broadcast.",
+    reason_raw_broadcast: "Broadcast of already-signed transaction. No prior visual confirmation of content.",
+    reason_read_permissions: "The site is reading the permissions already granted to the wallet.",
+    summary_title_snaps: "Snaps / Wallet extensions",
+    summary_title_read_permissions: "Read permissions",
+    summary_title_sign_tx: "Transaction signature",
+    summary_title_raw_tx: "Signed transaction broadcast",
+    summary_title_switch_chain: "Switch network",
     domainDoubleDashReason: "Domain contains double hyphen (suspicious).",
     domainNumberPatternReason: "Domain with many numbers (common in phishing).",
     domainLookalikeReason: "Possible lookalike of official domain {legit}.",
@@ -1227,7 +1377,7 @@ var PAUSE_DURATION_MS = 15 * 60 * 1e3;
   linkDiagnostics?.addEventListener("click", (e) => {
     e.preventDefault();
     try {
-      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("dist/options.html#diagnostics") : "dist/options.html#diagnostics";
+      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("options.html#diagnostics") : "options.html#diagnostics";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {
@@ -1238,7 +1388,7 @@ var PAUSE_DURATION_MS = 15 * 60 * 1e3;
       window.close();
     }
   });
-  linkSettings?.addEventListener("click", (e) => {
+  const openOptions = (e) => {
     e.preventDefault();
     sendUsageEvent("settings_opened");
     try {
@@ -1251,12 +1401,14 @@ var PAUSE_DURATION_MS = 15 * 60 * 1e3;
     } catch {
       window.close();
     }
-  });
+  };
+  linkSettings?.addEventListener("click", openOptions);
+  $("popupOpenOptions")?.addEventListener("click", openOptions);
   linkHistory?.addEventListener("click", (e) => {
     e.preventDefault();
     sendUsageEvent("history_opened");
     try {
-      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("dist/options.html#history") : "dist/options.html#history";
+      const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("options.html#history") : "options.html#history";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {

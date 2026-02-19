@@ -4,12 +4,19 @@ This extension intercepts key `window.ethereum.request()` calls **in the MAIN wo
 
 ## Build e instalação (Load unpacked)
 
-1. **Instale dependências e gere a extensão:**
+1. **Instale dependências e gere a extensão (build limpo):**
    ```bash
-   npm i
+   npm ci
    npm run build
    ```
-   (Ou apenas `npm run build-extension` se `dist/` já existir.)
+   Use `npm ci` para instalação limpa a partir do lockfile. `node_modules` **nunca** deve ir para o zip de distribuição.
+
+2. **Pack (para publicação):**
+   ```bash
+   npm run build
+   npm run pack
+   ```
+   O script `pack` valida que `node_modules` não existe em `extension/` antes de criar o zip.
 
 2. **Carregue no Chrome:**
    - Abra `chrome://extensions`
@@ -35,6 +42,7 @@ npm run build
 npm run pack
 ```
 
+- O manifest **não** deve incluir a permissão inválida `"permissions"` (Chrome mostra "Permission 'permissions' is unknown."). O script `validate-manifest-permissions.mjs` valida a allowlist (ex.: storage, alarms, tabs).
 - **Pack** zips the **contents** of `extension/` into **`CryptoWalletSignGuard.zip`** with `manifest.json` at the root of the archive, as required for the Chrome Web Store and side-load installs.
 - Run `npm run build` before `npm run pack`.
 

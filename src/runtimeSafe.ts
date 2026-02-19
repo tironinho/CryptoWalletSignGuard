@@ -6,11 +6,30 @@
 
 let _port: chrome.runtime.Port | null = null;
 
-/** Safe check: avoid crash when context invalidated. Use globalThis.chrome when available. */
+function hasRuntime(c: any): boolean {
+  try {
+    return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retorna o chrome "certo" (o da extensão) quando existir.
+ * Alguns sites definem window.chrome sem runtime.id, então NÃO podemos priorizar globalThis.chrome cegamente.
+ */
+function getChromeApi(): any | null {
+  const localChrome = typeof chrome !== "undefined" ? (chrome as any) : null;
+  if (hasRuntime(localChrome)) return localChrome;
+  const globalChrome = typeof globalThis !== "undefined" ? (globalThis as any).chrome : null;
+  if (hasRuntime(globalChrome)) return globalChrome;
+  return null;
+}
+
+/** Safe check: avoid crash when context invalidated. Use chrome da extensão (runtime.id presente). */
 export function canUseRuntime(): boolean {
   try {
-    const c = (typeof globalThis !== "undefined" ? (globalThis as any).chrome : undefined) ?? (typeof chrome !== "undefined" ? chrome : undefined);
-    return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
+    return !!getChromeApi();
   } catch {
     return false;
   }
@@ -39,8 +58,8 @@ function isContextInvalidError(e: unknown): boolean {
 
 function getPort(): chrome.runtime.Port | null {
   try {
-    const c = (typeof globalThis !== "undefined" ? (globalThis as any).chrome : undefined) ?? (typeof chrome !== "undefined" ? chrome : undefined);
-    if (!canUseRuntime() || !c?.runtime?.connect) return null;
+    const c = getChromeApi();
+    if (!c?.runtime?.connect) return null;
     if (_port) return _port;
     _port = c.runtime.connect({ name: "sg_port" });
     _port?.onDisconnect.addListener(() => {
@@ -78,9 +97,10 @@ export function portRequest<T = any>(msg: unknown, timeoutMs = 2500): Promise<T 
         if (!_port) {
           try {
             await new Promise<void>((r) => {
-              const c = (typeof globalThis !== "undefined" ? (globalThis as any).chrome : undefined) ?? (typeof chrome !== "undefined" ? chrome : undefined);
+              const c = getChromeApi();
               if (!c?.runtime?.sendMessage) return r();
               c.runtime.sendMessage({ type: "PING" }, () => {
+                void (c?.runtime as { lastError?: { message?: string } })?.lastError;
                 r();
               });
               setTimeout(() => r(), 600);
@@ -142,7 +162,7 @@ function sendMessageOneAttempt<T>(msg: unknown, timeoutMs: number): Promise<T | 
       resolve(value);
     };
 
-    const c = (typeof globalThis !== "undefined" ? (globalThis as any).chrome : undefined) ?? (typeof chrome !== "undefined" ? chrome : undefined);
+    const c = getChromeApi();
     const rt = (() => {
       try {
         return c?.runtime ?? null;
@@ -207,13 +227,14 @@ export type StorageResult<T> = { ok: true; data: T } | { ok: false; error: strin
 export async function safeStorageGet<T = any>(keys: unknown): Promise<StorageResult<T>> {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.get(keys as any, (items: T) => {
+      c.storage.sync.get(keys as any, (items: T) => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -232,13 +253,14 @@ export async function safeStorageGet<T = any>(keys: unknown): Promise<StorageRes
 export async function safeStorageSet(obj: Record<string, unknown>): Promise<StorageResult<true>> {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.set(obj, () => {
+      c.storage.sync.set(obj, () => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -257,13 +279,14 @@ export async function safeStorageSet(obj: Record<string, unknown>): Promise<Stor
 export async function safeLocalGet<T = any>(key: string): Promise<T | null> {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.local) {
+      const c = getChromeApi();
+      if (!c?.storage?.local) {
         resolve(null);
         return;
       }
-      chrome.storage.local.get(key, (r: Record<string, T>) => {
+      c.storage.local.get(key, (r: Record<string, T>) => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve(null);
             return;
@@ -282,13 +305,14 @@ export async function safeLocalGet<T = any>(key: string): Promise<T | null> {
 export async function safeLocalSet(obj: Record<string, unknown>): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.local) {
+      const c = getChromeApi();
+      if (!c?.storage?.local) {
         resolve(false);
         return;
       }
-      chrome.storage.local.set(obj, () => {
+      c.storage.local.set(obj, () => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           resolve(!err);
         } catch {
           resolve(false);
@@ -303,8 +327,9 @@ export async function safeLocalSet(obj: Record<string, unknown>): Promise<boolea
 /** Safe getURL - returns empty string if runtime unusable */
 export function safeGetURL(path: string): string {
   try {
-    if (!isRuntimeUsable() || !chrome.runtime.getURL) return "";
-    return chrome.runtime.getURL(path);
+    const c = getChromeApi();
+    if (!c?.runtime?.getURL) return "";
+    return c.runtime.getURL(path);
   } catch {
     return "";
   }

@@ -82,6 +82,8 @@ const requiredFiles = [
   "mainWorld.js",
   "popup.html",
   "options.html",
+  "privacy.html",
+  "terms.html",
   "overlay.css",
 ];
 const missing = requiredFiles.filter((name) => !fs.existsSync(path.join(EXTENSION, name)));
@@ -96,12 +98,27 @@ if (!fs.existsSync(iconsDir) || !fs.readdirSync(iconsDir).length) {
 }
 
 // 6) Validate extension/manifest.json is valid JSON
+let extManifest;
 try {
-  JSON.parse(fs.readFileSync(extManifestPath, "utf8"));
+  extManifest = JSON.parse(fs.readFileSync(extManifestPath, "utf8"));
 } catch (e) {
   console.error("build-extension: extension/manifest.json is invalid JSON:", (e && e.message) || e);
   process.exit(1);
 }
+
+// 7) P0-D: Assert mainWorld.js = MAIN, content.js NOT in MAIN (fail if inverted)
+const cs = extManifest?.content_scripts || [];
+const mainWorldEntry = cs.find((c) => (c.js || []).includes("mainWorld.js"));
+const contentInMain = cs.find((c) => (c.js || []).includes("content.js") && c.world === "MAIN");
+if (mainWorldEntry?.world !== "MAIN") {
+  console.error("build-extension: mainWorld.js MUST have world:'MAIN'. Found:", mainWorldEntry?.world);
+  process.exit(1);
+}
+if (contentInMain) {
+  console.error("build-extension: content.js MUST NOT have world:'MAIN' (use ISOLATED or default).");
+  process.exit(1);
+}
+console.log("P0-D: Worlds OK (mainWorld=MAIN, content=ISOLATED)");
 
 console.log("Extension folder ready:", EXTENSION);
 console.log("Load unpacked: select the ./extension folder in chrome://extensions");

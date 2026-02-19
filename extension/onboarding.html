@@ -11,19 +11,29 @@
     <div class="sg-onb-card">
       <h1 class="sg-onb-title">Bem-vindo ao SignGuard 🛡️</h1>
       <p class="sg-onb-desc">
-        Para oferecer proteção máxima gratuita, coletamos inteligência de ameaças anônima.
+        A proteção principal roda <strong>localmente</strong> na sua máquina. Nada é enviado sem sua escolha.
       </p>
       <div class="sg-onb-checklist">
-        <p class="sg-onb-checklist-title">Transparência — o que coletamos:</p>
+        <p class="sg-onb-checklist-title">O que você pode ativar (opcional):</p>
         <ul class="sg-onb-list">
-          <li class="sg-onb-item sg-onb-item--yes">✅ URLs de sites visitados (apenas Web3) para detecção de Phishing.</li>
-          <li class="sg-onb-item sg-onb-item--yes">✅ Dados técnicos do dispositivo (para prevenção de fraude).</li>
-          <li class="sg-onb-item sg-onb-item--yes">✅ Estatísticas de uso anônimas.</li>
-          <li class="sg-onb-item sg-onb-item--no">❌ NUNCA coletamos: Chaves Privadas, Seed Phrases ou Dados Pessoais.</li>
+          <li class="sg-onb-item sg-onb-item--yes"><strong>Cloud Intel</strong> — Baixa listas/feeds de ameaça para melhorar a detecção (domínios, endereços conhecidos). Não envia seu histórico.</li>
+          <li class="sg-onb-item sg-onb-item--yes"><strong>Telemetria anônima</strong> — Envia apenas eventos mínimos (ex.: decisões de risco) para melhorar o produto. Sem seeds, sem dados da carteira.</li>
+          <li class="sg-onb-item sg-onb-item--no">Você pode desligar ambos a qualquer momento em <strong>Configurações</strong>.</li>
         </ul>
       </div>
+      <div class="sg-onb-opts">
+        <label class="sg-onb-check">
+          <input type="checkbox" id="onbCloudIntel" />
+          <span>Ativar Cloud Intel (recomendado)</span>
+        </label>
+        <label class="sg-onb-check">
+          <input type="checkbox" id="onbTelemetry" />
+          <span>Permitir telemetria anônima</span>
+        </label>
+      </div>
+      <p id="onbMessage" class="sg-onb-message" aria-live="polite"></p>
       <div class="sg-onb-actions">
-        <button type="button" id="sgOnbAccept" class="sg-onb-btn sg-onb-btn--primary">ACEITAR E PROTEGER</button>
+        <button type="button" id="sgOnbAccept" class="sg-onb-btn sg-onb-btn--primary">Aceitar termos e continuar</button>
         <button type="button" id="sgOnbRefuse" class="sg-onb-btn sg-onb-btn--secondary">Recusar e Desinstalar</button>
       </div>
     </div>

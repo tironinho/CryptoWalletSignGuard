@@ -1,3 +1,63 @@
+// src/lists/cryptoTrustedDomainsSeed.ts
+var CRYPTO_TRUSTED_DOMAINS_SEED = [
+  // Explorers
+  "etherscan.io",
+  "etherscan.com",
+  "arbiscan.io",
+  "polygonscan.com",
+  "bscscan.com",
+  "basescan.org",
+  "snowtrace.io",
+  "optimistic.etherscan.io",
+  // NFTs
+  "opensea.io",
+  "blur.io",
+  "looksrare.org",
+  "x2y2.io",
+  "rarible.com",
+  "magiceden.io",
+  // DEX/DeFi
+  "uniswap.org",
+  "app.uniswap.org",
+  "1inch.io",
+  "app.1inch.io",
+  "aave.com",
+  "app.aave.com",
+  "curve.fi",
+  "app.curve.fi",
+  "balancer.fi",
+  "app.balancer.fi",
+  "sushiswap.fi",
+  "matcha.xyz",
+  "paraswap.io",
+  "cowswap.exchange",
+  // Bridges/L2
+  "bridge.arbitrum.io",
+  "optimism.io",
+  "base.org",
+  "arbitrum.io",
+  "polygon.technology",
+  "hop.exchange",
+  "stargate.finance",
+  "across.to",
+  "portalbridge.com",
+  "zksync.io",
+  // Infra / Wallets
+  "chain.link",
+  "lido.fi",
+  "stake.lido.fi",
+  "ens.domains",
+  "app.ens.domains",
+  "metamask.io",
+  "metamask.com",
+  "rabby.io",
+  "walletconnect.com",
+  "walletconnect.org",
+  "safe.global",
+  "revoke.cash",
+  "app.revoke.cash"
+];
+
 // src/shared/types.ts
 var SUPPORTED_WALLETS = [
   { name: "MetaMask", kind: "EVM" },
@@ -28,40 +88,27 @@ var DEFAULT_SETTINGS = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: true,
-  showUsd: true,
+  cloudIntelOptIn: false,
+  telemetryOptIn: false,
+  telemetryEnabled: false,
+  showUsd: false,
   defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
-  trustedDomains: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   supportedWalletsInfo: SUPPORTED_WALLETS,
-  allowlist: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   customBlockedDomains: [],
   customTrustedDomains: [],
+  allowlistSpenders: [],
+  denylistSpenders: [],
+  failMode: "fail_open",
   enableIntel: true,
   vault: {
     enabled: false,
-    lockedContracts: []
+    lockedContracts: [],
+    unlockedUntil: 0,
+    blockApprovals: false
   },
   simulation: {
     enabled: false,
@@ -72,11 +119,6 @@ var DEFAULT_SETTINGS = {
   whitelistedDomains: [],
   fortressMode: false
 };
-
-// src/shared/utils.ts
-function normalizeDomainLine(s) {
-  return (s || "").trim().toLowerCase().replace(/^\.+/, "").replace(/\.+$/, "");
-}
 
 // src/i18n.ts
 function detectLocale() {
@@ -101,6 +143,29 @@ var dict = {
     // Brand
     extName: "Crypto Wallet SignGuard",
     // Overlay - generic labels
+    overlay_analyzing: "Analisando Transa\xE7\xE3o...",
+    overlay_simulating: "O SignGuard est\xE1 a simular o resultado.",
+    overlay_safe: "Parece Seguro",
+    overlay_attention: "Aten\xE7\xE3o Detectada",
+    overlay_action: "A\xE7\xE3o",
+    overlay_simulation_balance: "Simula\xE7\xE3o de Balan\xE7o",
+    overlay_approvals_detected: "Aprova\xE7\xF5es detectadas",
+    overlay_confirm_allow_msg: "Tem certeza? Isso ignora prote\xE7\xE3o.",
+    overlay_confirm_allow: "Confirmar permitir 1 vez",
+    overlay_try_again: "Tentar novamente",
+    overlay_analysis_taking_long: "A an\xE1lise est\xE1 demorando.",
+    overlay_fee_calculated: "Taxas calculadas.",
+    overlay_finishing: "Finalizando an\xE1lise...",
+    overlay_typed_data_card_title: "Assinatura (EIP-712)",
+    overlay_typed_data_sign_warning: "Assinar isso pode permitir gasto futuro sem nova confirma\xE7\xE3o.",
+    overlay_allowance_loading: "Allowance atual: \u2026",
+    overlay_allowance_current: "Allowance atual: ",
+    overlay_allowance_approved: "Aprovado",
+    overlay_allowance_not_approved: "N\xE3o aprovado",
+    overlay_allowance_unlimited: "Ilimitado",
+    simulation_no_changes: "Nenhuma mudan\xE7a de saldo detetada.",
+    tx_unknown: "Transa\xE7\xE3o Desconhecida",
+    dapp_unknown: "DApp Desconhecido",
     overlay_requested_title: "O que est\xE1 sendo solicitado",
     overlay_site_trusted_title: "Site confi\xE1vel?",
     overlay_summary_title: "Resumo (linguagem simples)",
@@ -248,6 +313,7 @@ var dict = {
     summary_UNKNOWN_2: "Se n\xE3o souber o que \xE9, cancele.",
     // Costs / TX labels
     btn_cancel: "Cancelar",
+    btn_block: "Bloquear",
     btn_continue: "Continuar",
     toast_request_expired: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
     simulation_tx_will_fail: "ESTA TRANSA\xC7\xC3O VAI FALHAR",
@@ -270,6 +336,7 @@ var dict = {
     severity_WARN: "ATEN\xC7\xC3O",
     severity_LOW: "BAIXO",
     cost_you_send: "Voc\xEA envia",
+    cost_you_receive: "Voc\xEA recebe",
     cost_fee_only: "apenas taxa",
     cost_value: "Valor",
     cost_fee: "Taxa estimada",
@@ -372,6 +439,16 @@ var dict = {
     vaultInvalidAddress: "Endere\xE7o inv\xE1lido. Use 0x e 40 caracteres hexadecimais.",
     vaultAlreadyAdded: "Este contrato j\xE1 est\xE1 no cofre.",
     vaultBlockedMessage: "SignGuard: Ativo Bloqueado no Cofre. Desbloqueie nas op\xE7\xF5es para continuar.",
+    vaultBlockedTitle: "Cofre bloqueou esta a\xE7\xE3o",
+    vaultBlockedReason: "O contrato/ativo est\xE1 no Cofre. Desbloqueie temporariamente para prosseguir.",
+    vault_unlock_5min: "Desbloquear 5 min",
+    vault_unlock_30min: "Desbloquear 30 min",
+    vault_unlocked_toast: "Desbloqueado por {n} min",
+    overlay_temp_allow_10min: "Permitir por 10 min",
+    overlay_temp_allow_toast: "Permitido por 10 min",
+    page_risk_warning: "P\xE1gina com poss\xEDvel risco detectado.",
+    reason_page_risk_high: "P\xE1gina com risco alto detectado (ex.: lookalike, clickjacking).",
+    reason_page_risk_medium: "P\xE1gina com risco m\xE9dio (ex.: frases suspeitas, overlay).",
     addSuggested: "Adicionar sugeridos",
     save: "Salvar",
     saved: "Salvo",
@@ -490,6 +567,22 @@ var dict = {
     chainChangeTitle: "Solicita\xE7\xE3o de troca/adicionar rede",
     watchAssetTitle: "Solicita\xE7\xE3o de adicionar ativo",
     domainPunycodeReason: "Dom\xEDnio usa punycode (xn--); verifique a URL.",
+    reason_high_gas: "Taxa de gas alta em rela\xE7\xE3o ao valor.",
+    reason_new_spender: "Novo spender \u2014 verifique.",
+    reason_contract_target: "Destino \xE9 contrato.",
+    reason_known_bad_spender: "Spender bloqueado.",
+    reason_known_safe_spender: "Spender na allowlist.",
+    reason_unlimited_approval: "Simula\xE7\xE3o: aprova\xE7\xE3o ilimitada detectada.",
+    reason_set_approval_for_all: "Simula\xE7\xE3o: ApprovalForAll (permite mover todos os NFTs).",
+    reason_snap_invoke: "Snaps podem executar c\xF3digo na carteira. Confirme a origem.",
+    reason_sign_tx: "Assinatura de transa\xE7\xE3o sem envio imediato. Pode ser usada depois para broadcast.",
+    reason_raw_broadcast: "Broadcast de transa\xE7\xE3o j\xE1 assinada. N\xE3o h\xE1 confirma\xE7\xE3o visual pr\xE9via do conte\xFAdo.",
+    reason_read_permissions: "O site est\xE1 a ler as permiss\xF5es j\xE1 concedidas \xE0 carteira.",
+    summary_title_snaps: "Snaps / Extens\xF5es da carteira",
+    summary_title_read_permissions: "Leitura de permiss\xF5es",
+    summary_title_sign_tx: "Assinatura de transa\xE7\xE3o",
+    summary_title_raw_tx: "Broadcast de transa\xE7\xE3o assinada",
+    summary_title_switch_chain: "Troca de rede",
     domainDoubleDashReason: "Dom\xEDnio cont\xE9m h\xEDfen duplo (suspeito).",
     domainNumberPatternReason: "Dom\xEDnio com muitos n\xFAmeros (comum em phishing).",
     domainLookalikeReason: "Poss\xEDvel imita\xE7\xE3o do dom\xEDnio oficial de {legit}.",
@@ -606,6 +699,29 @@ var dict = {
     // Brand
     extName: "Crypto Wallet SignGuard",
     // Overlay - generic labels
+    overlay_analyzing: "Analyzing Transaction...",
+    overlay_simulating: "SignGuard is simulating the outcome.",
+    overlay_safe: "Looks Safe",
+    overlay_attention: "Attention Detected",
+    overlay_action: "Action",
+    overlay_simulation_balance: "Balance Simulation",
+    overlay_approvals_detected: "Approvals detected",
+    overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
+    overlay_confirm_allow: "Confirm allow once",
+    overlay_try_again: "Try again",
+    overlay_analysis_taking_long: "Analysis is taking too long.",
+    overlay_fee_calculated: "Fees calculated.",
+    overlay_finishing: "Finishing analysis...",
+    overlay_typed_data_card_title: "Signature (EIP-712)",
+    overlay_typed_data_sign_warning: "Signing this may allow future spending without another confirmation.",
+    overlay_allowance_loading: "Current allowance: \u2026",
+    overlay_allowance_current: "Current allowance: ",
+    overlay_allowance_approved: "Approved",
+    overlay_allowance_not_approved: "Not approved",
+    overlay_allowance_unlimited: "Unlimited",
+    simulation_no_changes: "No balance changes detected.",
+    tx_unknown: "Unknown Transaction",
+    dapp_unknown: "Unknown DApp",
     overlay_requested_title: "What is being requested",
     overlay_site_trusted_title: "Is the site trusted?",
     overlay_summary_title: "Summary (plain language)",
@@ -753,6 +869,7 @@ var dict = {
     summary_UNKNOWN_2: "If you don't recognize it, cancel.",
     // Buttons / friction
     btn_cancel: "Cancel",
+    btn_block: "Block",
     btn_continue: "Continue",
     toast_request_expired: "Request expired. Please retry the action on the site.",
     simulation_tx_will_fail: "THIS TRANSACTION WILL FAIL",
@@ -775,6 +892,7 @@ var dict = {
     severity_WARN: "WARNING",
     severity_LOW: "LOW",
     cost_you_send: "You send",
+    cost_you_receive: "You receive",
     cost_fee_only: "fee only",
     cost_value: "Value",
     cost_fee: "Estimated fee",
@@ -877,6 +995,16 @@ var dict = {
     vaultInvalidAddress: "Invalid address. Use 0x and 40 hex characters.",
     vaultAlreadyAdded: "This contract is already in the vault.",
     vaultBlockedMessage: "SignGuard: Asset Locked in Vault. Unlock in options to continue.",
+    vaultBlockedTitle: "Vault blocked this action",
+    vaultBlockedReason: "The contract/asset is in the Vault. Unlock temporarily to proceed.",
+    vault_unlock_5min: "Unlock 5 min",
+    vault_unlock_30min: "Unlock 30 min",
+    vault_unlocked_toast: "Unlocked for {n} min",
+    overlay_temp_allow_10min: "Allow for 10 min",
+    overlay_temp_allow_toast: "Allowed for 10 min",
+    page_risk_warning: "Possible risk detected on this page.",
+    reason_page_risk_high: "High-risk page detected (e.g. lookalike, clickjacking).",
+    reason_page_risk_medium: "Medium-risk page (e.g. suspicious phrases, overlay).",
     addSuggested: "Add suggested",
     save: "Save",
     saved: "Saved",
@@ -995,6 +1123,22 @@ var dict = {
     chainChangeTitle: "Network switch/add request",
     watchAssetTitle: "Add asset request",
     domainPunycodeReason: "Domain uses punycode (xn--); verify the URL.",
+    reason_high_gas: "High gas fee relative to value.",
+    reason_new_spender: "New spender \u2014 verify.",
+    reason_contract_target: "Destination is a contract.",
+    reason_known_bad_spender: "Spender blocked.",
+    reason_known_safe_spender: "Spender on allowlist.",
+    reason_unlimited_approval: "Simulation: unlimited approval detected.",
+    reason_set_approval_for_all: "Simulation: ApprovalForAll (allows moving all NFTs).",
+    reason_snap_invoke: "Snaps can run code in your wallet. Confirm the source.",
+    reason_sign_tx: "Transaction signature without immediate send. May be used later for broadcast.",
+    reason_raw_broadcast: "Broadcast of already-signed transaction. No prior visual confirmation of content.",
+    reason_read_permissions: "The site is reading the permissions already granted to the wallet.",
+    summary_title_snaps: "Snaps / Wallet extensions",
+    summary_title_read_permissions: "Read permissions",
+    summary_title_sign_tx: "Transaction signature",
+    summary_title_raw_tx: "Signed transaction broadcast",
+    summary_title_switch_chain: "Switch network",
     domainDoubleDashReason: "Domain contains double hyphen (suspicious).",
     domainNumberPatternReason: "Domain with many numbers (common in phishing).",
     domainLookalikeReason: "Possible lookalike of official domain {legit}.",
@@ -1116,25 +1260,24 @@ function t(key, params) {
 
 // src/runtimeSafe.ts
 var _port = null;
-function canUseRuntime() {
+function hasRuntime(c) {
   try {
-    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
     return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
   } catch {
     return false;
   }
 }
-function isRuntimeUsable() {
-  try {
-    return canUseRuntime();
-  } catch {
-    return false;
-  }
+function getChromeApi() {
+  const localChrome = typeof chrome !== "undefined" ? chrome : null;
+  if (hasRuntime(localChrome)) return localChrome;
+  const globalChrome = typeof globalThis !== "undefined" ? globalThis.chrome : null;
+  if (hasRuntime(globalChrome)) return globalChrome;
+  return null;
 }
 function getPort() {
   try {
-    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
-    if (!canUseRuntime() || !c?.runtime?.connect) return null;
+    const c = getChromeApi();
+    if (!c?.runtime?.connect) return null;
     if (_port) return _port;
     _port = c.runtime.connect({ name: "sg_port" });
     _port?.onDisconnect.addListener(() => {
@@ -1171,9 +1314,10 @@ function portRequest(msg, timeoutMs = 2500) {
         if (!_port) {
           try {
             await new Promise((r) => {
-              const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+              const c = getChromeApi();
               if (!c?.runtime?.sendMessage) return r();
               c.runtime.sendMessage({ type: "PING" }, () => {
+                void c?.runtime?.lastError;
                 r();
               });
               setTimeout(() => r(), 600);
@@ -1222,7 +1366,7 @@ function sendMessageOneAttempt(msg, timeoutMs) {
       settled = true;
       resolve(value);
     };
-    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+    const c = getChromeApi();
     const rt = (() => {
       try {
         return c?.runtime ?? null;
@@ -1278,13 +1422,14 @@ function safeSendMessage(msg, options) {
 async function safeStorageGet(keys) {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.get(keys, (items) => {
+      c.storage.sync.get(keys, (items) => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -1302,13 +1447,14 @@ async function safeStorageGet(keys) {
 async function safeStorageSet(obj) {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.set(obj, () => {
+      c.storage.sync.set(obj, () => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;
@@ -1324,9 +1470,99 @@ async function safeStorageSet(obj) {
   });
 }
 
+// src/shared/optionalOrigins.ts
+var OPTIONAL_ORIGINS = {
+  cloudIntel: [
+    "https://raw.githubusercontent.com/*",
+    "https://api.cryptoscamdb.org/*",
+    "https://gitlab.com/*",
+    "https://gateway.ipfs.io/*",
+    "https://api.llama.fi/*"
+  ],
+  pricing: [
+    "https://api.coingecko.com/*",
+    "https://api.dexscreener.com/*"
+  ],
+  simulation: ["https://api.tenderly.co/*"],
+  telemetry: ["https://cjnzidctntqzamhwmwkt.supabase.co/*"]
+};
+function getOriginsForFeature(feature) {
+  const list = OPTIONAL_ORIGINS[feature];
+  return list ? [...list] : [];
+}
+function getOriginsForFeatures(features) {
+  const set = /* @__PURE__ */ new Set();
+  for (const f of features) {
+    const list = OPTIONAL_ORIGINS[f];
+    if (list) for (const o of list) set.add(o);
+  }
+  return [...set];
+}
+
+// src/permissions.ts
+async function requestOrigins(origins) {
+  if (!origins.length) return true;
+  try {
+    if (!chrome?.permissions?.request) return false;
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return false;
+  }
+}
+async function removeOrigins(origins) {
+  if (!origins.length) return true;
+  try {
+    if (!chrome?.permissions?.remove) return false;
+    return await chrome.permissions.remove({ origins });
+  } catch {
+    return false;
+  }
+}
+async function requestOptionalHostPermissions(feature) {
+  const origins = getOriginsForFeature(feature);
+  return requestOrigins(origins);
+}
+async function removeOptionalHostPermissions(feature) {
+  const origins = getOriginsForFeature(feature);
+  return removeOrigins(origins);
+}
+
 // src/options.ts
 var $ = (id) => document.getElementById(id);
 var HISTORY_KEY = "sg_history_v1";
+async function hasOrigins(origins) {
+  if (!origins.length) return true;
+  try {
+    if (typeof chrome?.permissions?.contains !== "function") return false;
+    return await chrome.permissions.contains({ origins });
+  } catch {
+    return false;
+  }
+}
+async function updateOptionalPermStatus() {
+  const cloudOrigins = getOriginsForFeatures(["cloudIntel"]);
+  const pricingOrigins = getOriginsForFeatures(["pricing"]);
+  const simOrigins = getOriginsForFeatures(["simulation"]);
+  const telemetryOrigins = getOriginsForFeatures(["telemetry"]);
+  const [cloudOk, pricingOk, simOk, teleOk] = await Promise.all([
+    hasOrigins(cloudOrigins),
+    hasOrigins(pricingOrigins),
+    hasOrigins(simOrigins),
+    hasOrigins(telemetryOrigins)
+  ]);
+  const set = (id, granted, grantBtnId, revokeBtnId) => {
+    const el = $(id);
+    if (el) el.textContent = granted ? "Concedido" : "N\xE3o concedido";
+    const g = $(grantBtnId);
+    const r = $(revokeBtnId);
+    if (g) g.disabled = granted;
+    if (r) r.disabled = !granted;
+  };
+  set("cloudPermStatus", cloudOk, "cloudPermGrantBtn", "cloudPermRevokeBtn");
+  set("pricingPermStatus", pricingOk, "pricingPermGrantBtn", "pricingPermRevokeBtn");
+  set("simPermStatus", simOk, "simPermGrantBtn", "simPermRevokeBtn");
+  set("telemetryPermStatus", teleOk, "telemetryPermGrantBtn", "telemetryPermRevokeBtn");
+}
 function showTab(name) {
   const tabs = document.querySelectorAll(".tab-btn");
   for (let i = 0; i < tabs.length; i++) {
@@ -1344,7 +1580,23 @@ function showTab(name) {
   if (name === "history") loadHistory();
   if (name === "lists") loadListsTab();
   if (name === "diagnostics") loadDiagnosticsTab();
+  if (name === "security") {
+    loadSecurityWhitelist();
+    loadSecuritySettings();
+  }
 }
+async function loadSecurityWhitelist() {
+  const whitelistInputEl = document.getElementById("whitelistInput");
+  if (!whitelistInputEl) return;
+  try {
+    const resp = await safeSendMessage({ type: "SG_LISTS_EXPORT" }, 3e3);
+    const trusted = resp?.overrides?.trustedDomains ?? [];
+    whitelistInputEl.value = listToLines(trusted);
+  } catch {
+    whitelistInputEl.value = "";
+  }
+}
+var __listsSnapshot = null;
 async function loadDiagnosticsTab() {
   const versionEl = document.getElementById("diagnosticsVersion");
   const lastRefreshEl = document.getElementById("diagnosticsLastRefresh");
@@ -1370,28 +1622,126 @@ async function loadDiagnosticsTab() {
     if (countsEl) countsEl.textContent = "Erro";
   }
 }
+function listToLines(arr) {
+  return (arr ?? []).join("\n");
+}
+var ADDR_REGEX = /^0x[a-fA-F0-9]{40}$/;
+var HEX40_REGEX = /^[a-fA-F0-9]{40}$/;
+function parseAddressList(s) {
+  const lines = (s ?? "").split("\n").map((x) => x.replace(/#.*$/, "").trim()).filter(Boolean);
+  const ok = [];
+  const invalid = [];
+  for (const line of lines) {
+    let norm = line.toLowerCase().replace(/^0x/, "");
+    if (HEX40_REGEX.test(norm)) {
+      ok.push("0x" + norm);
+    } else if (ADDR_REGEX.test(line.toLowerCase())) {
+      ok.push(line.toLowerCase());
+    } else if (line) invalid.push(line);
+  }
+  return { ok: [...new Set(ok)], invalid };
+}
+function parseDomainList(s) {
+  const lines = (s ?? "").split("\n").map((x) => x.replace(/#.*$/, "").trim()).filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    let h = line.toLowerCase().replace(/^www\./, "").split("/")[0].trim();
+    if (h && /^[a-z0-9.-]+$/.test(h) && h.length < 254) out.push(h);
+  }
+  return [...new Set(out)];
+}
+async function loadSecuritySettings() {
+  const s = await load();
+  const allowlistSpendersEl = $("allowlistSpenders");
+  const denylistSpendersEl = $("denylistSpenders");
+  const vaultEnabledEl = $("vaultEnabled");
+  const vaultLockedEl = $("vaultLockedContracts");
+  const vaultStatusEl = $("vaultStatus");
+  const simulationEnabledEl = $("simulationEnabled");
+  const tenderlyAccountEl = $("tenderlyAccount");
+  const tenderlyProjectEl = $("tenderlyProject");
+  const tenderlyKeyEl = $("tenderlyKey");
+  const cloudIntelEl = $("cloudIntelOptIn");
+  const telemetryOptInEl = $("telemetryOptIn");
+  const termsAcceptedEl = $("termsAccepted");
+  const whitelistedDomainsEl = $("whitelistedDomains");
+  if (allowlistSpendersEl) allowlistSpendersEl.value = listToLines(s.allowlistSpenders ?? []);
+  if (denylistSpendersEl) denylistSpendersEl.value = listToLines(s.denylistSpenders ?? []);
+  const vaultBlockApprovalsEl = $("vaultBlockApprovals");
+  if (vaultEnabledEl) vaultEnabledEl.checked = s.vault?.enabled === true;
+  if (vaultBlockApprovalsEl) vaultBlockApprovalsEl.checked = s.vault?.blockApprovals === true;
+  if (vaultLockedEl) vaultLockedEl.value = listToLines(s.vault?.lockedContracts ?? []);
+  if (vaultStatusEl) {
+    const until = s.vault?.unlockedUntil ?? 0;
+    vaultStatusEl.textContent = until > Date.now() ? "Desbloqueado at\xE9: " + new Date(until).toLocaleTimeString() : "\u2014";
+  }
+  if (simulationEnabledEl) simulationEnabledEl.checked = s.simulation?.enabled === true;
+  if (tenderlyAccountEl) tenderlyAccountEl.value = s.simulation?.tenderlyAccount ?? "";
+  if (tenderlyProjectEl) tenderlyProjectEl.value = s.simulation?.tenderlyProject ?? "";
+  if (tenderlyKeyEl) tenderlyKeyEl.placeholder = s.simulation?.tenderlyKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "";
+  if (cloudIntelEl) cloudIntelEl.checked = s.cloudIntelOptIn === true;
+  if (telemetryOptInEl) telemetryOptInEl.checked = (s.telemetryOptIn ?? s.telemetryEnabled) === true;
+  if (whitelistedDomainsEl) whitelistedDomainsEl.value = listToLines(s.whitelistedDomains ?? []);
+  if (termsAcceptedEl) {
+    localGet("termsAccepted").then((v) => {
+      if (termsAcceptedEl) termsAcceptedEl.checked = v === true;
+    });
+  }
+  updateOptionalPermStatus();
+}
+function linesToList(s) {
+  return (s ?? "").split("\n").map((x) => x.trim()).filter(Boolean);
+}
+function scamTokensToLines(tokens) {
+  return (tokens ?? []).map((t2) => `${t2.chainId}:${t2.address}`).join("\n");
+}
+function linesToScamTokens(s) {
+  return linesToList(s);
+}
 async function loadListsTab() {
-  const statEls = document.querySelectorAll(".list-stat-n");
-  const lastUpdatedEl = document.getElementById("listsLastUpdated");
   try {
-    const resp = await safeSendMessage({ type: "SG_LISTS_STATUS" }, 3e3);
-    if (resp?.ok && resp?.counts) {
-      const c = resp.counts;
-      const totalTrusted = c.trustedDomains + c.userTrustedDomains;
-      const totalBlockedD = c.blockedDomains + c.userBlockedDomains;
-      const totalBlockedA = c.blockedAddresses + c.userBlockedAddresses;
-      const totalScam = c.scamTokens + c.userScamTokens;
-      const totalTrustedTokens = c.userTrustedTokens ?? 0;
-      if (statEls[0]) statEls[0].textContent = String(totalTrusted);
-      if (statEls[1]) statEls[1].textContent = String(totalBlockedD);
-      if (statEls[2]) statEls[2].textContent = String(totalBlockedA);
-      if (statEls[3]) statEls[3].textContent = String(totalScam);
-      if (statEls[4]) statEls[4].textContent = String(totalTrustedTokens);
-    }
+    const resp = await safeSendMessage({ type: "SG_LISTS_EXPORT" }, 5e3);
+    __listsSnapshot = resp;
+    const overrides = resp?.overrides ?? { trustedDomains: [], blockedDomains: [], blockedAddresses: [], scamTokens: [] };
+    const totals = resp?.totals ?? { trustedDomainsTotal: 0, blockedDomainsTotal: 0, blockedAddressesTotal: 0, scamTokensTotal: 0 };
+    const trusted = overrides.trustedDomains ?? [];
+    const blockedDomains = overrides.blockedDomains ?? [];
+    const blockedAddresses = overrides.blockedAddresses ?? [];
+    const scamTokens = overrides.scamTokens ?? [];
+    const trustedEl = document.getElementById("listsTrustedDomains");
+    const blockedDomainsEl = document.getElementById("listsBlockedDomains");
+    const blockedAddressesEl = document.getElementById("listsBlockedAddresses");
+    const scamTokensEl = document.getElementById("listsScamTokens");
+    if (trustedEl) trustedEl.value = listToLines(trusted);
+    if (blockedDomainsEl) blockedDomainsEl.value = listToLines(blockedDomains);
+    if (blockedAddressesEl) blockedAddressesEl.value = listToLines(blockedAddresses);
+    if (scamTokensEl) scamTokensEl.value = scamTokensToLines(scamTokens);
+    const lastUpdatedEl = document.getElementById("listsLastUpdated");
     if (lastUpdatedEl) {
-      lastUpdatedEl.textContent = resp?.updatedAt ? "\xDAltima atualiza\xE7\xE3o: " + new Date(resp.updatedAt).toLocaleString() : "\u2014";
+      lastUpdatedEl.textContent = resp?.updatedAt ? "Atualizado em: " + new Date(resp.updatedAt).toLocaleString() : "Atualizado em: \u2014";
     }
+    const sourcesEl = document.getElementById("listsSources");
+    if (sourcesEl) {
+      const src = resp?.sources ?? [];
+      sourcesEl.textContent = src.length ? src.map((s) => `${s.name}: ${s.ok ? "OK" : s.error ?? "erro"}`).join(" \xB7 ") : "\u2014";
+    }
+    const trustedCount = document.getElementById("listsTrustedCount");
+    const blockedDomainsCount = document.getElementById("listsBlockedDomainsCount");
+    const blockedAddressesCount = document.getElementById("listsBlockedAddressesCount");
+    const scamTokensCount = document.getElementById("listsScamTokensCount");
+    if (trustedCount) trustedCount.textContent = `Itens (override): ${trusted.length} \xB7 Total efetivo: ${totals.trustedDomainsTotal ?? 0}`;
+    if (blockedDomainsCount) blockedDomainsCount.textContent = `Itens (override): ${blockedDomains.length} \xB7 Total efetivo: ${totals.blockedDomainsTotal ?? 0}`;
+    if (blockedAddressesCount) blockedAddressesCount.textContent = `Itens (override): ${blockedAddresses.length} \xB7 Total efetivo: ${totals.blockedAddressesTotal ?? 0}`;
+    if (scamTokensCount) scamTokensCount.textContent = `Itens (override): ${scamTokens.length} \xB7 Total efetivo: ${totals.scamTokensTotal ?? 0}`;
+    ["listsTrustedError", "listsBlockedDomainsError", "listsBlockedAddressesError", "listsScamTokensError"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = "none";
+        el.textContent = "";
+      }
+    });
   } catch {
+    const lastUpdatedEl = document.getElementById("listsLastUpdated");
     if (lastUpdatedEl) lastUpdatedEl.textContent = "Erro ao carregar.";
   }
 }
@@ -1435,18 +1785,13 @@ async function load() {
 async function save(s) {
   await safeStorageSet(s);
 }
-function linesToList(v) {
-  return v.split("\n").map((x) => normalizeDomainLine(x)).filter(Boolean);
-}
-function listToLines(v) {
-  return v.join("\n");
-}
 (async function init() {
   const s = await load();
   const showUsdEl = $("showUsd");
   const defaultExpandDetailsEl = $("defaultExpandDetails");
   const addressIntelEl = $("addressIntel");
   const fortressModeEl = $("fortressMode");
+  const failModeEl = $("failMode");
   const whitelistInputEl = $("whitelistInput");
   const saveWhitelistBtn = $("saveWhitelist");
   const clearHistoryBtn = $("clearHistory");
@@ -1454,10 +1799,10 @@ function listToLines(v) {
   if (defaultExpandDetailsEl) defaultExpandDetailsEl.checked = s.defaultExpandDetails !== false;
   if (addressIntelEl) addressIntelEl.checked = s.addressIntelEnabled !== false;
   if (fortressModeEl) fortressModeEl.checked = s.fortressMode === true;
-  const domains = (s.trustedDomains?.length ? s.trustedDomains : s.allowlist) ?? [];
-  if (whitelistInputEl) whitelistInputEl.value = listToLines(domains);
+  if (failModeEl) failModeEl.value = s.failMode === "fail_closed" ? "fail_closed" : "fail_open";
+  if (whitelistInputEl) whitelistInputEl.value = "";
   const hash = (location.hash || "").replace(/^#/, "") || "settings";
-  const tabName = hash === "security" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "diagnostics" ? "diagnostics" : "settings";
+  const tabName = hash === "security" || hash === "vault" ? "security" : hash === "lists" ? "lists" : hash === "history" ? "history" : hash === "diagnostics" ? "diagnostics" : "settings";
   showTab(tabName);
   const tabDiagnosticsBtn = document.getElementById("tabDiagnostics");
   localGet("debugLogs").then((debugLogs) => {
@@ -1467,6 +1812,31 @@ function listToLines(v) {
   diagnosticsDebugLogsEl?.addEventListener("change", () => {
     chrome.storage?.local?.set({ debugLogs: diagnosticsDebugLogsEl.checked }, () => {
     });
+  });
+  const diagnosticsExportBtn = document.getElementById("diagnosticsExportBtn");
+  const diagnosticsExportStatus = document.getElementById("diagnosticsExportStatus");
+  diagnosticsExportBtn?.addEventListener("click", async () => {
+    if (diagnosticsExportStatus) diagnosticsExportStatus.textContent = "A exportar\u2026";
+    try {
+      const res = await safeSendMessage({ type: "SG_DIAG_EXPORT" }, 5e3);
+      if (!res?.ok || !res?.export) {
+        if (diagnosticsExportStatus) diagnosticsExportStatus.textContent = "Falha ao obter diagn\xF3stico.";
+        return;
+      }
+      const json = JSON.stringify(res.export, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const now = /* @__PURE__ */ new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      a.download = `signguard-diagnostics-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (diagnosticsExportStatus) diagnosticsExportStatus.textContent = "Descarregado.";
+    } catch (e) {
+      if (diagnosticsExportStatus) diagnosticsExportStatus.textContent = "Erro: " + String(e?.message ?? e);
+    }
   });
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1479,11 +1849,29 @@ function listToLines(v) {
   });
   window.addEventListener("hashchange", () => {
     const h = (location.hash || "").replace(/^#/, "") || "settings";
-    showTab(h === "security" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "diagnostics" ? "diagnostics" : "settings");
+    showTab(h === "security" || h === "vault" ? "security" : h === "lists" ? "lists" : h === "history" ? "history" : h === "diagnostics" ? "diagnostics" : "settings");
   });
   showUsdEl?.addEventListener("change", async () => {
+    const wantOn = showUsdEl.checked;
+    const errEl = $("showUsdError");
+    if (errEl) {
+      errEl.textContent = "";
+      errEl.style.display = "none";
+    }
+    if (wantOn) {
+      const granted = await requestOptionalHostPermissions("pricing");
+      await updateOptionalPermStatus();
+      if (!granted) {
+        showUsdEl.checked = false;
+        if (errEl) {
+          errEl.textContent = "Permiss\xF5es negadas. Conceda em Seguran\xE7a \u2192 Privacidade (Pre\xE7os USD).";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+    }
     const next = await load();
-    await save({ ...next, showUsd: showUsdEl.checked });
+    await save({ ...next, showUsd: wantOn });
   });
   defaultExpandDetailsEl?.addEventListener("change", async () => {
     const next = await load();
@@ -1497,15 +1885,316 @@ function listToLines(v) {
     const next = await load();
     await save({ ...next, fortressMode: fortressModeEl.checked });
   });
+  failModeEl?.addEventListener("change", async () => {
+    const next = await load();
+    await save({ ...next, failMode: failModeEl.value === "fail_closed" ? "fail_closed" : "fail_open" });
+  });
+  const showError = (id, msg) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = msg;
+      el.style.display = msg ? "block" : "none";
+    }
+  };
+  $("normalizeSpenders")?.addEventListener("click", () => {
+    const allowEl = $("allowlistSpenders");
+    const denyEl = $("denylistSpenders");
+    const inv = [];
+    if (allowEl) {
+      const a = parseAddressList(allowEl.value);
+      allowEl.value = listToLines(a.ok);
+      inv.push(...a.invalid);
+    }
+    if (denyEl) {
+      const d = parseAddressList(denyEl.value);
+      denyEl.value = listToLines(d.ok);
+      inv.push(...d.invalid);
+    }
+    showError("spendersError", inv.length ? "Descartados (inv\xE1lidos): " + [...new Set(inv)].slice(0, 3).join(", ") : "");
+  });
+  $("applySpenders")?.addEventListener("click", async () => {
+    const allow = $("allowlistSpenders")?.value ?? "";
+    const deny = $("denylistSpenders")?.value ?? "";
+    const a = parseAddressList(allow);
+    const d = parseAddressList(deny);
+    if (a.invalid.length || d.invalid.length) {
+      showError("spendersError", "Endere\xE7os inv\xE1lidos: " + [...a.invalid, ...d.invalid].slice(0, 3).join(", "));
+      return;
+    }
+    showError("spendersError", "");
+    const next = await load();
+    await save({ ...next, allowlistSpenders: a.ok, denylistSpenders: d.ok });
+  });
+  $("revertSpenders")?.addEventListener("click", () => loadSecuritySettings());
+  $("clearSpenders")?.addEventListener("click", async () => {
+    const next = await load();
+    await save({ ...next, allowlistSpenders: [], denylistSpenders: [] });
+    loadSecuritySettings();
+  });
+  $("applyVault")?.addEventListener("click", async () => {
+    const txt = $("vaultLockedContracts")?.value ?? "";
+    const { ok, invalid } = parseAddressList(txt);
+    if (invalid.length) {
+      showError("vaultError", "Endere\xE7os inv\xE1lidos: " + invalid.slice(0, 3).join(", "));
+      return;
+    }
+    showError("vaultError", "");
+    const next = await load();
+    const vault = next.vault ?? { enabled: false, lockedContracts: [], unlockedUntil: 0, blockApprovals: false };
+    await save({
+      ...next,
+      vault: {
+        ...vault,
+        enabled: $("vaultEnabled")?.checked ?? false,
+        blockApprovals: $("vaultBlockApprovals")?.checked ?? false,
+        lockedContracts: ok
+      }
+    });
+    loadSecuritySettings();
+  });
+  $("revertVault")?.addEventListener("click", () => loadSecuritySettings());
+  $("clearVault")?.addEventListener("click", async () => {
+    const next = await load();
+    const vault = next.vault ?? { enabled: false, lockedContracts: [], unlockedUntil: 0, blockApprovals: false };
+    await save({ ...next, vault: { ...vault, enabled: false, lockedContracts: [] } });
+    loadSecuritySettings();
+  });
+  $("vaultUnlockNow")?.addEventListener("click", async () => {
+    try {
+      await safeSendMessage({ type: "SG_VAULT_UNLOCK", payload: { durationMs: 5 * 60 * 1e3 } }, 3e3);
+      loadSecuritySettings();
+    } catch {
+    }
+  });
+  $("applySimulation")?.addEventListener("click", async () => {
+    const next = await load();
+    const sim = next.simulation ?? { enabled: false, tenderlyAccount: "", tenderlyProject: "", tenderlyKey: "" };
+    const keyEl = $("tenderlyKey");
+    const wantEnabled = $("simulationEnabled")?.checked ?? false;
+    if (wantEnabled) {
+      const granted = await requestOptionalHostPermissions("simulation");
+      await updateOptionalPermStatus();
+      if (!granted) {
+        if ($("simulationEnabled")) $("simulationEnabled").checked = false;
+        showError("simulationError", "Permiss\xF5es negadas. Simula\xE7\xE3o requer acesso \xE0 API Tenderly.");
+        return;
+      }
+    }
+    await save({
+      ...next,
+      simulation: {
+        ...sim,
+        enabled: wantEnabled,
+        tenderlyAccount: ($("tenderlyAccount")?.value ?? "").trim(),
+        tenderlyProject: ($("tenderlyProject")?.value ?? "").trim(),
+        tenderlyKey: keyEl?.value?.trim() ? keyEl.value.trim() : sim.tenderlyKey ?? ""
+      }
+    });
+    showError("simulationError", "");
+    loadSecuritySettings();
+  });
+  $("testSimulation")?.addEventListener("click", async () => {
+    const errEl = $("simulationError");
+    const acc = ($("tenderlyAccount")?.value ?? "").trim();
+    const proj = ($("tenderlyProject")?.value ?? "").trim();
+    const keyEl = $("tenderlyKey");
+    const key = keyEl?.value?.trim() ?? "";
+    const s2 = await load();
+    const storedKey = s2.simulation?.tenderlyKey ?? "";
+    const hasKey = key ? key.length > 10 : storedKey.length > 10;
+    if (!acc || !proj || !hasKey) {
+      if (errEl) {
+        errEl.textContent = "Preencha account, project e key.";
+        errEl.style.display = "block";
+      }
+      return;
+    }
+    if (errEl) {
+      errEl.style.display = "none";
+      errEl.textContent = "";
+    }
+    try {
+      const resp = await safeSendMessage({ type: "SG_TEST_SIMULATION", payload: {} }, 5e3);
+      if (resp?.ok) {
+        if (errEl) {
+          errEl.textContent = "OK";
+          errEl.style.color = "#22c55e";
+          errEl.style.display = "block";
+        }
+      } else {
+        if (errEl) {
+          errEl.textContent = resp?.error ?? "Falha";
+          errEl.style.color = "var(--danger)";
+          errEl.style.display = "block";
+        }
+      }
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = "Erro: " + String(e?.message ?? e);
+        errEl.style.color = "var(--danger)";
+        errEl.style.display = "block";
+      }
+    }
+  });
+  $("termsAccepted")?.addEventListener("change", () => {
+    const el = $("termsAccepted");
+    chrome.storage?.local?.set({ termsAccepted: el?.checked ?? false }, () => {
+    });
+  });
+  $("cloudIntelOptIn")?.addEventListener("change", async () => {
+    const el = $("cloudIntelOptIn");
+    const errEl = $("cloudIntelError");
+    const wantOn = el?.checked ?? false;
+    if (errEl) {
+      errEl.style.display = "none";
+      errEl.textContent = "";
+    }
+    if (wantOn) {
+      const granted = await requestOptionalHostPermissions("cloudIntel");
+      await updateOptionalPermStatus();
+      if (!granted) {
+        if (el) el.checked = false;
+        if (errEl) {
+          errEl.textContent = "Permiss\xF5es negadas. Cloud Intel permanecer\xE1 desativado.";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+    }
+    const next = await load();
+    await save({ ...next, cloudIntelOptIn: wantOn });
+  });
+  $("cloudPermGrantBtn")?.addEventListener("click", async () => {
+    const errEl = $("cloudIntelError");
+    if (errEl) {
+      errEl.style.display = "none";
+      errEl.textContent = "";
+    }
+    const granted = await requestOptionalHostPermissions("cloudIntel");
+    await updateOptionalPermStatus();
+    if (granted) {
+      const next = await load();
+      await save({ ...next, cloudIntelOptIn: true });
+      const cloudEl = $("cloudIntelOptIn");
+      if (cloudEl) cloudEl.checked = true;
+    } else if (errEl) {
+      errEl.textContent = "Permiss\xF5es negadas.";
+      errEl.style.display = "block";
+    }
+  });
+  $("cloudPermRevokeBtn")?.addEventListener("click", async () => {
+    await removeOptionalHostPermissions("cloudIntel");
+    await updateOptionalPermStatus();
+    const next = await load();
+    await save({ ...next, cloudIntelOptIn: false });
+    const cloudEl = $("cloudIntelOptIn");
+    if (cloudEl) cloudEl.checked = false;
+  });
+  $("pricingPermGrantBtn")?.addEventListener("click", async () => {
+    const errEl = $("cloudIntelError");
+    if (errEl) errEl.style.display = "none";
+    const granted = await requestOptionalHostPermissions("pricing");
+    await updateOptionalPermStatus();
+    if (granted) {
+      const next = await load();
+      await save({ ...next, showUsd: true });
+      const showUsdEl2 = $("showUsd");
+      if (showUsdEl2) showUsdEl2.checked = true;
+    }
+  });
+  $("pricingPermRevokeBtn")?.addEventListener("click", async () => {
+    await removeOptionalHostPermissions("pricing");
+    await updateOptionalPermStatus();
+    const next = await load();
+    await save({ ...next, showUsd: false });
+    const showUsdEl2 = $("showUsd");
+    if (showUsdEl2) showUsdEl2.checked = false;
+  });
+  $("simPermGrantBtn")?.addEventListener("click", async () => {
+    const granted = await requestOptionalHostPermissions("simulation");
+    await updateOptionalPermStatus();
+    if (granted) {
+      const next = await load();
+      const sim = next.simulation ?? { enabled: false, tenderlyAccount: "", tenderlyProject: "", tenderlyKey: "" };
+      await save({ ...next, simulation: { ...sim, enabled: true } });
+      const simEl = $("simulationEnabled");
+      if (simEl) simEl.checked = true;
+    }
+  });
+  $("simPermRevokeBtn")?.addEventListener("click", async () => {
+    await removeOptionalHostPermissions("simulation");
+    await updateOptionalPermStatus();
+    const next = await load();
+    const sim = next.simulation ?? { enabled: false, tenderlyAccount: "", tenderlyProject: "", tenderlyKey: "" };
+    await save({ ...next, simulation: { ...sim, enabled: false } });
+    const simEl = $("simulationEnabled");
+    if (simEl) simEl.checked = false;
+  });
+  $("telemetryPermGrantBtn")?.addEventListener("click", async () => {
+    const errEl = $("telemetryPermError");
+    if (errEl) errEl.style.display = "none";
+    const granted = await requestOptionalHostPermissions("telemetry");
+    await updateOptionalPermStatus();
+    if (granted) {
+      const next = await load();
+      await save({ ...next, telemetryOptIn: true });
+      const te = $("telemetryOptIn");
+      if (te) te.checked = true;
+    } else if (errEl) {
+      errEl.textContent = "Permiss\xF5es negadas.";
+      errEl.style.display = "block";
+    }
+  });
+  $("telemetryPermRevokeBtn")?.addEventListener("click", async () => {
+    await removeOptionalHostPermissions("telemetry");
+    await updateOptionalPermStatus();
+    const next = await load();
+    await save({ ...next, telemetryOptIn: false });
+    const te = $("telemetryOptIn");
+    if (te) te.checked = false;
+  });
+  $("telemetryOptIn")?.addEventListener("change", async () => {
+    const el = $("telemetryOptIn");
+    const errEl = $("telemetryPermError");
+    const wantOn = el?.checked ?? false;
+    if (errEl) errEl.style.display = "none";
+    if (wantOn) {
+      const terms = await localGet("termsAccepted");
+      if (!terms) {
+        if (el) el.checked = false;
+        if (errEl) {
+          errEl.textContent = "Aceite os termos de uso primeiro.";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+      const granted = await requestOptionalHostPermissions("telemetry");
+      await updateOptionalPermStatus();
+      if (!granted) {
+        if (el) el.checked = false;
+        if (errEl) {
+          errEl.textContent = "Permiss\xF5es negadas. Telemetria permanecer\xE1 desativada.";
+          errEl.style.display = "block";
+        }
+        return;
+      }
+    }
+    const next = await load();
+    await save({ ...next, telemetryOptIn: wantOn });
+  });
+  $("applyWhitelistedDomains")?.addEventListener("click", async () => {
+    const raw = $("whitelistedDomains")?.value ?? "";
+    const domains = parseDomainList(raw);
+    const next = await load();
+    await save({ ...next, whitelistedDomains: domains });
+  });
   saveWhitelistBtn?.addEventListener("click", async () => {
-    const latest = await load();
     const lines = whitelistInputEl?.value ?? "";
     const list = linesToList(lines);
-    await save({
-      ...latest,
-      allowlist: list,
-      trustedDomains: list
-    });
+    try {
+      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_SET", payload: { kind: "trustedDomains", values: list } }, 3e3);
+    } catch {
+    }
   });
   clearHistoryBtn?.addEventListener("click", async () => {
     try {
@@ -1521,11 +2210,11 @@ function listToLines(v) {
     const items = await localGet(HISTORY_KEY);
     const arr = Array.isArray(items) ? items : [];
     try {
-      const blob = new Blob([JSON.stringify({ exportedAt: Date.now(), history: arr }, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify({ exportedAt: Date.now(), decisionLog: arr }, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "signguard-history.json";
+      a.download = "signguard-decision-log.json";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1535,88 +2224,70 @@ function listToLines(v) {
   });
   document.getElementById("listsRefreshNow")?.addEventListener("click", async () => {
     try {
-      await safeSendMessage({ type: "SG_LISTS_REFRESH_NOW" }, 15e3);
+      await safeSendMessage({ type: "SG_LISTS_REFRESH" }, 15e3);
       loadListsTab();
     } catch {
     }
   });
-  const listsSearchInput = document.getElementById("listsSearchInput");
-  const listsSearchType = document.getElementById("listsSearchType");
-  const listsSearchResults = document.getElementById("listsSearchResults");
-  document.getElementById("listsSearchBtn")?.addEventListener("click", async () => {
-    const query = listsSearchInput?.value?.trim() ?? "";
-    const type = listsSearchType?.value || "";
-    if (!listsSearchResults) return;
+  async function applyList(kind, textareaId, errorId) {
+    const ta = document.getElementById(textareaId);
+    const errEl = document.getElementById(errorId);
+    if (!ta) return;
+    const raw = linesToList(ta.value);
+    const values = kind === "scamTokens" ? linesToScamTokens(ta.value) : raw;
     try {
-      const resp = await safeSendMessage({
-        type: "SG_LISTS_SEARCH",
-        payload: { query, type, page: 0, pageSize: 50 }
-      }, 3e3);
-      if (!resp?.ok || !Array.isArray(resp.items)) {
-        listsSearchResults.innerHTML = "<p>Nenhum resultado.</p>";
-        return;
+      const resp = await safeSendMessage({ type: "SG_LISTS_OVERRIDE_SET", payload: { kind, values } }, 5e3);
+      if (resp?.invalidCount && resp.invalidCount > 0 && errEl) {
+        errEl.textContent = `${resp.invalidCount} entradas inv\xE1lidas${resp.invalidExamples?.length ? ": " + resp.invalidExamples.slice(0, 3).join(", ") : ""}`;
+        errEl.style.display = "block";
       }
-      const items = resp.items;
-      const total = resp.total ?? items.length;
-      listsSearchResults.innerHTML = items.length === 0 ? "<p>Nenhum resultado.</p>" : "<p style='margin:0 0 8px 0;color:var(--text-muted);'>" + total + " resultado(s)</p>" + items.map((it) => {
-        if (it.type === "domain") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.value || "")}</code><span class="list-badge ${it.source === "user" ? "list-badge-user" : "list-badge-feed"}">${it.kind === "blocked" ? "bloqueado" : "confi\xE1vel"} \xB7 ${it.source || "feed"}</span></div>`;
-        if (it.type === "address") return `<div style="margin-bottom:6px;"><code class="sg-mono">${escapeHtml((it.value || "").slice(0, 20))}\u2026</code><span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
-        if (it.type === "token") return `<div style="margin-bottom:6px;"><code>${escapeHtml(it.chainId || "")}</code> <code class="sg-mono">${escapeHtml((it.address || "").slice(0, 16))}\u2026</code>${it.symbol ? " " + escapeHtml(it.symbol) : ""}<span class="list-badge list-badge-feed">${it.source || "feed"}</span></div>`;
-        return "";
-      }).join("");
-    } catch {
-      listsSearchResults.innerHTML = "<p>Erro ao buscar.</p>";
+      loadListsTab();
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = "Erro: " + String(e?.message ?? e);
+        errEl.style.display = "block";
+      }
     }
-  });
-  function escapeHtml(s2) {
-    const div = document.createElement("div");
-    div.textContent = s2;
-    return div.innerHTML;
   }
-  const listsAddDomain = document.getElementById("listsAddDomain");
-  const listsAddDomainKind = document.getElementById("listsAddDomainKind");
-  document.getElementById("listsAddDomainBtn")?.addEventListener("click", async () => {
-    const domain = listsAddDomain?.value?.trim();
-    const type = listsAddDomainKind?.value || "userTrustedDomains";
-    if (!domain) return;
-    try {
-      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type, domain } }, 3e3);
-      if (listsAddDomain) listsAddDomain.value = "";
-      loadListsTab();
-    } catch {
+  function revertList(textareaId, errorId) {
+    const ta = document.getElementById(textareaId);
+    const errEl = document.getElementById(errorId);
+    if (!ta || !__listsSnapshot?.overrides) return;
+    if (textareaId === "listsTrustedDomains") ta.value = listToLines(__listsSnapshot.overrides.trustedDomains ?? []);
+    else if (textareaId === "listsBlockedDomains") ta.value = listToLines(__listsSnapshot.overrides.blockedDomains ?? []);
+    else if (textareaId === "listsBlockedAddresses") ta.value = listToLines(__listsSnapshot.overrides.blockedAddresses ?? []);
+    else if (textareaId === "listsScamTokens") ta.value = scamTokensToLines(__listsSnapshot.overrides.scamTokens ?? []);
+    if (errEl) {
+      errEl.style.display = "none";
+      errEl.textContent = "";
     }
+  }
+  document.getElementById("listsApplyTrusted")?.addEventListener("click", () => applyList("trustedDomains", "listsTrustedDomains", "listsTrustedError"));
+  document.getElementById("listsRevertTrusted")?.addEventListener("click", () => revertList("listsTrustedDomains", "listsTrustedError"));
+  document.getElementById("listsClearTrusted")?.addEventListener("click", () => {
+    document.getElementById("listsTrustedDomains").value = "";
   });
-  const listsAddAddress = document.getElementById("listsAddAddress");
-  document.getElementById("listsAddAddressBtn")?.addEventListener("click", async () => {
-    const address = listsAddAddress?.value?.trim();
-    if (!address || !address.startsWith("0x")) return;
-    try {
-      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "userBlockedAddresses", address } }, 3e3);
-      if (listsAddAddress) listsAddAddress.value = "";
-      loadListsTab();
-    } catch {
-    }
+  document.getElementById("listsApplyBlockedDomains")?.addEventListener("click", () => applyList("blockedDomains", "listsBlockedDomains", "listsBlockedDomainsError"));
+  document.getElementById("listsRevertBlockedDomains")?.addEventListener("click", () => revertList("listsBlockedDomains", "listsBlockedDomainsError"));
+  document.getElementById("listsClearBlockedDomains")?.addEventListener("click", () => {
+    document.getElementById("listsBlockedDomains").value = "";
   });
-  const listsAddTokenChain = document.getElementById("listsAddTokenChain");
-  const listsAddTokenAddr = document.getElementById("listsAddTokenAddr");
-  const listsAddTokenKind = document.getElementById("listsAddTokenKind");
-  document.getElementById("listsAddTokenBtn")?.addEventListener("click", async () => {
-    const chainId = listsAddTokenChain?.value?.trim();
-    const tokenAddress = listsAddTokenAddr?.value?.trim();
-    const kind = listsAddTokenKind?.value || "userScamTokens";
-    if (!chainId || !tokenAddress || !tokenAddress.startsWith("0x")) return;
-    try {
-      await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: kind, chainId, tokenAddress } }, 3e3);
-      if (listsAddTokenAddr) listsAddTokenAddr.value = "";
-      loadListsTab();
-    } catch {
-    }
+  document.getElementById("listsApplyBlockedAddresses")?.addEventListener("click", () => applyList("blockedAddresses", "listsBlockedAddresses", "listsBlockedAddressesError"));
+  document.getElementById("listsRevertBlockedAddresses")?.addEventListener("click", () => revertList("listsBlockedAddresses", "listsBlockedAddressesError"));
+  document.getElementById("listsClearBlockedAddresses")?.addEventListener("click", () => {
+    document.getElementById("listsBlockedAddresses").value = "";
+  });
+  document.getElementById("listsApplyScamTokens")?.addEventListener("click", () => applyList("scamTokens", "listsScamTokens", "listsScamTokensError"));
+  document.getElementById("listsRevertScamTokens")?.addEventListener("click", () => revertList("listsScamTokens", "listsScamTokensError"));
+  document.getElementById("listsClearScamTokens")?.addEventListener("click", () => {
+    document.getElementById("listsScamTokens").value = "";
   });
   document.getElementById("listsExport")?.addEventListener("click", async () => {
     try {
       const resp = await safeSendMessage({ type: "SG_LISTS_EXPORT" }, 3e3);
-      if (!resp?.ok || !resp?.data) return;
-      const blob = new Blob([JSON.stringify({ ...resp.data, exportedAt: Date.now() }, null, 2)], { type: "application/json" });
+      const ov = resp?.overrides ?? { trustedDomains: [], blockedDomains: [], blockedAddresses: [], scamTokens: [] };
+      const data = { overrides: { trustedDomains: ov.trustedDomains ?? [], blockedDomains: ov.blockedDomains ?? [], blockedAddresses: ov.blockedAddresses ?? [], scamTokens: ov.scamTokens ?? [] }, exportedAt: Date.now() };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1637,7 +2308,8 @@ function listToLines(v) {
     if (!file) return;
     try {
       const text = await file.text();
-      const data = JSON.parse(text);
+      const parsed = JSON.parse(text);
+      const data = parsed.overrides && typeof parsed.overrides === "object" ? parsed : { overrides: parsed };
       await safeSendMessage({ type: "SG_LISTS_IMPORT", payload: { data } }, 5e3);
       listsImportStatus.textContent = "Importado (apenas overrides).";
       loadListsTab();

@@ -64,6 +64,14 @@ export type PendingRequestPayload = {
   providerSource?: "window.ethereum" | "ethereum.providers[i]" | "eip6963";
 };
 
+/** P0 UI Gate: meta sent with SG_DECISION to ensure wallet is only forwarded after user confirmed in overlay. */
+export type DecisionMeta = {
+  uiConfirmed?: boolean;
+  uiGate?: boolean;
+  reasonKeys?: string[];
+  method?: string;
+};
+
 export type FeeEstimateWire = {
   ok: boolean;
   gasLimitHex?: string;
@@ -91,6 +99,7 @@ export type AnalyzeRequest = {
     chainIdHex?: string;
     chainIdRequested?: string;
     txContext?: { kind: TxContextKind };
+    pageRisk?: { score: "LOW" | "MEDIUM" | "HIGH"; reasons: string[] };
     preflight?: {
       tx?: any;
       valueWei?: string; // decimal
@@ -161,14 +170,21 @@ export type AssetInfo = {
   fetchedAt: number;
 };
 
-export type DecodedAction =
+export type DecodedAction = (
   | { kind: "APPROVE_ERC20"; token: Address; spender: Address; amountType: "LIMITED" | "UNLIMITED"; amountRaw?: string }
+  | { kind: "INCREASE_ALLOWANCE"; token: Address; spender: Address; amountType: "LIMITED" | "UNLIMITED"; amountRaw?: string }
+  | { kind: "DECREASE_ALLOWANCE"; token: Address; spender: Address; amountRaw?: string }
   | { kind: "TRANSFER_ERC20"; token: Address; to: Address; amountRaw?: string }
   | { kind: "TRANSFERFROM_ERC20"; token: Address; from: Address; to: Address; amountRaw?: string }
   | { kind: "SET_APPROVAL_FOR_ALL"; token: Address; operator: Address; approved: boolean }
   | { kind: "TRANSFER_NFT"; token: Address; to: Address; from?: Address; tokenIdRaw?: string; amountRaw?: string; standard: "ERC721" | "ERC1155" | "UNKNOWN"; batch?: boolean }
   | { kind: "PERMIT_EIP2612"; token: Address; spender: Address; valueType: "LIMITED" | "UNLIMITED"; valueRaw?: string; deadlineRaw?: string }
-  | { kind: "UNKNOWN"; selector?: string };
+  | { kind: "PERMIT2_ALLOWANCE"; token: Address; spender: Address; amountType: "LIMITED" | "UNLIMITED"; amountRaw?: string; deadlineRaw?: string }
+  | { kind: "PERMIT2_TRANSFER"; token: Address; to: Address; amountType: "LIMITED" | "UNLIMITED"; amountRaw?: string }
+  | { kind: "UNKNOWN"; selector?: string }
+  | { kind: "MULTICALL"; selector: string; raw?: string }
+  )
+  & { permit2?: boolean; marketplaceHint?: string };
 
 export type RiskLevel = "LOW" | "WARN" | "HIGH";
 
@@ -288,6 +304,17 @@ export type TxExtras =
       toAddress?: string;
     };
 
+/** P1: Transaction summary v1 for overlay (give/get, approvals, nfts, flags). */
+export type TxSummaryV1 = {
+  title: string;
+  subtitle?: string;
+  give?: Array<{ amount?: string; symbol?: string; kind: "NATIVE" | "ERC20" | "NFT" | "UNKNOWN"; tokenAddress?: string; tokenId?: string; to?: string }>;
+  get?: Array<{ amount?: string; symbol?: string; kind: "NATIVE" | "ERC20" | "NFT" | "UNKNOWN"; tokenAddress?: string; tokenId?: string; to?: string }>;
+  approvals?: Array<{ kind: "ERC20" | "ERC721_ALL" | "ERC1155_ALL" | "PERMIT" | "PERMIT2"; tokenAddress?: string; tokenSymbol?: string; spender?: string; amount?: string; unlimited?: boolean; deadline?: string }>;
+  nfts?: Array<{ collection?: string; tokenAddress?: string; tokenId?: string; amount?: string; to?: string; marketplace?: string }>;
+  flags?: string[]; // reasonKeys
+};
+
 export type Analysis = {
   level: RiskLevel;
   score: number; // 0-100
@@ -333,6 +360,10 @@ export type Analysis = {
   knownSafe?: boolean;
   /** true when phishing/lookalike HIGH + blacklist. */
   knownBad?: boolean;
+  /** Spender matched denylistSpenders → BLOCK. */
+  matchedDenySpender?: boolean;
+  /** Spender matched allowlistSpenders → reduce score. */
+  matchedAllowSpender?: boolean;
   /** Domain-related signals, e.g. METAMASK_SEED, BLACKLIST_HIT, LOOKALIKE, PUNYCODE, SEED_MATCH, SUSPICIOUS_TLD. */
   domainSignals?: string[];
   /** Intel source ids used, e.g. metamask, cryptoscamdb, scamsniffer, local_seed. */
@@ -341,6 +372,12 @@ export type Analysis = {
   domainListDecision?: DomainDecision;
   /** Extras from typed-data (e.g. Permit: spender, value, deadline). */
   typedDataExtras?: { spender?: string; value?: string; deadline?: string };
+  /** Structured decode for Permit2 / Seaport / Blur typed data (human overlay). */
+  typedDataDecoded?: {
+    permit2?: { spender: string; tokens: string[]; amounts: string[]; unlimited?: boolean; sigDeadline?: string };
+    seaport?: { offerSummary: string; considerationSummary: string; primaryType?: string };
+    isBlur?: boolean;
+  };
   /** true when any address (to/spender/operator/tokenContract) matched address intel labels. */
   addressIntelHit?: boolean;
   /** Labels per role when address intel hit (human-readable label strings). */
@@ -355,6 +392,7 @@ export type Analysis = {
     status: "SUCCESS" | "REVERT" | "RISK" | "SKIPPED";
     outgoingAssets: Array<{ symbol: string; amount: string; logo?: string }>;
     incomingAssets: Array<{ symbol: string; amount: string; logo?: string }>;
+    approvals?: Array<{ token: string; spender: string; approved: boolean; unlimited?: boolean; approvalForAll?: boolean }>;
     gasUsed: string;
     fallback?: boolean;
     gasCostWei?: string;
@@ -372,6 +410,18 @@ export type Analysis = {
   isHoneypot?: boolean;
   /** True when protection is temporarily paused (allow without showing overlay). */
   protectionPaused?: boolean;
+  /** True when vault blocks this request (Cofre). */
+  vaultBlocked?: boolean;
+  /** Locked contract address when vaultBlocked. */
+  vaultLockedTo?: string;
+  /** ChainId for vault override (VAULT_UNLOCK). */
+  vaultChainIdHex?: string;
+  /** Standardized reason keys for consistency (maps to i18n). */
+  reasonKeys?: string[];
+  /** P1: Structured summary for overlay (title, give/get, approvals, nfts, flags). */
+  summary?: TxSummaryV1;
+  /** P1: Alias for summary (spec name summaryV1). */
+  summaryV1?: TxSummaryV1;
 }
 
 export type SupportedWalletEntry = { name: string; kind: string };
@@ -389,6 +439,11 @@ export type Settings = {
   trustedDomains?: string[];
   customBlockedDomains?: string[];
   customTrustedDomains?: string[];
+  /** P0-C: User allow/deny by spender address (for approvals). */
+  allowlistSpenders?: string[];
+  denylistSpenders?: string[];
+  /** fail_open: allow when runtime unavailable; fail_closed: block on high risk. */
+  failMode?: "fail_open" | "fail_closed";
   enableIntel?: boolean;
   mode?: SecurityMode;
   supportedWalletsInfo?: SupportedWalletEntry[];
@@ -399,6 +454,10 @@ export type Settings = {
   addressIntelEnabled?: boolean;
   /** P0-E: Allow external checks (more protection; may send domain/address for validation). Default false. */
   cloudIntelOptIn?: boolean;
+  /** Telemetry/analytics opt-in. Default false. Requires termsAccepted. Independent of cloudIntelOptIn. */
+  telemetryOptIn?: boolean;
+  /** @deprecated Use telemetryOptIn. Kept for migration. */
+  telemetryEnabled?: boolean;
   showUsd?: boolean;
   planTier?: "FREE" | "PRO";
   licenseKey?: string;
@@ -406,6 +465,10 @@ export type Settings = {
   vault?: {
     enabled: boolean;
     lockedContracts: string[];
+    /** Timestamp until which vault is temporarily unlocked (Date.now() + ms). */
+    unlockedUntil?: number;
+    /** Also block approvals/permits when spender is in lockedContracts. */
+    blockApprovals?: boolean;
   };
   /** Tenderly simulation (no hardcoded keys). */
   simulation?: {
@@ -451,6 +514,8 @@ export const SUPPORTED_WALLETS: SupportedWalletEntry[] = [
   { name: "Backpack", kind: "Solana" },
 ];
 
+import { CRYPTO_TRUSTED_DOMAINS_SEED } from "../lists/cryptoTrustedDomainsSeed";
+
 export const DEFAULT_SETTINGS: Settings = {
   riskWarnings: true,
   showConnectOverlay: true,
@@ -465,40 +530,27 @@ export const DEFAULT_SETTINGS: Settings = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: true,
-  showUsd: true,
+  cloudIntelOptIn: false,
+  telemetryOptIn: false,
+  telemetryEnabled: false,
+  showUsd: false,
   defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
-  trustedDomains: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology",
-  ],
+  trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   supportedWalletsInfo: SUPPORTED_WALLETS,
-  allowlist: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology",
-  ],
+  allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   customBlockedDomains: [],
   customTrustedDomains: [],
+  allowlistSpenders: [],
+  denylistSpenders: [],
+  failMode: "fail_open",
   enableIntel: true,
   vault: {
     enabled: false,
     lockedContracts: [],
+    unlockedUntil: 0,
+    blockApprovals: false,
   },
   simulation: {
     enabled: false,

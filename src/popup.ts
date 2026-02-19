@@ -66,8 +66,8 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     e.preventDefault();
     try {
       const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
-        ? chrome.runtime.getURL("dist/options.html#diagnostics")
-        : "dist/options.html#diagnostics";
+        ? chrome.runtime.getURL("options.html#diagnostics")
+        : "options.html#diagnostics";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {
@@ -79,7 +79,7 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     }
   });
 
-  linkSettings?.addEventListener("click", (e) => {
+  const openOptions = (e: Event) => {
     e.preventDefault();
     sendUsageEvent("settings_opened");
     try {
@@ -92,15 +92,17 @@ const PAUSE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
     } catch {
       window.close();
     }
-  });
+  };
+  linkSettings?.addEventListener("click", openOptions);
+  $("popupOpenOptions")?.addEventListener("click", openOptions);
 
   linkHistory?.addEventListener("click", (e) => {
     e.preventDefault();
     sendUsageEvent("history_opened");
     try {
       const url = typeof chrome !== "undefined" && chrome.runtime?.getURL
-        ? chrome.runtime.getURL("dist/options.html#history")
-        : "dist/options.html#history";
+        ? chrome.runtime.getURL("options.html#history")
+        : "options.html#history";
       if (typeof chrome !== "undefined" && chrome.tabs?.create) {
         chrome.tabs.create({ url });
       } else {

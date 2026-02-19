@@ -159,6 +159,97 @@ export type TypedDataPermitExtras = {
   deadline?: string;
 };
 
+/** Permit2 typed data decode (PermitSingle / PermitBatch). */
+export type Permit2Decoded = {
+  spender: string;
+  tokens: string[];
+  amounts: string[];
+  expiration?: string;
+  sigDeadline?: string;
+  unlimited?: boolean;
+};
+
+/** Seaport typed data summary. */
+export type SeaportDecoded = {
+  offerSummary: string;
+  considerationSummary: string;
+  primaryType?: string;
+};
+
+export function extractPermit2FromTypedData(raw: string): Permit2Decoded | null {
+  try {
+    if (!raw || raw.length > 200_000) return null;
+    const j: any = JSON.parse(raw);
+    const domainName = String(j?.domain?.name || "").toLowerCase();
+    const primaryType = String(j?.primaryType || "").toLowerCase();
+    const msg = j?.message || {};
+    const isPermit2 = domainName.includes("permit2") || (!!msg?.permitted && !!msg?.spender);
+    if (!isPermit2) return null;
+    const spender = typeof msg?.spender === "string" ? msg.spender.trim().toLowerCase() : "";
+    if (!spender) return null;
+    const tokens: string[] = [];
+    const amounts: string[] = [];
+    let unlimited = false;
+    const MAX_UINT = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+    if (msg?.permitted && Array.isArray(msg.permitted)) {
+      for (const p of msg.permitted) {
+        const tok = p?.token ?? p?.tokenAddress;
+        if (typeof tok === "string") tokens.push(tok.toLowerCase());
+        const amt = p?.amount ?? p?.amountMax ?? "0";
+        amounts.push(String(amt));
+        if (String(amt) === MAX_UINT || BigInt(amt) >= 2n ** 255n) unlimited = true;
+      }
+    } else if (msg?.token || msg?.tokenAddress) {
+      tokens.push(String(msg.token || msg.tokenAddress).toLowerCase());
+      const amt = msg?.amount ?? msg?.amountMax ?? "0";
+      amounts.push(String(amt));
+      if (String(amt) === MAX_UINT || BigInt(amt) >= 2n ** 255n) unlimited = true;
+    }
+    const expiration = msg?.expiration ?? msg?.nonce;
+    const sigDeadline = msg?.sigDeadline ?? msg?.deadline;
+    return { spender, tokens, amounts, expiration: expiration != null ? String(expiration) : undefined, sigDeadline: sigDeadline != null ? String(sigDeadline) : undefined, unlimited };
+  } catch {
+    return null;
+  }
+}
+
+export function extractSeaportFromTypedData(raw: string): SeaportDecoded | null {
+  try {
+    if (!raw || raw.length > 200_000) return null;
+    const j: any = JSON.parse(raw);
+    const domainName = String(j?.domain?.name || "").toLowerCase();
+    const msg = j?.message || {};
+    const isSeaport = domainName.includes("seaport") || (!!msg?.offer && !!msg?.consideration);
+    if (!isSeaport) return null;
+    const primaryType = j?.primaryType ?? "OrderComponents";
+    const offer = Array.isArray(msg?.offer) ? msg.offer : [];
+    const consideration = Array.isArray(msg?.consideration) ? msg.consideration : [];
+    const fmt = (arr: any[]) => {
+      if (arr.length === 0) return "—";
+      if (arr.length === 1) {
+        const x = arr[0];
+        const amt = x?.startAmount ?? x?.amount ?? "?";
+        return `${amt} item(s)`;
+      }
+      return `${arr.length} itens`;
+    };
+    return { offerSummary: fmt(offer), considerationSummary: fmt(consideration), primaryType };
+  } catch {
+    return null;
+  }
+}
+
+export function isBlurTypedData(raw: string): boolean {
+  try {
+    if (!raw || raw.length > 50_000) return false;
+    const j: any = JSON.parse(raw);
+    const domainName = String(j?.domain?.name || "").toLowerCase();
+    return domainName.includes("blur");
+  } catch {
+    return false;
+  }
+}
+
 /** Extract Permit-like fields from EIP-712 typed data (primaryType / message). */
 export function extractTypedDataPermitExtras(raw: string): TypedDataPermitExtras | null {
   try {

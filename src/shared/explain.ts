@@ -21,7 +21,7 @@ export function explainMethod(method: string): { title: string; short: string; w
     };
   }
 
-  if (m === "eth_signtypeddata_v4") {
+  if (m === "eth_signtypeddata" || m === "eth_signtypeddata_v3" || m === "eth_signtypeddata_v4") {
     return {
       title: t("explain_typed_title"),
       short: t("explain_typed_short"),
@@ -107,11 +107,12 @@ export function buildHumanLists(method: string, trustVerdict: TrustVerdict): Pic
     };
   }
 
-  if (m === "personal_sign" || m === "eth_sign" || m === "eth_signtypeddata_v4") {
+  const isTyped = m === "eth_signtypeddata" || m === "eth_signtypeddata_v3" || m === "eth_signtypeddata_v4";
+  if (m === "personal_sign" || m === "eth_sign" || isTyped) {
     const risks = [t("human_sign_risk_1"), t("human_sign_risk_2")];
-    if (m === "eth_signtypeddata_v4") risks.push(t("human_typed_risk_1"));
+    if (isTyped) risks.push(t("human_typed_risk_1"));
     return {
-      whatItDoes: [t(m === "eth_signtypeddata_v4" ? "human_typed_whatIs" : "human_sign_whatIs"), t("explain_sign_why")].slice(0, 2),
+      whatItDoes: [t(isTyped ? "human_typed_whatIs" : "human_sign_whatIs"), t("explain_sign_why")].slice(0, 2),
       risks: risks.slice(0, 3),
       safeNotes: [t("human_sign_safe_1")].slice(0, 2),
       nextSteps: [t("human_sign_next_1"), t("human_sign_next_2")].slice(0, 3),

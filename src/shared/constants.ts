@@ -1,16 +1,4 @@
-export const SUGGESTED_TRUSTED_DOMAINS = [
-  "opensea.io",
-  "blur.io",
-  "app.uniswap.org",
-  "uniswap.org",
-  "looksrare.org",
-  "x2y2.io",
-  "etherscan.io",
-  "arbitrum.io",
-  "app.aave.com",
-  "curve.finance",
-  "revoke.cash",
-  "rabby.io",
-  "metamask.io",
-] as const;
+import { CRYPTO_TRUSTED_DOMAINS_SEED } from "../lists/cryptoTrustedDomainsSeed";
+
+export const SUGGESTED_TRUSTED_DOMAINS = CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24) as unknown as readonly string[];
 

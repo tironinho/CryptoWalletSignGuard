@@ -1,7 +1,12 @@
 /**
  * Token verification + cache: Uniswap list as verified tokens with symbol/logo.
  * TokenMap in storage for O(1) lookup; 7-day cache.
+ * Network fetch only when Cloud Intel is on and permissions granted (see netGate).
  */
+
+import { canUseNetwork } from "./netGate";
+import { DEFAULT_SETTINGS } from "../shared/types";
+import type { Settings } from "../shared/types";
 
 /** Compact entry: s = symbol, l = logoURI, v = verified */
 export type TokenEntry = { s: string; l: string; v: boolean };
@@ -53,6 +58,16 @@ async function fetchUniswapList(): Promise<TokenMap> {
   }
 }
 
+async function getSettings(): Promise<Settings> {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(DEFAULT_SETTINGS, (r) => resolve((r as Settings) ?? DEFAULT_SETTINGS));
+    } catch {
+      resolve(DEFAULT_SETTINGS);
+    }
+  });
+}
+
 async function loadFromStorageAndMaybeRefresh(): Promise<void> {
   try {
     const raw = await new Promise<{ tokenCache?: { map?: TokenMap; updatedAt?: number } }>((resolve) => {
@@ -65,6 +80,13 @@ async function loadFromStorageAndMaybeRefresh(): Promise<void> {
 
     if (map && Object.keys(map).length > 0 && !isStale) {
       inMemoryMap = map;
+      return;
+    }
+
+    const settings = await getSettings();
+    const gate = await canUseNetwork("cloudIntel", settings);
+    if (!gate.ok) {
+      if (map && Object.keys(map).length > 0) inMemoryMap = map;
       return;
     }
 

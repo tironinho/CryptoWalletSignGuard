@@ -28,11 +28,23 @@ export interface SimulationAsset {
   logo?: string;
 }
 
+/** Approval decoded from logs. */
+export type SimulationApproval = {
+  token: string;
+  spender: string;
+  approved: boolean;
+  unlimited?: boolean;
+  /** True when from ApprovalForAll event (ERC721/1155). */
+  approvalForAll?: boolean;
+};
+
 /** Simplified outcome for the overlay UI. */
 export type SimulationOutcome = {
   status: "SUCCESS" | "REVERT" | "RISK" | "SKIPPED";
   outgoingAssets: SimulationAsset[];
   incomingAssets: SimulationAsset[];
+  /** Approvals detected from simulation logs (ERC20 Approval, ERC721/1155 ApprovalForAll). */
+  approvals?: SimulationApproval[];
   gasUsed: string;
   /** True when simulation was skipped (API failure / no credentials). */
   fallback?: boolean;
@@ -46,36 +58,74 @@ export type SimulationOutcome = {
   message?: string;
 };
 
+/** Single asset change from Tenderly. */
+type AssetChange = {
+  asset_info?: { symbol?: string; name?: string; logo?: string; decimals?: number; contract_address?: string };
+  type?: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  raw_amount?: string;
+  dollar_value?: number;
+};
+
 /** Raw Tenderly simulation response (relevant fields). */
 interface TenderlySimulationResponse {
   transaction?: {
     status?: number; // 0 = success, 1 = reverted
     transaction_info?: {
       call_trace?: unknown;
+      asset_changes?: AssetChange[];
+      logs?: Array<{ address?: string; topics?: string[]; data?: string }>;
     };
   };
-  simulation?: {
-    id?: string;
-    status?: boolean;
-  };
-  asset_changes?: Array<{
-    asset_info?: {
-      symbol?: string;
-      name?: string;
-      logo?: string;
-      decimals?: number;
-    };
-    type?: string;
-    from?: string;
-    to?: string;
-    amount?: string;
-    raw_amount?: string;
-    dollar_value?: number;
-  }>;
+  simulation?: { id?: string; status?: boolean };
+  asset_changes?: AssetChange[];
   gas_used?: string;
   gas_price?: string;
   effective_gas_price?: string;
   [key: string]: unknown;
+}
+
+const KECCAK_APPROVAL = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
+const KECCAK_APPROVAL_FOR_ALL = "0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31";
+
+function normAddr(a: string | undefined): string {
+  if (!a || typeof a !== "string") return "";
+  const s = a.toLowerCase().replace(/^0x/, "").padStart(40, "0");
+  return "0x" + s.slice(-40);
+}
+
+/** Decode Approval/ApprovalForAll from simulation logs. */
+function decodeApprovalsFromLogs(logs: Array<{ address?: string; topics?: string[]; data?: string }> | undefined): SimulationApproval[] {
+  const out: SimulationApproval[] = [];
+  if (!Array.isArray(logs)) return out;
+  for (const log of logs) {
+    const t0 = log.topics?.[0];
+    if (!t0) continue;
+    const t0n = t0.toLowerCase();
+    if (t0n === KECCAK_APPROVAL) {
+      const owner = log.topics?.[1] ? normAddr("0x" + String(log.topics[1]).slice(-40)) : "";
+      const spender = log.topics?.[2] ? normAddr("0x" + String(log.topics[2]).slice(-40)) : "";
+      const token = normAddr(log.address);
+      let value = 0n;
+      try {
+        if (log.data && log.data.startsWith("0x")) value = BigInt(log.data);
+      } catch {}
+      const unlimited = value >= 2n ** 256n - 2n ** 255n;
+      out.push({ token, spender, approved: true, unlimited });
+    } else if (t0n === KECCAK_APPROVAL_FOR_ALL) {
+      const owner = log.topics?.[1] ? normAddr("0x" + String(log.topics[1]).slice(-40)) : "";
+      const operator = log.topics?.[2] ? normAddr("0x" + String(log.topics[2]).slice(-40)) : "";
+      const token = normAddr(log.address);
+      let approved = false;
+      try {
+        if (log.data && log.data.startsWith("0x")) approved = BigInt(log.data) !== 0n;
+      } catch {}
+      out.push({ token, spender: operator, approved, approvalForAll: true });
+    }
+  }
+  return out;
 }
 
 function getSimulateUrl(settings?: Settings): string | null {
@@ -148,18 +198,25 @@ export function makeStaticModeOutcome(): SimulationOutcome {
 
 /**
  * Transform Tenderly simulation JSON into a simple outcome for the UI.
+ * Classifies outgoing/incoming by wallet address (from tx.from).
  */
-export function parseSimulationResult(data: TenderlySimulationResponse | null): SimulationOutcome | null {
+export function parseSimulationResult(
+  data: TenderlySimulationResponse | null,
+  walletAddress?: string
+): SimulationOutcome | null {
   if (!data || typeof data !== "object") return null;
 
   const txStatus = data.transaction?.status;
   const status: SimulationOutcome["status"] =
     txStatus === 1 ? "REVERT" : txStatus === 0 ? "SUCCESS" : "RISK";
 
+  const wallet = normAddr(walletAddress);
   const outgoingAssets: SimulationAsset[] = [];
   const incomingAssets: SimulationAsset[] = [];
 
-  const assetChanges = Array.isArray(data.asset_changes) ? data.asset_changes : [];
+  const assetChangesRaw =
+    data.transaction?.transaction_info?.asset_changes ?? data.asset_changes;
+  const assetChanges = Array.isArray(assetChangesRaw) ? assetChangesRaw : [];
   for (const change of assetChanges) {
     const info = change?.asset_info;
     const symbol = (info?.symbol || info?.name || "?").toString();
@@ -167,15 +224,25 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
     const logo = typeof info?.logo === "string" ? info.logo : undefined;
     const entry: SimulationAsset = { symbol, amount, logo };
 
+    const fromNorm = normAddr(change?.from);
+    const toNorm = normAddr(change?.to);
     const type = String(change?.type || "").toUpperCase();
-    if (type.includes("SEND") || change?.from) {
-      outgoingAssets.push(entry);
-    } else if (type.includes("RECEIVE") || change?.to) {
-      incomingAssets.push(entry);
+
+    if (wallet) {
+      if (fromNorm === wallet) outgoingAssets.push(entry);
+      else if (toNorm === wallet) incomingAssets.push(entry);
+      else if (type.includes("SEND") || fromNorm) outgoingAssets.push(entry);
+      else if (type.includes("RECEIVE") || toNorm) incomingAssets.push(entry);
+      else outgoingAssets.push(entry);
     } else {
-      outgoingAssets.push(entry);
+      if (type.includes("SEND") || change?.from) outgoingAssets.push(entry);
+      else if (type.includes("RECEIVE") || change?.to) incomingAssets.push(entry);
+      else outgoingAssets.push(entry);
     }
   }
+
+  const logs = (data as any).transaction?.transaction_info?.logs;
+  const approvals = decodeApprovalsFromLogs(Array.isArray(logs) ? logs : undefined);
 
   const gasUsed = typeof data.gas_used === "string" ? data.gas_used : (data.gas_used != null ? String(data.gas_used) : "0");
 
@@ -193,7 +260,7 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
     // ignore
   }
 
-  return {
+  const out: SimulationOutcome = {
     status,
     outgoingAssets,
     incomingAssets,
@@ -201,6 +268,8 @@ export function parseSimulationResult(data: TenderlySimulationResponse | null): 
     gasCostWei,
     simulated: true,
   };
+  if (approvals.length > 0) out.approvals = approvals;
+  return out;
 }
 
 /**
@@ -226,7 +295,7 @@ export async function runSimulation(
     if (gas != null && gas > 0) body.gas = gas;
 
     const raw = await simulateTransaction(body, settings);
-    if (raw) return parseSimulationResult(raw);
+    if (raw) return parseSimulationResult(raw, from);
     return makeStaticModeOutcome();
   } catch {
     return makeStaticModeOutcome();

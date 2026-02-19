@@ -1,4 +1,6 @@
 /**
+ * @deprecated Do not use in production. Uses fetch(rpcUrl) from background (network leak without opt-in).
+ * Use tokenMetaViaProvider.ts (page provider via content script) instead.
  * V2: Token metadata (decimals, symbol, name) via eth_call. Cache 7 days.
  */
 

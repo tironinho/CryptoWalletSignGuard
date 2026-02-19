@@ -1,4 +1,10 @@
 {
   "extName": { "message": "Crypto Wallet SignGuard" },
-  "extDescription": { "message": "Security prompts that explain wallet connections, signatures and transactions in plain language before you confirm in your wallet." }
+  "extShortName": { "message": "SignGuard" },
+  "extDescription": { "message": "Security prompts that explain wallet connections, signatures and transactions in plain language before you confirm in your wallet." },
+  "reason_snap_invoke": { "message": "Snaps can run code in your wallet. Confirm the source." },
+  "reason_request_snaps": { "message": "Site is requesting Snaps / wallet extensions." },
+  "reason_sign_transaction": { "message": "Transaction signature without immediate send. May be used later for broadcast." },
+  "reason_raw_tx_broadcast": { "message": "Broadcast of already-signed transaction. No prior visual confirmation of content." },
+  "reason_read_permissions": { "message": "The site is reading the permissions already granted to the wallet." }
 }

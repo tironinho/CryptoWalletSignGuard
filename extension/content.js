@@ -1,5 +1,65 @@
 "use strict";
 (() => {
+  // src/lists/cryptoTrustedDomainsSeed.ts
+  var CRYPTO_TRUSTED_DOMAINS_SEED = [
+    // Explorers
+    "etherscan.io",
+    "etherscan.com",
+    "arbiscan.io",
+    "polygonscan.com",
+    "bscscan.com",
+    "basescan.org",
+    "snowtrace.io",
+    "optimistic.etherscan.io",
+    // NFTs
+    "opensea.io",
+    "blur.io",
+    "looksrare.org",
+    "x2y2.io",
+    "rarible.com",
+    "magiceden.io",
+    // DEX/DeFi
+    "uniswap.org",
+    "app.uniswap.org",
+    "1inch.io",
+    "app.1inch.io",
+    "aave.com",
+    "app.aave.com",
+    "curve.fi",
+    "app.curve.fi",
+    "balancer.fi",
+    "app.balancer.fi",
+    "sushiswap.fi",
+    "matcha.xyz",
+    "paraswap.io",
+    "cowswap.exchange",
+    // Bridges/L2
+    "bridge.arbitrum.io",
+    "optimism.io",
+    "base.org",
+    "arbitrum.io",
+    "polygon.technology",
+    "hop.exchange",
+    "stargate.finance",
+    "across.to",
+    "portalbridge.com",
+    "zksync.io",
+    // Infra / Wallets
+    "chain.link",
+    "lido.fi",
+    "stake.lido.fi",
+    "ens.domains",
+    "app.ens.domains",
+    "metamask.io",
+    "metamask.com",
+    "rabby.io",
+    "walletconnect.com",
+    "walletconnect.org",
+    "safe.global",
+    "revoke.cash",
+    "app.revoke.cash"
+  ];
+
   // src/shared/types.ts
   var SUPPORTED_WALLETS = [
     { name: "MetaMask", kind: "EVM" },
@@ -30,40 +90,27 @@
     strictBlockPermitLike: true,
     assetEnrichmentEnabled: true,
     addressIntelEnabled: true,
-    cloudIntelOptIn: true,
-    showUsd: true,
+    cloudIntelOptIn: false,
+    telemetryOptIn: false,
+    telemetryEnabled: false,
+    showUsd: false,
     defaultExpandDetails: true,
     planTier: "FREE",
     licenseKey: "",
-    trustedDomains: [
-      "opensea.io",
-      "blur.io",
-      "app.uniswap.org",
-      "uniswap.org",
-      "looksrare.org",
-      "x2y2.io",
-      "etherscan.io",
-      "arbitrum.io",
-      "polygon.technology"
-    ],
+    trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
     supportedWalletsInfo: SUPPORTED_WALLETS,
-    allowlist: [
-      "opensea.io",
-      "blur.io",
-      "app.uniswap.org",
-      "uniswap.org",
-      "looksrare.org",
-      "x2y2.io",
-      "etherscan.io",
-      "arbitrum.io",
-      "polygon.technology"
-    ],
+    allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
     customBlockedDomains: [],
     customTrustedDomains: [],
+    allowlistSpenders: [],
+    denylistSpenders: [],
+    failMode: "fail_open",
     enableIntel: true,
     vault: {
       enabled: false,
-      lockedContracts: []
+      lockedContracts: [],
+      unlockedUntil: 0,
+      blockApprovals: false
     },
     simulation: {
       enabled: false,
@@ -75,22 +122,53 @@
     fortressMode: false
   };
 
-  // src/shared/constants.ts
-  var SUGGESTED_TRUSTED_DOMAINS = [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "app.aave.com",
-    "curve.finance",
-    "revoke.cash",
-    "rabby.io",
-    "metamask.io"
+  // src/shared/uiGate.ts
+  var UI_GATED_METHODS_LIST = [
+    "eth_requestAccounts",
+    "wallet_requestPermissions",
+    "wallet_addEthereumChain",
+    "wallet_switchEthereumChain",
+    "wallet_watchAsset",
+    "wallet_sendTransaction",
+    "eth_sendTransaction",
+    "eth_signTransaction",
+    "eth_sendRawTransaction",
+    "wallet_invokeSnap",
+    "wallet_requestSnaps",
+    "personal_sign",
+    "eth_sign",
+    "eth_signTypedData",
+    "eth_signTypedData_v3",
+    "eth_signTypedData_v4"
   ];
+  var UI_GATED_METHODS = new Set(UI_GATED_METHODS_LIST.map((m) => m.toLowerCase()));
+  function shouldGateUI(method) {
+    return UI_GATED_METHODS.has(String(method || "").toLowerCase());
+  }
+
+  // src/shared/signatures.ts
+  var KNOWN_SELECTORS = {
+    "0x095ea7b3": "approve(address,uint256)",
+    "0xa9059cbb": "transfer(address,uint256)",
+    "0x23b872dd": "transferFrom(address,address,uint256)",
+    "0xa22cb465": "setApprovalForAll(address,bool)",
+    "0x42842e0e": "safeTransferFrom(address,address,uint256)",
+    "0xf242432a": "safeTransferFrom(address,address,uint256,bytes)",
+    "0xd0e30db0": "deposit()",
+    "0x2e1a7d4d": "withdraw(uint256)",
+    "0x38ed1739": "swapExactTokensForTokens(...)",
+    "0x7ff36ab5": "swapExactETHForTokens(...)",
+    "0x18cbafe5": "swapExactTokensForETH(...)",
+    "0x04e45aaf": "exactInputSingle(...)",
+    "0xb858183f": "exactInput(...)",
+    "0x414bf389": "exactOutputSingle(...)",
+    "0x09b81346": "exactOutput(...)"
+  };
+  function selectorToLabel(sel) {
+    if (!sel || typeof sel !== "string") return null;
+    const s = sel.toLowerCase();
+    return KNOWN_SELECTORS[s] ?? null;
+  }
 
   // src/i18n.ts
   function detectLocale() {
@@ -115,6 +193,29 @@
       // Brand
       extName: "Crypto Wallet SignGuard",
       // Overlay - generic labels
+      overlay_analyzing: "Analisando Transa\xE7\xE3o...",
+      overlay_simulating: "O SignGuard est\xE1 a simular o resultado.",
+      overlay_safe: "Parece Seguro",
+      overlay_attention: "Aten\xE7\xE3o Detectada",
+      overlay_action: "A\xE7\xE3o",
+      overlay_simulation_balance: "Simula\xE7\xE3o de Balan\xE7o",
+      overlay_approvals_detected: "Aprova\xE7\xF5es detectadas",
+      overlay_confirm_allow_msg: "Tem certeza? Isso ignora prote\xE7\xE3o.",
+      overlay_confirm_allow: "Confirmar permitir 1 vez",
+      overlay_try_again: "Tentar novamente",
+      overlay_analysis_taking_long: "A an\xE1lise est\xE1 demorando.",
+      overlay_fee_calculated: "Taxas calculadas.",
+      overlay_finishing: "Finalizando an\xE1lise...",
+      overlay_typed_data_card_title: "Assinatura (EIP-712)",
+      overlay_typed_data_sign_warning: "Assinar isso pode permitir gasto futuro sem nova confirma\xE7\xE3o.",
+      overlay_allowance_loading: "Allowance atual: \u2026",
+      overlay_allowance_current: "Allowance atual: ",
+      overlay_allowance_approved: "Aprovado",
+      overlay_allowance_not_approved: "N\xE3o aprovado",
+      overlay_allowance_unlimited: "Ilimitado",
+      simulation_no_changes: "Nenhuma mudan\xE7a de saldo detetada.",
+      tx_unknown: "Transa\xE7\xE3o Desconhecida",
+      dapp_unknown: "DApp Desconhecido",
       overlay_requested_title: "O que est\xE1 sendo solicitado",
       overlay_site_trusted_title: "Site confi\xE1vel?",
       overlay_summary_title: "Resumo (linguagem simples)",
@@ -262,6 +363,7 @@
       summary_UNKNOWN_2: "Se n\xE3o souber o que \xE9, cancele.",
       // Costs / TX labels
       btn_cancel: "Cancelar",
+      btn_block: "Bloquear",
       btn_continue: "Continuar",
       toast_request_expired: "Solicita\xE7\xE3o expirada. Refa\xE7a a a\xE7\xE3o no site e tente novamente.",
       simulation_tx_will_fail: "ESTA TRANSA\xC7\xC3O VAI FALHAR",
@@ -284,6 +386,7 @@
       severity_WARN: "ATEN\xC7\xC3O",
       severity_LOW: "BAIXO",
       cost_you_send: "Voc\xEA envia",
+      cost_you_receive: "Voc\xEA recebe",
       cost_fee_only: "apenas taxa",
       cost_value: "Valor",
       cost_fee: "Taxa estimada",
@@ -386,6 +489,16 @@
       vaultInvalidAddress: "Endere\xE7o inv\xE1lido. Use 0x e 40 caracteres hexadecimais.",
       vaultAlreadyAdded: "Este contrato j\xE1 est\xE1 no cofre.",
       vaultBlockedMessage: "SignGuard: Ativo Bloqueado no Cofre. Desbloqueie nas op\xE7\xF5es para continuar.",
+      vaultBlockedTitle: "Cofre bloqueou esta a\xE7\xE3o",
+      vaultBlockedReason: "O contrato/ativo est\xE1 no Cofre. Desbloqueie temporariamente para prosseguir.",
+      vault_unlock_5min: "Desbloquear 5 min",
+      vault_unlock_30min: "Desbloquear 30 min",
+      vault_unlocked_toast: "Desbloqueado por {n} min",
+      overlay_temp_allow_10min: "Permitir por 10 min",
+      overlay_temp_allow_toast: "Permitido por 10 min",
+      page_risk_warning: "P\xE1gina com poss\xEDvel risco detectado.",
+      reason_page_risk_high: "P\xE1gina com risco alto detectado (ex.: lookalike, clickjacking).",
+      reason_page_risk_medium: "P\xE1gina com risco m\xE9dio (ex.: frases suspeitas, overlay).",
       addSuggested: "Adicionar sugeridos",
       save: "Salvar",
       saved: "Salvo",
@@ -504,6 +617,22 @@
       chainChangeTitle: "Solicita\xE7\xE3o de troca/adicionar rede",
       watchAssetTitle: "Solicita\xE7\xE3o de adicionar ativo",
       domainPunycodeReason: "Dom\xEDnio usa punycode (xn--); verifique a URL.",
+      reason_high_gas: "Taxa de gas alta em rela\xE7\xE3o ao valor.",
+      reason_new_spender: "Novo spender \u2014 verifique.",
+      reason_contract_target: "Destino \xE9 contrato.",
+      reason_known_bad_spender: "Spender bloqueado.",
+      reason_known_safe_spender: "Spender na allowlist.",
+      reason_unlimited_approval: "Simula\xE7\xE3o: aprova\xE7\xE3o ilimitada detectada.",
+      reason_set_approval_for_all: "Simula\xE7\xE3o: ApprovalForAll (permite mover todos os NFTs).",
+      reason_snap_invoke: "Snaps podem executar c\xF3digo na carteira. Confirme a origem.",
+      reason_sign_tx: "Assinatura de transa\xE7\xE3o sem envio imediato. Pode ser usada depois para broadcast.",
+      reason_raw_broadcast: "Broadcast de transa\xE7\xE3o j\xE1 assinada. N\xE3o h\xE1 confirma\xE7\xE3o visual pr\xE9via do conte\xFAdo.",
+      reason_read_permissions: "O site est\xE1 a ler as permiss\xF5es j\xE1 concedidas \xE0 carteira.",
+      summary_title_snaps: "Snaps / Extens\xF5es da carteira",
+      summary_title_read_permissions: "Leitura de permiss\xF5es",
+      summary_title_sign_tx: "Assinatura de transa\xE7\xE3o",
+      summary_title_raw_tx: "Broadcast de transa\xE7\xE3o assinada",
+      summary_title_switch_chain: "Troca de rede",
       domainDoubleDashReason: "Dom\xEDnio cont\xE9m h\xEDfen duplo (suspeito).",
       domainNumberPatternReason: "Dom\xEDnio com muitos n\xFAmeros (comum em phishing).",
       domainLookalikeReason: "Poss\xEDvel imita\xE7\xE3o do dom\xEDnio oficial de {legit}.",
@@ -620,6 +749,29 @@
       // Brand
       extName: "Crypto Wallet SignGuard",
       // Overlay - generic labels
+      overlay_analyzing: "Analyzing Transaction...",
+      overlay_simulating: "SignGuard is simulating the outcome.",
+      overlay_safe: "Looks Safe",
+      overlay_attention: "Attention Detected",
+      overlay_action: "Action",
+      overlay_simulation_balance: "Balance Simulation",
+      overlay_approvals_detected: "Approvals detected",
+      overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
+      overlay_confirm_allow: "Confirm allow once",
+      overlay_try_again: "Try again",
+      overlay_analysis_taking_long: "Analysis is taking too long.",
+      overlay_fee_calculated: "Fees calculated.",
+      overlay_finishing: "Finishing analysis...",
+      overlay_typed_data_card_title: "Signature (EIP-712)",
+      overlay_typed_data_sign_warning: "Signing this may allow future spending without another confirmation.",
+      overlay_allowance_loading: "Current allowance: \u2026",
+      overlay_allowance_current: "Current allowance: ",
+      overlay_allowance_approved: "Approved",
+      overlay_allowance_not_approved: "Not approved",
+      overlay_allowance_unlimited: "Unlimited",
+      simulation_no_changes: "No balance changes detected.",
+      tx_unknown: "Unknown Transaction",
+      dapp_unknown: "Unknown DApp",
       overlay_requested_title: "What is being requested",
       overlay_site_trusted_title: "Is the site trusted?",
       overlay_summary_title: "Summary (plain language)",
@@ -767,6 +919,7 @@
       summary_UNKNOWN_2: "If you don't recognize it, cancel.",
       // Buttons / friction
       btn_cancel: "Cancel",
+      btn_block: "Block",
       btn_continue: "Continue",
       toast_request_expired: "Request expired. Please retry the action on the site.",
       simulation_tx_will_fail: "THIS TRANSACTION WILL FAIL",
@@ -789,6 +942,7 @@
       severity_WARN: "WARNING",
       severity_LOW: "LOW",
       cost_you_send: "You send",
+      cost_you_receive: "You receive",
       cost_fee_only: "fee only",
       cost_value: "Value",
       cost_fee: "Estimated fee",
@@ -891,6 +1045,16 @@
       vaultInvalidAddress: "Invalid address. Use 0x and 40 hex characters.",
       vaultAlreadyAdded: "This contract is already in the vault.",
       vaultBlockedMessage: "SignGuard: Asset Locked in Vault. Unlock in options to continue.",
+      vaultBlockedTitle: "Vault blocked this action",
+      vaultBlockedReason: "The contract/asset is in the Vault. Unlock temporarily to proceed.",
+      vault_unlock_5min: "Unlock 5 min",
+      vault_unlock_30min: "Unlock 30 min",
+      vault_unlocked_toast: "Unlocked for {n} min",
+      overlay_temp_allow_10min: "Allow for 10 min",
+      overlay_temp_allow_toast: "Allowed for 10 min",
+      page_risk_warning: "Possible risk detected on this page.",
+      reason_page_risk_high: "High-risk page detected (e.g. lookalike, clickjacking).",
+      reason_page_risk_medium: "Medium-risk page (e.g. suspicious phrases, overlay).",
       addSuggested: "Add suggested",
       save: "Save",
       saved: "Saved",
@@ -1009,6 +1173,22 @@
       chainChangeTitle: "Network switch/add request",
       watchAssetTitle: "Add asset request",
       domainPunycodeReason: "Domain uses punycode (xn--); verify the URL.",
+      reason_high_gas: "High gas fee relative to value.",
+      reason_new_spender: "New spender \u2014 verify.",
+      reason_contract_target: "Destination is a contract.",
+      reason_known_bad_spender: "Spender blocked.",
+      reason_known_safe_spender: "Spender on allowlist.",
+      reason_unlimited_approval: "Simulation: unlimited approval detected.",
+      reason_set_approval_for_all: "Simulation: ApprovalForAll (allows moving all NFTs).",
+      reason_snap_invoke: "Snaps can run code in your wallet. Confirm the source.",
+      reason_sign_tx: "Transaction signature without immediate send. May be used later for broadcast.",
+      reason_raw_broadcast: "Broadcast of already-signed transaction. No prior visual confirmation of content.",
+      reason_read_permissions: "The site is reading the permissions already granted to the wallet.",
+      summary_title_snaps: "Snaps / Wallet extensions",
+      summary_title_read_permissions: "Read permissions",
+      summary_title_sign_tx: "Transaction signature",
+      summary_title_raw_tx: "Signed transaction broadcast",
+      summary_title_switch_chain: "Switch network",
       domainDoubleDashReason: "Domain contains double hyphen (suspicious).",
       domainNumberPatternReason: "Domain with many numbers (common in phishing).",
       domainLookalikeReason: "Possible lookalike of official domain {legit}.",
@@ -1188,54 +1368,6 @@
         return "A\xE7\xE3o desconhecida";
     }
   }
-  function simpleSummary(action) {
-    switch (action) {
-      case "SEND_TX":
-        return [
-          "Voc\xEA est\xE1 prestes a assinar/enviar uma transa\xE7\xE3o on-chain.",
-          "Confira valor, rede e o contrato antes de confirmar na carteira."
-        ];
-      case "SWITCH_CHAIN":
-        return [
-          "O site pediu para trocar a rede da sua carteira.",
-          "Confira se a rede solicitada \xE9 a esperada para esta a\xE7\xE3o."
-        ];
-      case "CONNECT":
-        return [
-          "O site quer conectar \xE0 sua carteira (como login).",
-          "Isso compartilha seu endere\xE7o p\xFAblico."
-        ];
-      case "SIGN_MESSAGE":
-      case "SIGN_TYPED_DATA":
-        return [
-          "O site pediu uma assinatura.",
-          "Assinatura pode autorizar a\xE7\xF5es: leia o texto na carteira."
-        ];
-      default:
-        return [
-          "N\xE3o foi poss\xEDvel classificar com seguran\xE7a.",
-          "Se estiver em d\xFAvida, cancele."
-        ];
-    }
-  }
-
-  // src/shared/txExtract.ts
-  function extractTx(params) {
-    const p0 = Array.isArray(params) ? params[0] : null;
-    if (!p0 || typeof p0 !== "object") return null;
-    const to = typeof p0.to === "string" ? p0.to : void 0;
-    const from = typeof p0.from === "string" ? p0.from : void 0;
-    const valueHex = typeof p0.value === "string" ? p0.value : void 0;
-    const dataLen = typeof p0.data === "string" ? p0.data.length : void 0;
-    if (!to && !from && !valueHex && !dataLen) return null;
-    return { to, from, valueHex, dataLen };
-  }
-
-  // src/shared/txMath.ts
-  function hexToBigInt(hex) {
-    if (!hex || typeof hex !== "string") return 0n;
-    return BigInt(hex);
-  }
 
   // src/format.ts
   function weiToEthString(wei, decimals = 6) {
@@ -1288,25 +1420,24 @@
 
   // src/runtimeSafe.ts
   var _port = null;
-  function canUseRuntime() {
+  function hasRuntime(c) {
     try {
-      const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
       return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
     } catch {
       return false;
     }
   }
-  function isRuntimeUsable() {
-    try {
-      return canUseRuntime();
-    } catch {
-      return false;
-    }
+  function getChromeApi() {
+    const localChrome = typeof chrome !== "undefined" ? chrome : null;
+    if (hasRuntime(localChrome)) return localChrome;
+    const globalChrome = typeof globalThis !== "undefined" ? globalThis.chrome : null;
+    if (hasRuntime(globalChrome)) return globalChrome;
+    return null;
   }
   function getPort() {
     try {
-      const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
-      if (!canUseRuntime() || !c?.runtime?.connect) return null;
+      const c = getChromeApi();
+      if (!c?.runtime?.connect) return null;
       if (_port) return _port;
       _port = c.runtime.connect({ name: "sg_port" });
       _port?.onDisconnect.addListener(() => {
@@ -1343,9 +1474,10 @@
           if (!_port) {
             try {
               await new Promise((r) => {
-                const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+                const c = getChromeApi();
                 if (!c?.runtime?.sendMessage) return r();
                 c.runtime.sendMessage({ type: "PING" }, () => {
+                  void c?.runtime?.lastError;
                   r();
                 });
                 setTimeout(() => r(), 600);
@@ -1394,7 +1526,7 @@
         settled = true;
         resolve(value);
       };
-      const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
+      const c = getChromeApi();
       const rt = (() => {
         try {
           return c?.runtime ?? null;
@@ -1449,21 +1581,392 @@
   }
   function safeGetURL(path) {
     try {
-      if (!isRuntimeUsable() || !chrome.runtime.getURL) return "";
-      return chrome.runtime.getURL(path);
+      const c = getChromeApi();
+      if (!c?.runtime?.getURL) return "";
+      return c.runtime.getURL(path);
     } catch {
       return "";
     }
   }
 
+  // src/risk/domScanner.ts
+  var SAFE_DOMAINS = [
+    "google.com",
+    "www.google.com",
+    "youtube.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "instagram.com",
+    "github.com",
+    "discord.com",
+    "linkedin.com",
+    "whatsapp.com",
+    "trello.com",
+    "notion.so"
+  ];
+  var SAFE_DOMAINS_LIST = [
+    "opensea.io",
+    "uniswap.org",
+    "uniswap.com",
+    "metamask.io",
+    "metamask.com",
+    "etherscan.io",
+    "etherscan.com",
+    "pancakeswap.finance",
+    "pancakeswap.com",
+    "compound.finance",
+    "aave.com",
+    "ens.domains",
+    "rainbow.me",
+    "walletconnect.com",
+    "walletconnect.org",
+    "phantom.app",
+    "solana.com"
+  ];
+  var LEVENSHTEIN_LOOKALIKE_THRESHOLD = 2;
+  var HIGH_Z_INDEX_THRESHOLD = 99990;
+  var COVER_RATIO_MIN = 0.7;
+  function levenshtein(a, b) {
+    const an = a.length;
+    const bn = b.length;
+    if (an === 0) return bn;
+    if (bn === 0) return an;
+    const row0 = new Array(bn + 1);
+    const row1 = new Array(bn + 1);
+    for (let j = 0; j <= bn; j++) row0[j] = j;
+    for (let i = 1; i <= an; i++) {
+      row1[0] = i;
+      for (let j = 1; j <= bn; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        row1[j] = Math.min(
+          row1[j - 1] + 1,
+          row0[j] + 1,
+          row0[j - 1] + cost
+        );
+      }
+      for (let j = 0; j <= bn; j++) row0[j] = row1[j];
+    }
+    return row0[bn];
+  }
+  function normalizeHost(host) {
+    return host.toLowerCase().replace(/^www\./, "").split("/")[0].trim();
+  }
+  function checkLookalikeDomain(hostname) {
+    const host = normalizeHost(hostname);
+    if (!host) return { highRisk: false };
+    const exactMatch = SAFE_DOMAINS_LIST.some((d) => host === d || host.endsWith("." + d));
+    if (exactMatch) return { highRisk: false };
+    for (const safe of SAFE_DOMAINS_LIST) {
+      const dist = levenshtein(host, safe);
+      if (dist > 0 && dist <= LEVENSHTEIN_LOOKALIKE_THRESHOLD) {
+        return { highRisk: true, matchedSafe: safe };
+      }
+    }
+    return { highRisk: false };
+  }
+  function scanKeywordCombinations(text) {
+    const lower = text.toLowerCase();
+    const hasClaim = /\bclaim\b/i.test(lower);
+    const hasAirdrop = /\bairdrop\b/i.test(lower);
+    const hasConnectWallet = /\bconnect\s+wallet\b/i.test(lower) || /\bconnect\s+your\s+wallet\b/i.test(lower);
+    const hasMigration = /\bmigration\b/i.test(lower);
+    const hasEmergency = /\bemergency\b/i.test(lower);
+    if (hasClaim && hasAirdrop && hasConnectWallet) return true;
+    if (hasMigration && hasEmergency) return true;
+    return false;
+  }
+  var MIN_CLICKABLE_AREA_PX = 300 * 300;
+  var MIN_OPACITY_THRESHOLD = 0.1;
+  function detectInvisibleClickables(doc) {
+    try {
+      const win = doc.defaultView;
+      if (!win) return false;
+      const candidates = doc.querySelectorAll("a, button, div[role='button']");
+      for (let i = 0; i < candidates.length; i++) {
+        const el = candidates[i];
+        if (!(el instanceof HTMLElement)) continue;
+        const style = win.getComputedStyle(el);
+        if (!style) continue;
+        const opacity = parseFloat(style.opacity);
+        const pointerEvents = (style.pointerEvents || "").toLowerCase();
+        const isOpacityNearZero = !Number.isNaN(opacity) && opacity < MIN_OPACITY_THRESHOLD;
+        const hasRgbaZero = style.backgroundColor && /rgba?\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(style.backgroundColor) || style.color && /rgba?\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(style.color);
+        const acceptsClicks = pointerEvents === "auto" || pointerEvents === "";
+        if ((isOpacityNearZero || hasRgbaZero) && acceptsClicks) {
+          const rect = el.getBoundingClientRect();
+          const area = rect.width * rect.height;
+          if (area >= MIN_CLICKABLE_AREA_PX) return true;
+        }
+      }
+    } catch {
+    }
+    return false;
+  }
+  function detectSuspiciousOverlays(doc) {
+    try {
+      const viewportArea = (doc.defaultView?.innerWidth ?? 0) * (doc.defaultView?.innerHeight ?? 0);
+      if (viewportArea <= 0) return false;
+      const all = doc.querySelectorAll("iframe, div");
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        if (!(el instanceof HTMLElement)) continue;
+        const style = doc.defaultView?.getComputedStyle(el);
+        if (!style) continue;
+        const zIndex = parseInt(style.zIndex, 10);
+        const opacity = parseFloat(style.opacity);
+        const pointerEvents = style.pointerEvents;
+        const isHighZ = !Number.isNaN(zIndex) && zIndex >= HIGH_Z_INDEX_THRESHOLD;
+        const isTransparent = !Number.isNaN(opacity) && opacity < 0.1;
+        const isInvisibleButClicks = (isTransparent || style.visibility === "hidden") && pointerEvents !== "none";
+        if (el.tagName.toLowerCase() === "iframe") {
+          if (isTransparent || isHighZ && opacity < 0.5) {
+            const rect = el.getBoundingClientRect();
+            const area = rect.width * rect.height;
+            if (area >= viewportArea * COVER_RATIO_MIN) return true;
+          }
+        }
+        if (el.tagName.toLowerCase() === "div" && isHighZ) {
+          const rect = el.getBoundingClientRect();
+          const area = rect.width * rect.height;
+          if (area >= viewportArea * COVER_RATIO_MIN && (isTransparent || isInvisibleButClicks)) return true;
+        }
+      }
+    } catch {
+    }
+    return false;
+  }
+  function isWhitelistedDomain(hostname) {
+    const host = normalizeHost(hostname);
+    if (!host) return false;
+    return SAFE_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+  }
+  function runPageRiskScan(doc, hostname) {
+    if (isWhitelistedDomain(hostname)) {
+      return { riskScore: "LOW", reasons: [] };
+    }
+    const reasons = [];
+    let riskScore = "LOW";
+    const lookalike = checkLookalikeDomain(hostname);
+    if (lookalike.highRisk) {
+      riskScore = "HIGH";
+      reasons.push(
+        lookalike.matchedSafe ? `Domain looks like "${lookalike.matchedSafe}" but does not match (possible typo-squat).` : "Domain may be impersonating a known site."
+      );
+    }
+    try {
+      const bodyText = doc.body?.innerText ?? doc.documentElement?.innerText ?? "";
+      if (bodyText && scanKeywordCombinations(bodyText)) {
+        if (riskScore === "LOW") riskScore = "MEDIUM";
+        reasons.push("Page text contains risky phrases (e.g. claim + airdrop + connect wallet, or migration + emergency).");
+      }
+    } catch {
+    }
+    if (detectSuspiciousOverlays(doc)) {
+      if (riskScore === "LOW") riskScore = "MEDIUM";
+      else if (riskScore === "MEDIUM") riskScore = "HIGH";
+      reasons.push("Page has a transparent or high z-index overlay covering most of the screen (possible clickjacking).");
+    }
+    if (detectInvisibleClickables(doc)) {
+      riskScore = "HIGH";
+      reasons.push("HIDDEN_OVERLAY_DETECTED");
+    }
+    return { riskScore, reasons };
+  }
+  function injectPageRiskBanner(message, doc) {
+    try {
+      const id = "signguard-page-risk-banner";
+      if (doc.getElementById(id)) return;
+      const bar = doc.createElement("div");
+      bar.id = id;
+      bar.setAttribute("role", "alert");
+      bar.textContent = message;
+      Object.assign(bar.style, {
+        position: "fixed",
+        top: "0",
+        left: "0",
+        right: "0",
+        zIndex: "999999",
+        background: "#b91c1c",
+        color: "#fff",
+        padding: "12px 20px",
+        fontSize: "16px",
+        fontWeight: "700",
+        textAlign: "center",
+        fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
+      });
+      const root = doc.body ?? doc.documentElement;
+      root.insertBefore(bar, root.firstChild);
+    } catch {
+    }
+  }
+
+  // src/shared/reasonKeys.ts
+  var REASON_KEYS = {
+    NEW_DOMAIN: "NEW_DOMAIN",
+    KNOWN_BAD_DOMAIN: "KNOWN_BAD_DOMAIN",
+    KNOWN_SAFE_DOMAIN: "KNOWN_SAFE_DOMAIN",
+    UNLIMITED_APPROVAL: "UNLIMITED_APPROVAL",
+    SET_APPROVAL_FOR_ALL: "SET_APPROVAL_FOR_ALL",
+    PERMIT_GRANT: "PERMIT_GRANT",
+    PERMIT2_GRANT: "PERMIT2_GRANT",
+    HIGH_VALUE_TRANSFER: "HIGH_VALUE_TRANSFER",
+    NEW_SPENDER: "NEW_SPENDER",
+    FRESH_DEPLOY: "FRESH_DEPLOY",
+    SIM_FAILED: "SIM_FAILED",
+    TOKEN_LOW_CONFIDENCE: "TOKEN_LOW_CONFIDENCE",
+    ADDRESS_BLOCKLIST: "ADDRESS_BLOCKLIST",
+    KNOWN_BAD_SPENDER: "KNOWN_BAD_SPENDER",
+    KNOWN_SAFE_SPENDER: "KNOWN_SAFE_SPENDER",
+    TOKEN_SCAM: "TOKEN_SCAM",
+    PHISHING: "PHISHING",
+    PUNYCODE_DOMAIN: "PUNYCODE_DOMAIN",
+    LOOKALIKE: "LOOKALIKE",
+    NFT_PURCHASE: "NFT_PURCHASE",
+    TOKEN_SWAP: "TOKEN_SWAP",
+    MARKETPLACE_SIGNATURE: "MARKETPLACE_SIGNATURE",
+    MARKETPLACE_LISTING: "MARKETPLACE_LISTING",
+    HIGH_GAS: "HIGH_GAS",
+    CONTRACT_TARGET: "CONTRACT_TARGET",
+    VAULT_LOCKED: "VAULT_LOCKED",
+    SPENDER_DENYLIST: "SPENDER_DENYLIST",
+    SPENDER_ALLOWLIST: "SPENDER_ALLOWLIST",
+    PAGE_RISK_HIGH: "PAGE_RISK_HIGH",
+    PAGE_RISK_MEDIUM: "PAGE_RISK_MEDIUM",
+    FAILMODE_FALLBACK: "FAILMODE_FALLBACK",
+    SIMULATION_TIMEOUT: "SIMULATION_TIMEOUT",
+    SNAP_INVOKE: "SNAP_INVOKE",
+    REQUEST_SNAPS: "REQUEST_SNAPS",
+    SIGN_TRANSACTION: "SIGN_TRANSACTION",
+    RAW_TX_BROADCAST: "RAW_TX_BROADCAST",
+    READ_PERMISSIONS: "READ_PERMISSIONS"
+  };
+
   // src/content.ts
-  console.log("\u{1F4E8} [SignGuard Content] Loaded cleanly (No manual injection).");
+  var IS_TOP_FRAME = (() => {
+    try {
+      return typeof window !== "undefined" && window.top === window;
+    } catch {
+      return true;
+    }
+  })();
+  console.log("[SignGuard Content] loaded", { top: IS_TOP_FRAME, href: location.href });
+  var __sgPageRiskResult = null;
   var SG_DECISION_EVENT = "__sg_decision__";
   var __sgPreflightCache = /* @__PURE__ */ new Map();
-  function sendDecisionToMainWorld(requestId, allow) {
-    window.dispatchEvent(
-      new CustomEvent(SG_DECISION_EVENT, { detail: { type: "SG_DECISION", requestId, allow } })
-    );
+  var __sgDedupeMap = /* @__PURE__ */ new Map();
+  var DEDUPE_MS = 3e3;
+  var RELAY_TIMEOUT_MS = 15e3;
+  var relayPending = /* @__PURE__ */ new Map();
+  function stableStringifyParams(val) {
+    if (val === null) return "null";
+    if (val === void 0) return "undefined";
+    if (typeof val !== "object") return String(val);
+    if (Array.isArray(val)) return "[" + val.map(stableStringifyParams).join(",") + "]";
+    const obj = val;
+    const keys = Object.keys(obj).sort();
+    return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringifyParams(obj[k])).join(",") + "}";
+  }
+  var RPC_ALLOWED = /* @__PURE__ */ new Set(["eth_call", "eth_chainid", "eth_getcode", "eth_getblockbynumber", "eth_getlogs", "eth_estimategas"]);
+  var AUTO_ALLOW_METHODS = /* @__PURE__ */ new Set(["wallet_getPermissions"]);
+  var __allowanceCache = /* @__PURE__ */ new Map();
+  var ALLOWANCE_CACHE_TTL_MS = 15e3;
+  function padAddr(addr) {
+    const a = String(addr).toLowerCase().replace(/^0x/, "");
+    return a.padStart(64, "0");
+  }
+  function encodeAllowanceCall(token, owner, spender) {
+    return {
+      to: token,
+      data: "0xdd62ed3e" + padAddr(owner) + padAddr(spender)
+    };
+  }
+  function encodeIsApprovedForAllCall(token, owner, operator) {
+    return {
+      to: token,
+      data: "0xe985e9c5" + padAddr(owner) + padAddr(operator)
+    };
+  }
+  function decodeUint256Hex(hex) {
+    try {
+      const h = String(hex || "").replace(/^0x/, "");
+      if (h.length < 64) return 0n;
+      return BigInt("0x" + h);
+    } catch {
+      return 0n;
+    }
+  }
+  function decodeBoolHex(hex) {
+    try {
+      const h = String(hex || "").replace(/^0x/, "");
+      if (h.length < 64) return false;
+      return BigInt("0x" + h.slice(-64)) !== 0n;
+    } catch {
+      return false;
+    }
+  }
+  async function fetchCurrentAllowance(chainIdHex, token, owner, spender, isNft) {
+    if (!token || !owner || !spender || !/^0x[a-fA-F0-9]{40}$/.test(token) || !/^0x[a-fA-F0-9]{40}$/.test(owner) || !/^0x[a-fA-F0-9]{40}$/.test(spender))
+      return null;
+    const key = `${chainIdHex ?? ""}:${token}:${owner}:${spender}:${isNft}`;
+    const cached = __allowanceCache.get(key);
+    if (cached && Date.now() - cached.ts < ALLOWANCE_CACHE_TTL_MS) return cached.value;
+    const { to, data } = isNft ? encodeIsApprovedForAllCall(token, owner, spender) : encodeAllowanceCall(token, owner, spender);
+    try {
+      const timeoutMs = 1500;
+      const res = await Promise.race([
+        rpcViaMainWorld("eth_call", [{ to, data }]),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs))
+      ]);
+      if (!res || typeof res !== "object" || !res.ok) return null;
+      const result = res.result;
+      if (typeof result !== "string") return null;
+      const MAX_U256 = 2n ** 256n - 1n;
+      const value = isNft ? decodeBoolHex(result) ? t("overlay_allowance_approved") || "Aprovado" : t("overlay_allowance_not_approved") || "N\xE3o aprovado" : (() => {
+        const v = decodeUint256Hex(result);
+        return v >= MAX_U256 ? t("overlay_allowance_unlimited") || "Ilimitado" : v.toString();
+      })();
+      __allowanceCache.set(key, { value, ts: Date.now() });
+      return value;
+    } catch {
+      return null;
+    }
+  }
+  function rpcViaMainWorld(method, params) {
+    return new Promise((resolve) => {
+      const requestId = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `rpc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve({ ok: false, error: "timeout" });
+      }, 2e3);
+      const handler = (ev) => {
+        if (ev.source !== window || ev.data?.source !== "signguard-mainworld" || ev.data?.type !== "SG_RPC_CALL_RES" || ev.data?.requestId !== requestId) return;
+        clearTimeout(timeout);
+        window.removeEventListener("message", handler);
+        resolve({ ok: ev.data.ok ?? false, result: ev.data.result, error: ev.data.error });
+      };
+      window.addEventListener("message", handler);
+      window.postMessage({ source: "signguard-content", type: "SG_RPC_CALL_REQ", requestId, method, params: params ?? [] }, "*");
+    });
+  }
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type !== "SG_RPC_CALL_REQUEST") return false;
+    const method = msg?.method ?? msg?.payload?.method;
+    const params = msg?.params ?? msg?.payload?.params ?? [];
+    if (!method || !RPC_ALLOWED.has(String(method).toLowerCase())) {
+      sendResponse({ ok: false, error: "method_not_allowed" });
+      return false;
+    }
+    rpcViaMainWorld(String(method), Array.isArray(params) ? params : []).then((r) => {
+      sendResponse(r);
+    });
+    return true;
+  });
+  function sendDecisionToMainWorld(requestId, allow, meta) {
+    const detail = { type: "SG_DECISION", requestId, allow, meta };
+    window.dispatchEvent(new CustomEvent(SG_DECISION_EVENT, { detail }));
+    window.postMessage({ source: "signguard-content", type: "SG_DECISION", requestId, allow, meta }, "*");
   }
   function toChainIdHex(chainId) {
     if (chainId == null || chainId === "") return null;
@@ -1513,44 +2016,238 @@
       }
     });
   }
-  function fetchNativeUsdAndRerender(chainIdHex) {
-    if (!chainIdHex) return;
-    const key = String(chainIdHex).toLowerCase();
-    if (__sgNativeUsd[key]) return;
-    safeSendMessage({
-      type: "SG_GET_NATIVE_USD",
-      payload: { chainIdHex }
-    }).then((res) => {
-      if (res?.ok && res.usdPerNative != null) {
-        __sgNativeUsd[key] = { usd: res.usdPerNative, symbol: res.nativeSymbol ?? getNativeSymbol(chainIdHex) };
-        if (__sgOverlay) updateOverlay(__sgOverlay);
-      }
-    }).catch(() => {
-    });
+  function getRiskColor(level) {
+    if (level === "HIGH" || level === "CRITICAL" || level === "BLOCK") return "#ef4444";
+    if (level === "WARN") return "#f59e0b";
+    return "#22c55e";
   }
-  function tryCopy(text) {
-    try {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text);
-        showToast(typeof t === "function" ? t("toast_copied") || "Copied" : "Copied");
-        return true;
-      }
-    } catch {
+  function renderAssetChanges(changes) {
+    if (!changes || changes.length === 0)
+      return `<div style="opacity:0.6; font-size:12px;">${escapeHtml(t("simulation_no_changes") || "Nenhuma mudan\xE7a de saldo detetada.")}</div>`;
+    return changes.map(
+      (c) => `
+    <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px; padding:4px; background:rgba(255,255,255,0.05); border-radius:4px;">
+      <span style="color:${c.type === "OUT" ? "#ef4444" : "#22c55e"}">${c.type === "OUT" ? "\u{1F4E4} Sai" : "\u{1F4E5} Entra"}</span>
+      <span>${escapeHtml(c.amount)} <b>${escapeHtml(c.symbol)}</b></span>
+    </div>
+  `
+    ).join("");
+  }
+  function renderTypeSpecificPanel(action, meta, analysis) {
+    const host = meta.host || "";
+    const params = meta.params ?? [];
+    const p0 = Array.isArray(params) && params[0] && typeof params[0] === "object" ? params[0] : null;
+    if (action === "CONNECT") {
+      const dd = analysis.domainListDecision;
+      const signals = analysis.domainSignals ?? [];
+      const puny = host.includes("xn--");
+      const trustBadge = dd === "TRUSTED" ? '<span style="color:#22c55e;">\u2713 Dom\xEDnio confi\xE1vel</span>' : dd === "BLOCKED" ? '<span style="color:#ef4444;">\u26A0 Dom\xEDnio bloqueado</span>' : puny ? '<span style="color:#f59e0b;">\u26A0 Dom\xEDnio punycode (poss\xEDvel lookalike)</span>' : '<span style="color:#94a3b8;">Dom\xEDnio n\xE3o verificado</span>';
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u{1F517} ${escapeHtml(actionTitle("CONNECT"))}</p>
+        <p style="margin:0 0 6px 0; font-size:12px;">${escapeHtml(host)}</p>
+        <p style="margin:0; font-size:12px;">${trustBadge}</p>
+        ${signals.length ? `<p style="margin:6px 0 0 0; font-size:11px; color:#94a3b8;">${escapeHtml(signals.join(", "))}</p>` : ""}
+      </div>`;
     }
-    return false;
+    if (action === "REQUEST_PERMISSIONS") {
+      const perms = p0 && typeof p0 === "object" ? Array.isArray(p0) ? p0 : Object.keys(p0) : [];
+      const permList = perms.length ? perms.map((x) => escapeHtml(typeof x === "string" ? x : JSON.stringify(x))).join(", ") : escapeHtml(JSON.stringify(p0 ?? "{}"));
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u{1F510} ${escapeHtml(actionTitle("REQUEST_PERMISSIONS"))}</p>
+        <p style="margin:0; font-size:12px; color:#94a3b8;">Site poder\xE1 ver/solicitar contas. Permiss\xF5es: ${permList}</p>
+      </div>`;
+    }
+    if (action === "ADD_CHAIN") {
+      const info = analysis.addChainInfo ?? p0;
+      const chainId = info?.chainId ?? meta.chainIdRequested ?? "?";
+      const chainName = info?.chainName ?? "?";
+      const native = info?.nativeCurrency ?? p0?.nativeCurrency;
+      const symbol = native?.symbol ?? native?.name ?? "?";
+      const decimals = native?.decimals ?? 18;
+      const rpcUrls = info?.rpcUrls ?? p0?.rpcUrls ?? [];
+      const rpc0 = Array.isArray(rpcUrls) ? rpcUrls[0] : typeof rpcUrls === "string" ? rpcUrls : "";
+      const explorerUrls = info?.blockExplorerUrls ?? p0?.blockExplorerUrls ?? [];
+      const exp0 = Array.isArray(explorerUrls) ? explorerUrls[0] : typeof explorerUrls === "string" ? explorerUrls : "";
+      const chainIdHex = String(chainId).startsWith("0x") ? chainId : "0x" + parseInt(String(chainId), 10).toString(16);
+      const chainInfo = getChainInfo(chainIdHex);
+      const knownChain = chainInfo ? `${chainInfo.name} (conhecida)` : "Rede n\xE3o reconhecida";
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u2795 ${escapeHtml(actionTitle("ADD_CHAIN"))}</p>
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>chainId:</b> ${escapeHtml(String(chainId))} (${escapeHtml(knownChain)})</p>
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>Nome:</b> ${escapeHtml(String(chainName))}</p>
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>Moeda:</b> ${escapeHtml(symbol)} (decimals: ${decimals})</p>
+        ${rpc0 ? `<p style="margin:0 0 4px 0; font-size:11px; color:#94a3b8;"><b>RPC:</b> ${escapeHtml(String(rpc0).slice(0, 50))}\u2026</p>` : ""}
+        ${exp0 ? `<p style="margin:0; font-size:11px; color:#94a3b8;"><b>Explorer:</b> ${escapeHtml(String(exp0).slice(0, 50))}\u2026</p>` : ""}
+      </div>`;
+    }
+    if (action === "SWITCH_CHAIN") {
+      const chainId = p0?.chainId ?? meta.chainIdRequested ?? "?";
+      const chainIdHex = String(chainId).startsWith("0x") ? chainId : "0x" + parseInt(String(chainId), 10).toString(16);
+      const chainInfo = getChainInfo(chainIdHex);
+      const name = chainInfo?.name ?? analysis.chainTarget?.chainName ?? "Rede desconhecida";
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u{1F504} ${escapeHtml(actionTitle("SWITCH_CHAIN"))}</p>
+        <p style="margin:0; font-size:12px;"><b>chainId:</b> ${escapeHtml(String(chainId))} \u2014 ${escapeHtml(name)}</p>
+      </div>`;
+    }
+    if (action === "WATCH_ASSET") {
+      const info = analysis.watchAssetInfo ?? p0?.options ?? p0;
+      const type_ = info?.type ?? p0?.type ?? "ERC20";
+      const addr = info?.address ?? info?.token_address ?? "?";
+      const symbol = info?.symbol ?? "?";
+      const decimals = info?.decimals ?? 18;
+      const image = info?.image ?? "";
+      const decimalsWarn = decimals < 0 || decimals > 18 ? '<span style="color:#f59e0b;">\u26A0 decimals fora de [0..18]</span>' : "";
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u{1F441} ${escapeHtml(actionTitle("WATCH_ASSET"))}</p>
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>Tipo:</b> ${escapeHtml(String(type_))}</p>
+        <p style="margin:0 0 4px 0; font-size:11px; word-break:break-all;"><b>Endere\xE7o:</b> ${escapeHtml(String(addr).slice(0, 20))}\u2026</p>
+        <p style="margin:0; font-size:12px;"><b>Symbol:</b> ${escapeHtml(String(symbol))} (decimals: ${decimals}) ${decimalsWarn}</p>
+        ${image ? `<p style="margin:4px 0 0 0; font-size:11px; color:#94a3b8;">Imagem: ${escapeHtml(String(image).slice(0, 40))}\u2026</p>` : ""}
+      </div>`;
+    }
+    if (action === "SIGN_MESSAGE") {
+      const msg = Array.isArray(params) && typeof params[0] === "string" ? params[0] : p0 ? JSON.stringify(p0).slice(0, 200) : "";
+      const preview = msg ? msg.length > 120 ? msg.slice(0, 120) + "\u2026" : msg : "\u2014";
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u270D\uFE0F ${escapeHtml(actionTitle("SIGN_MESSAGE"))}</p>
+        <p style="margin:0; font-size:12px; word-break:break-word; max-height:80px; overflow-y:auto;">${escapeHtml(preview)}</p>
+      </div>`;
+    }
+    if (action === "SIGN_TYPED_DATA") {
+      const decoded = analysis.typedDataDecoded;
+      const permit2 = decoded?.permit2;
+      const seaport = decoded?.seaport;
+      const isBlur = decoded?.isBlur;
+      const extras = analysis.typedDataExtras;
+      const raw = analysis.decoded?.raw ?? p0;
+      const domain = typeof raw === "object" && raw?.domain ? raw.domain : {};
+      const primaryType = raw?.primaryType ?? raw?.types?.EIP712Domain ? "EIP712" : "?";
+      const contract = domain?.verifyingContract ?? domain?.name ?? "?";
+      const isPermitLike = !!(permit2 || extras?.spender && (extras?.value != null || extras?.deadline != null));
+      const signWarning = t("overlay_typed_data_sign_warning") || "Assinar isso pode permitir gasto futuro sem nova confirma\xE7\xE3o.";
+      let body = "";
+      if (isPermitLike) {
+        body += `<p style="margin:0 0 8px 0; font-size:11px; text-transform:uppercase; color:#f59e0b; font-weight:bold;">${escapeHtml(t("overlay_typed_data_card_title") || "Assinatura (EIP-712)")}</p>`;
+        if (permit2) {
+          body += `<p style="margin:0 0 4px 0; font-size:12px;"><b>Spender/Operator:</b> <code style="word-break:break-all;">${escapeHtml(permit2.spender.slice(0, 14))}\u2026</code></p>`;
+          if (permit2.tokens?.length) body += `<p style="margin:0 0 4px 0; font-size:11px;">Token(s): ${permit2.tokens.length} \u2014 ${permit2.unlimited ? "\u221E Ilimitado" : "valor limitado"}</p>`;
+          if (permit2.sigDeadline) body += `<p style="margin:0 0 4px 0; font-size:11px;">Deadline: ${escapeHtml(permit2.sigDeadline)}</p>`;
+        }
+        if (extras?.spender) {
+          body += `<p style="margin:0 0 4px 0; font-size:12px;"><b>Spender:</b> <code style="word-break:break-all;">${escapeHtml(extras.spender.slice(0, 14))}\u2026</code></p>`;
+          if (extras.value != null) body += `<p style="margin:0 0 4px 0; font-size:11px;">Valor: ${escapeHtml(extras.value)}</p>`;
+          if (extras.deadline) body += `<p style="margin:0 0 4px 0; font-size:11px;">Deadline: ${escapeHtml(extras.deadline)}</p>`;
+        }
+        body += `<p style="margin:8px 0 0 0; font-size:11px; color:#fcd34d;">\u26A0\uFE0F ${escapeHtml(signWarning)}</p>`;
+      }
+      if (seaport) {
+        body += `<p style="margin:0 0 4px 0; font-size:12px;"><b>Seaport:</b> Voc\xEA oferece ${escapeHtml(seaport.offerSummary)} \u2192 Recebe ${escapeHtml(seaport.considerationSummary)}</p>`;
+      }
+      if (isBlur) {
+        body += `<p style="margin:0 0 4px 0; font-size:12px; color:#f59e0b;"><b>Blur:</b> Assinatura de marketplace \u2014 revise com cuidado</p>`;
+      }
+      body += `<p style="margin:0 0 4px 0; font-size:12px;"><b>primaryType:</b> ${escapeHtml(String(primaryType))}</p>`;
+      body += `<p style="margin:0 0 4px 0; font-size:11px; word-break:break-all;"><b>Contract:</b> ${escapeHtml(String(contract).slice(0, 24))}\u2026</p>`;
+      body += `<p style="margin:0; font-size:11px; color:#94a3b8;">Leia o que voc\xEA est\xE1 autorizando na carteira.</p>`;
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u270D\uFE0F ${escapeHtml(actionTitle("SIGN_TYPED_DATA"))}</p>
+        ${body}
+      </div>`;
+    }
+    if (action === "SEND_TX") {
+      const tx = analysis.tx ?? p0;
+      const to = tx?.to ?? "?";
+      const value = tx?.valueEth ?? tx?.valueWei ?? (tx?.value != null ? String(tx.value) : "?");
+      const gasFmt = analysis.txCostPreview?.feeLikelyWei ? weiToEthString(BigInt(analysis.txCostPreview.feeLikelyWei)) + " " + getNativeSymbol(meta.chainIdHex ?? void 0) : t("overlay_calculating") || "Calculando...";
+      const usd = analysis.txCostPreview?.usdPerNative && analysis.txCostPreview?.feeLikelyWei ? ` (~$${(parseFloat(analysis.txCostPreview.feeLikelyWei) / 1e18 * analysis.txCostPreview.usdPerNative).toFixed(2)} USD)` : "";
+      const selector = tx?.selector ?? "";
+      const selLabel = selector ? selectorToLabel(selector) : null;
+      const da = analysis.decodedAction;
+      const te = analysis.txExtras;
+      const isNftTransfer = da?.kind === "TRANSFER_NFT";
+      const nftInfo = isNftTransfer && da ? `<p style="margin:0 0 4px 0; font-size:12px;">\u{1F5BC}\uFE0F ${escapeHtml(da.standard ?? "NFT")} transfer ${da.tokenIdRaw ? `#${da.tokenIdRaw}` : ""} \u2192 ${escapeHtml((da.to ?? "?").slice(0, 12))}\u2026</p>` : "";
+      const isApproval = te?.approvalType === "ERC20_APPROVE" || te?.approvalType === "NFT_SET_APPROVAL_FOR_ALL" || da?.kind === "APPROVE_ERC20" || da?.kind === "INCREASE_ALLOWANCE" || da?.kind === "SET_APPROVAL_FOR_ALL";
+      const allowanceBlock = isApproval && to && /^0x[a-fA-F0-9]{40}$/.test(String(to)) ? `<div id="sg-allowance-block" style="margin:8px 0 0 0; font-size:11px; color:#94a3b8;">${escapeHtml(t("overlay_allowance_loading") || "Allowance atual: \u2026")}</div>` : "";
+      return `
+      <div style="margin-bottom:15px; background:#1e293b; padding:12px; border-radius:8px;">
+        <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+        <p style="margin:0 0 6px 0; font-size:14px;">\u{1F4E4} ${escapeHtml(actionTitle("SEND_TX"))}</p>
+        <p style="margin:0 0 4px 0; font-size:11px; word-break:break-all;"><b>Para:</b> ${escapeHtml(String(to).slice(0, 24))}\u2026</p>
+        ${nftInfo}
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>Valor:</b> ${escapeHtml(String(value))} ${getNativeSymbol(meta.chainIdHex ?? void 0)}</p>
+        <p style="margin:0 0 4px 0; font-size:12px;"><b>Gas estimado:</b> ${escapeHtml(gasFmt)}${usd}</p>
+        ${selLabel ? `<p style="margin:0; font-size:11px; color:#38bdf8;"><b>Fun\xE7\xE3o:</b> ${escapeHtml(selLabel)}</p>` : ""}
+        ${allowanceBlock}
+      </div>`;
+    }
+    return `
+    <div style="margin-bottom:15px;">
+      <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin-bottom:5px;">${escapeHtml(t("overlay_action") || "A\xE7\xE3o")}</p>
+      <code style="background:#1e293b; padding:4px 8px; border-radius:4px; color:#38bdf8; font-size:12px;">${escapeHtml(meta.method)}</code>
+    </div>`;
   }
   var __sgOverlay = null;
+  var OVERLAY_CSS_FALLBACK = `
+*{box-sizing:border-box}
+.sg-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto}
+.sg-modal{width:min(820px,100vw);max-height:85vh;background:rgba(15,23,42,0.95);border:1px solid #334155;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto}
+.sg-header,.sg-body,.sg-footer{pointer-events:auto}
+.sg-header{padding:12px 16px;border-bottom:1px solid rgba(148,163,184,0.18)}
+.sg-body{flex:1;overflow-y:auto;padding:16px}
+.sg-footer{display:flex;gap:12px;justify-content:flex-end;padding:14px 16px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(8,12,20,0.92)}
+.sg-card{background:rgba(2,6,23,0.5);border:1px solid rgba(148,163,184,0.18);border-radius:10px;padding:12px 16px;margin-bottom:12px}
+.sg-btn,.sg-btn-primary,.sg-btn-secondary{all:unset;cursor:pointer;padding:10px 18px;border-radius:10px;font-weight:700;font-size:13px}
+.sg-btn-primary{background:#f97316;color:#0b1220}
+.sg-btn-secondary{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#e5e7eb}
+.sg-close-btn{all:unset;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+input,textarea{background:#020617;border:1px solid rgba(148,163,184,0.2);color:#f8fafc;border-radius:8px;padding:10px}
+body,.sg-root{font-family:system-ui,sans-serif;color:#f8fafc;background:transparent}
+`;
   function ensureOverlayCss(shadow) {
+    const applyFallback = (reason) => {
+      try {
+        const style = document.createElement("style");
+        style.textContent = OVERLAY_CSS_FALLBACK;
+        shadow.appendChild(style);
+        console.warn("[SignGuard UI] CSS fallback inline applied:", reason);
+      } catch {
+        console.warn("[SignGuard UI] CSS fallback failed:", reason);
+      }
+    };
     try {
-      const href = safeGetURL("overlay.css");
-      console.log("\u{1F3A8} [SignGuard UI] CSS path:", href);
-      if (!href) return;
+      let href = safeGetURL("overlay.css");
+      if (!href && typeof chrome?.runtime?.getURL === "function") {
+        try {
+          href = chrome.runtime.getURL("overlay.css");
+        } catch {
+        }
+      }
+      if (!href) {
+        applyFallback("getURL returned empty");
+        return;
+      }
       const link = document.createElement("link");
       link.rel = "stylesheet";
       link.href = href;
+      link.onerror = () => applyFallback("overlay.css failed to load");
       shadow.appendChild(link);
     } catch (e) {
-      console.error("\u{1F3A8} [SignGuard UI] CSS Error:", e);
+      applyFallback(String(e?.message ?? e));
     }
   }
   function showOverlay(requestId, analysis, meta) {
@@ -1561,10 +2258,15 @@
       __sgOverlay.analysis = analysis;
       __sgOverlay.meta = meta;
       updateOverlay(__sgOverlay);
+      try {
+        safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "OVERLAY_SHOWN", requestId, method: meta.method } }, 500);
+      } catch {
+      }
       return;
     }
     try {
       const container = document.createElement("div");
+      container.id = "__sg_host";
       container.className = "sg-root";
       container.setAttribute("data-sg-overlay", "1");
       container.style.cssText = "position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2147483647; pointer-events: none;";
@@ -1574,333 +2276,442 @@
       app.id = "sg-app";
       app.style.pointerEvents = "auto";
       shadow.appendChild(app);
+      const previousActive = document.activeElement;
+      const prevOverflow = document.documentElement.style.overflow;
+      document.documentElement.style.overflow = "hidden";
       const onKey = (e) => {
-        if (e.key === "Escape") decideCurrentAndAdvance(false);
+        if (e.key === "Escape") {
+          decideCurrentAndAdvance(false);
+          return;
+        }
+        if (e.key === "Tab") {
+          const focusables = shadow.querySelectorAll("button, [tabindex]:not([tabindex='-1'])");
+          const arr = Array.from(focusables);
+          if (arr.length === 0) return;
+          const idx = arr.indexOf(document.activeElement);
+          if (e.shiftKey) {
+            const next = idx <= 0 ? arr[arr.length - 1] : arr[idx - 1];
+            next?.focus();
+            e.preventDefault();
+          } else {
+            const next = idx < 0 || idx >= arr.length - 1 ? arr[0] : arr[idx + 1];
+            next?.focus();
+            e.preventDefault();
+          }
+        }
       };
       document.addEventListener("keydown", onKey);
-      __sgOverlay = { requestId, analysis, meta, container, shadow, app, onKey };
+      __sgOverlay = {
+        requestId,
+        analysis,
+        meta,
+        container,
+        shadow,
+        app,
+        onKey,
+        prevFocus: previousActive,
+        _inertTargets: [],
+        _restore: () => {
+          const state2 = __sgOverlay;
+          if (state2?._inertTargets) {
+            for (const el of state2._inertTargets) {
+              try {
+                el.removeAttribute("inert");
+                el.removeAttribute("aria-hidden");
+              } catch {
+              }
+            }
+          }
+          document.documentElement.style.overflow = prevOverflow;
+          try {
+            if (previousActive && typeof previousActive.focus === "function" && document.body?.contains(previousActive)) {
+              previousActive.focus();
+            } else {
+              document.body?.focus?.();
+            }
+          } catch {
+          }
+        }
+      };
       if (document.documentElement) {
         document.documentElement.appendChild(container);
-        console.log("\u{1F3A8} [SignGuard UI] Appended to documentElement");
       } else {
         document.body.appendChild(container);
-        console.log("\u{1F3A8} [SignGuard UI] Appended to body");
       }
-      updateOverlay(__sgOverlay);
+      const state = __sgOverlay;
+      const inertTargets = [];
+      for (const el of Array.from(document.documentElement.children)) {
+        if (el !== container) {
+          el.setAttribute("inert", "");
+          el.setAttribute("aria-hidden", "true");
+          inertTargets.push(el);
+        }
+      }
+      state._inertTargets = inertTargets;
+      if (state) updateOverlay(state);
+      try {
+        safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "OVERLAY_SHOWN", requestId, method: meta.method } }, 500);
+      } catch {
+      }
+      setTimeout(() => {
+        const toFocus = shadow.querySelector("[data-sg-initial-focus]") ?? shadow.querySelector("button, [tabindex]:not([tabindex='-1'])");
+        toFocus?.focus?.();
+      }, 50);
     } catch (e) {
       console.error("\u{1F3A8} [SignGuard UI] FATAL UI ERROR:", e);
     }
   }
   function updateOverlay(state) {
-    const a = state.analysis;
-    const isLoading = a.level === "LOADING";
-    const settings = __sgSettings ?? DEFAULT_SETTINGS;
-    const openByDefault = !!settings.defaultExpandDetails || state.meta.method === "eth_sendTransaction" || state.meta.method === "eth_signTypedData_v4" || state.meta.method === "eth_signTypedData_v3";
-    const displayChainIdHex = state.meta.chainIdHex ?? a.chainIdHex ?? a.chainTarget?.chainIdHex ?? toChainIdHex(a.addChainInfo?.chainId) ?? null;
-    const priceChainIdHex = displayChainIdHex ?? "0x1";
-    const chainKey = displayChainIdHex ? String(displayChainIdHex).toLowerCase() : "";
-    const priceChainKey = String(priceChainIdHex).toLowerCase();
-    fetchNativeUsdAndRerender(priceChainIdHex);
-    const chainTarget = a.chainTarget;
-    const addChainInfo = a.addChainInfo;
-    const displayChainName = chainTarget?.chainName ?? addChainInfo?.chainName ?? (displayChainIdHex ? getChainInfo(displayChainIdHex)?.name ?? (t("chain_not_recognized") || "Chain not recognized") : "\u2014");
-    const chainInfo = displayChainIdHex ? getChainInfo(displayChainIdHex) : null;
-    const nativeSymbol = chainInfo?.nativeSymbol ?? getNativeSymbol(displayChainIdHex ?? void 0);
-    const chainName = displayChainName;
-    const usdPerNative = a.txCostPreview?.usdPerNative ?? __sgNativeUsd[priceChainKey]?.usd;
-    const showUsd = !isLoading && settings.showUsd !== false && usdPerNative != null && usdPerNative > 0;
-    const cost = a.txCostPreview;
-    const rawTx = extractTx(state.meta.params);
-    const rawValueWeiBI = rawTx?.valueHex ? hexToBigInt(rawTx.valueHex) : 0n;
-    const valueWeiStr = cost?.valueWei ?? a.tx?.valueWei ?? (rawValueWeiBI ? rawValueWeiBI.toString() : "0");
-    const valueWeiBI = (() => {
-      try {
-        return BigInt(valueWeiStr);
-      } catch {
-        return rawValueWeiBI;
-      }
-    })();
-    const valueEth = isLoading && !cost?.valueWei ? "\u2014" : (() => {
-      const fromWei = weiToEthString(valueWeiBI);
-      if (fromWei && fromWei !== "0" && fromWei !== "0.000000") return fromWei;
-      const fromSummary = a.tx?.valueEth;
-      return typeof fromSummary === "string" && fromSummary.length ? fromSummary : fromWei;
-    })();
-    const hasFeeData = !!cost?.feeLikelyWei || !!cost?.feeMaxWei;
-    const isFeeCalculating = cost?.feeReasonKey === "fee_calculating";
-    const feeFallbackText = !hasFeeData && cost?.feeReasonKey && !isFeeCalculating ? t(cost.feeReasonKey) || cost.feeReasonKey : null;
-    const feeLikely = isLoading && !hasFeeData && !feeFallbackText ? "\u2014" : cost?.feeLikelyWei ? weiToEthString(BigInt(cost.feeLikelyWei)) : a.tx?.maxGasFeeEth ?? (isFeeCalculating ? "\u2026" : feeFallbackText ?? "\u2014");
-    const feeMax = isLoading && !hasFeeData && !feeFallbackText ? "\u2014" : cost?.feeMaxWei ? weiToEthString(BigInt(cost.feeMaxWei)) : a.tx?.maxGasFeeEth ?? (isFeeCalculating ? "\u2026" : feeFallbackText ?? "\u2014");
-    const totalLikely = isLoading && !hasFeeData && !feeFallbackText ? "\u2014" : cost?.totalLikelyWei ? weiToEthString(BigInt(cost.totalLikelyWei)) : a.tx?.maxTotalEth ?? (isFeeCalculating ? "\u2026" : feeFallbackText ?? "\u2014");
-    const totalMax = isLoading && !hasFeeData && !feeFallbackText ? "\u2014" : cost?.totalMaxWei ? weiToEthString(BigInt(cost.totalMaxWei)) : a.tx?.maxTotalEth ?? (isFeeCalculating ? "\u2026" : feeFallbackText ?? "\u2014");
-    const valueUsd = showUsd && usdPerNative ? Number(valueWeiStr) / 1e18 * usdPerNative : null;
-    const feeLikelyUsd = showUsd && usdPerNative && cost?.feeLikelyWei ? Number(cost.feeLikelyWei) / 1e18 * usdPerNative : null;
-    const feeMaxUsd = showUsd && usdPerNative && cost?.feeMaxWei ? Number(cost.feeMaxWei) / 1e18 * usdPerNative : null;
-    const totalLikelyUsd = showUsd && usdPerNative && cost?.totalLikelyWei ? Number(cost.totalLikelyWei) / 1e18 * usdPerNative : null;
-    const totalMaxUsd = showUsd && usdPerNative && cost?.totalMaxWei ? Number(cost.totalMaxWei) / 1e18 * usdPerNative : null;
-    const rawTxObj = Array.isArray(state.meta.params) ? state.meta.params[0] : null;
-    const toAddr = a.tx?.to ?? a.decoded?.to ?? rawTx?.to ?? (rawTxObj && typeof rawTxObj === "object" ? rawTxObj.to : void 0) ?? "";
-    const selector = a.tx?.selector ?? "";
-    const contractMethod = isLoading ? "" : selector && a.tx?.contractNameHint ? `${a.tx.contractNameHint} (${selector})` : selector || "";
-    const coverage = a.coverage;
-    const covStr = coverage != null ? `${coverage.performed}/${coverage.total}${coverage.limited ? " " + (t("coverage_limited") || "limited") : ""}` : "";
-    const verLevel = a.verificationLevel ?? "";
-    const intelSources = a.intelSources ?? [];
-    const checks = a.checks ?? [];
-    const checkChips = checks.map(
-      (c) => `<span class="sg-chip sg-chip-${c.status.toLowerCase()}" title="${c.noteKey ? escapeHtml(t(c.noteKey) || c.noteKey) : ""}">${escapeHtml(c.key)}: ${c.status}</span>`
-    ).join("");
-    const sim = a.simulationOutcome;
-    const simRevert = a.simulationRevert === true;
-    const simStatus = sim?.status ?? "\u2014";
-    const simOutgoing = (sim?.outgoingAssets?.length ?? 0) > 0 ? sim.outgoingAssets.map((x) => `${x.symbol} ${x.amount}`).join(", ") : "\u2014";
-    const simIncoming = (sim?.incomingAssets?.length ?? 0) > 0 ? sim.incomingAssets.map((x) => `${x.symbol} ${x.amount}`).join(", ") : "\u2014";
-    const simGas = sim?.gasUsed ?? "\u2014";
-    const simMessage = sim?.message ?? "";
-    const addrIntel = a.addressIntel;
-    const addrIntelLines = [];
-    if (a.addressIntelHit && addrIntel) {
-      if (addrIntel.to?.length) addrIntelLines.push(`to: ${addrIntel.to.map((l) => `[${escapeHtml(l)}]`).join(" ")}`);
-      if (addrIntel.spender?.length) addrIntelLines.push(`spender: ${addrIntel.spender.map((l) => `[${escapeHtml(l)}]`).join(" ")}`);
-      if (addrIntel.operator?.length) addrIntelLines.push(`operator: ${addrIntel.operator.map((l) => `[${escapeHtml(l)}]`).join(" ")}`);
-      if (addrIntel.tokenContract?.length)
-        addrIntelLines.push(`tokenContract: ${addrIntel.tokenContract.map((l) => `[${escapeHtml(l)}]`).join(" ")}`);
-    }
-    const decodedRaw = isLoading ? null : a.decoded?.raw ?? null;
-    const decodedStr = decodedRaw != null ? typeof decodedRaw === "string" ? decodedRaw : JSON.stringify(decodedRaw, null, 2) : "";
-    const action = classifyAction(state.meta.method, state.meta.params);
-    const txData = a.tx?.data;
-    const isContractInteraction = action === "SEND_TX" && Boolean(a.toIsContract === true || selector || contractMethod || txData && txData !== "0x");
-    const actionTitleStr = a.title || (isContractInteraction ? t("action_SEND_TX_contract_title") || "Interagir com contrato" : actionTitle(action));
-    const verdictText = isContractInteraction ? t("intent_CONTRACT_INTERACTION") || "Intera\xE7\xE3o com contrato" : actionTitleStr;
-    const summaryArr = simpleSummary(action);
-    const summaryStr = Array.isArray(summaryArr) ? summaryArr.join(" ") : String(summaryArr);
-    const modeLabel = (settings.mode ?? "BALANCED").toString();
-    const walletName = a.wallet?.walletName ?? "MetaMask";
-    const host = state.meta.host ?? "";
-    const pillKey = a.recommend === "BLOCK" ? "block" : a.recommend === "WARN" ? "warn" : a.recommend === "HIGH" ? "high" : "low";
-    const pillText = a.recommend === "BLOCK" ? t("severity_BLOCKED") || "BLOQUEADO" : a.recommend === "WARN" ? t("severity_WARN") || "ATEN\xC7\xC3O" : a.recommend === "HIGH" ? t("severity_HIGH") || "ALTO" : t("severity_LOW") || "OK";
-    const tokenConf = a.tokenConfidence;
-    const tokenBadgeHtml = tokenConf === "TRUSTED" ? `<span class="sg-chip sg-banner-ok" style="display:inline-block;padding:4px 8px;margin-left:8px;">Confi\xE1vel</span>` : tokenConf === "LOW" ? `<span class="sg-chip sg-banner-warn" style="display:inline-block;padding:4px 8px;margin-left:8px;">Baixa confian\xE7a</span>` : tokenConf === "SCAM" ? `<span class="sg-chip sg-banner-bad" style="display:inline-block;padding:4px 8px;margin-left:8px;">Scam</span>` : "";
-    const statusLine = !isLoading && a.knownSafe ? `${t("site_label") || "Site"}: ${escapeHtml(host)} \u2022 ${t("site_status_known") || "refer\xEAncia conhecida"}` : "";
-    const bannerLocal = verLevel === "LOCAL" ? t("banner_local_verification") || "Aten\xE7\xE3o: verifica\xE7\xE3o local (cache). Revise os detalhes abaixo antes de prosseguir." : "";
-    const bannerBasic = verLevel === "BASIC" ? t("banner_basic_verification") || "Aten\xE7\xE3o: verifica\xE7\xE3o b\xE1sica. Revise cuidadosamente os detalhes antes de prosseguir." : "";
-    const isCostCalculating = action === "SEND_TX" && isFeeCalculating;
-    const riskReasons = [];
-    const human = a.human;
-    if (human?.risks?.length) {
-      riskReasons.push(...human.risks.slice(0, 5));
-    } else if (a.reasons?.length) {
-      riskReasons.push(...a.reasons.slice(0, 5));
-    } else {
-      if (verLevel === "LOCAL") riskReasons.push(t("banner_local_verification") || "Verifica\xE7\xE3o local (cache) \u2014 revise os detalhes abaixo.");
-      if (verLevel === "BASIC") riskReasons.push(t("banner_basic_verification") || "Verifica\xE7\xE3o parcial \u2014 revise com cuidado.");
-      if (a.knownBad || a.isPhishing) riskReasons.push(t("banner_block_known_threat") || "Amea\xE7a conhecida detectada.");
-      if (a.addressRisk?.flagged) riskReasons.push(t("addr_marked_public") || "Endere\xE7o marcado em base p\xFAblica.");
-      if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") riskReasons.push("Trocar rede normalmente n\xE3o transfere fundos. Confirme se a rede solicitada \xE9 a esperada.");
-      if (action === "SEND_TX" || isContractInteraction) riskReasons.push("Transa\xE7\xE3o on-chain: confira destino, valor e taxa antes de confirmar.");
-      if (riskReasons.length === 0) riskReasons.push("Revise os detalhes na carteira antes de prosseguir.");
-    }
-    const safeNotesForDisplay = human?.safe ?? human?.safeNotes ?? [];
-    const isVerdictSafe = (a.recommend === "ALLOW" || a.recommend === "WARN" && a.knownSafe) && !a.knownBad && !a.isPhishing && !a.maybeSpoofed;
-    const intent = a.intent;
-    const txCtx = a.txContext?.kind;
-    const isNftPurchase = intent === "NFT_PURCHASE" || txCtx === "NFT_PURCHASE";
-    const isTokenSwap = txCtx === "TOKEN_SWAP";
-    const feeUnavailable = feeLikely === "\u2014" || feeMax === "\u2014";
-    let whatToDoNowText;
-    if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") {
-      whatToDoNowText = "Trocar rede N\xC3O transfere fundos. Apenas muda a rede ativa na carteira. Confirme se a rede solicitada \xE9 a esperada pelo site.";
-    } else if (action === "SEND_TX" && (isNftPurchase || isTokenSwap)) {
-      whatToDoNowText = "Se confirmar, os valores ser\xE3o transferidos e a aquisi\xE7\xE3o ser\xE1 realizada (NFT/Token). Revise destino (to), rede, valor e taxa na carteira; se bater com o esperado, prossiga.";
-    } else if (action === "SEND_TX") {
-      whatToDoNowText = feeUnavailable ? t("check_wallet_network_fee") || "Voc\xEA ainda n\xE3o viu a taxa. Verifique o 'Network fee' na carteira antes de confirmar." : "Se confirmar, a transa\xE7\xE3o ser\xE1 enviada on-chain e n\xE3o pode ser desfeita. Confira destino (to), rede, valor e taxa na carteira.";
-    } else {
-      whatToDoNowText = t("still_review_wallet") || "Mesmo assim, revise na carteira (valor, rede, destino e taxa).";
-    }
-    const suggestedDomains = [...SUGGESTED_TRUSTED_DOMAINS];
-    const maxDomainsShown = 8;
-    const domainsExpanded = !!state.domainsExpanded;
-    const domainsShown = domainsExpanded ? suggestedDomains : suggestedDomains.slice(0, maxDomainsShown);
-    const domainsRestCount = suggestedDomains.length - domainsShown.length;
-    const domainChipsHtml = domainsShown.map((d) => {
-      const active = host && (d === host || host.endsWith("." + d));
-      return `<span class="sg-domain-chip${active ? " sg-domain-chip-active" : ""}">${escapeHtml(d)}</span>`;
-    }).join("");
-    const domainToggleHtml = !domainsExpanded && domainsRestCount > 0 ? `<button type="button" id="sg-domains-toggle" class="sg-link sg-domain-more">+${domainsRestCount} ${t("trusted_domain_ref_view_more") || "Ver mais"}</button>` : domainsExpanded ? `<button type="button" id="sg-domains-toggle" class="sg-link sg-domain-more">${t("btn_ver_menos") || "Ver menos"}</button>` : "";
-    const chainIdRequested = state.meta?.chainIdRequested ?? state.meta?.rpcMeta?.chainIdRequested;
-    const tokenRiskHigh = a.tokenRisk?.level === "HIGH";
-    const showWarnBanner = !cost?.feeEstimated || a.simulationOutcome?.status === "SKIPPED";
-    const verdictBanner = isVerdictSafe ? `<div class="sg-banner-ok"><strong>\u2705 Seguro:</strong> a\xE7\xE3o comum em dom\xEDnio confi\xE1vel. Revise valor e taxa na carteira antes de confirmar.</div>` : pillKey === "block" || pillKey === "high" || a.knownBad || a.isPhishing || tokenRiskHigh ? `<div class="sg-banner-bad"><strong>\u26D4 Aten\xE7\xE3o:</strong> h\xE1 sinais de risco. Revise destino/contrato e valores \u2014 se algo n\xE3o bater, cancele.</div>` : showWarnBanner ? `<div class="sg-banner-warn"><strong>\u26A0 Aten\xE7\xE3o:</strong> ${!cost?.feeEstimated ? "Taxa ainda sendo calculada. " : ""}Revise destino, valor e rede antes de confirmar.</div>` : "";
-    const okBanner = pillKey === "low" && a.knownSafe ? `<div class="sg-banner-ok"><div class="sg-banner-ok-text">OK: a\xE7\xE3o comum neste site.</div><div class="sg-banner-ok-sub">Se destino, rede e valores baterem com o esperado, pode continuar.</div></div>` : "";
-    const riskBanner = pillKey === "block" || pillKey === "high" ? `<div class="sg-blocked-banner sg-banner-risk">RISCO: esta a\xE7\xE3o pode permitir movimenta\xE7\xE3o de fundos ou permiss\xF5es perigosas. Revise com aten\xE7\xE3o.</div>` : "";
-    const requestedChainCard = action === "SWITCH_CHAIN" || action === "ADD_CHAIN" ? `<div class="sg-card"><div class="sg-card-title">REDE SOLICITADA</div><div class="sg-kv"><span class="sg-kv-label">ChainId</span><span class="sg-kv-value">${escapeHtml(String(chainIdRequested || "\u2014"))}</span></div><div class="sg-summary-sub" style="margin-top:8px;color:var(--sg-success);">Isso n\xE3o envia fundos. Normalmente n\xE3o h\xE1 gas nesta etapa.</div></div>` : "";
-    const feeLikelyRow = isFeeCalculating ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeFallbackText && !hasFeeData ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>` : feeLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${feeLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeLikely)} ${nativeSymbol}</span>`;
-    const feeMaxRow = isFeeCalculating ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeFallbackText && !hasFeeData ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>` : feeMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${feeMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(feeMax)} ${nativeSymbol}</span>`;
-    const totalLikelyRow = isFeeCalculating ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeFallbackText && !hasFeeData ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>` : totalLikelyUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${totalLikelyUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalLikely)} ${nativeSymbol}</span>`;
-    const totalMaxRow = isFeeCalculating ? `<div class="sg-skeleton" style="height:16px;width:90px;"></div>` : feeFallbackText && !hasFeeData ? `<span class="sg-kv-value sg-kv-sub">${escapeHtml(feeFallbackText)}</span>` : totalMaxUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${totalMaxUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(totalMax)} ${nativeSymbol}</span>`;
-    const costsCardHtml = action === "SWITCH_CHAIN" || action === "ADD_CHAIN" ? "" : `
-      <div class="sg-card">
-        <div class="sg-card-title">${t("costs_title") || "CUSTOS E IMPACTO"}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_you_send") || "Voc\xEA envia"}</span>${isLoading && !cost?.valueWei ? `<div class="sg-kv-stack"><div class="sg-skeleton" style="height:16px;width:100px;"></div><div class="sg-skeleton" style="height:12px;width:70px;margin-top:6px;"></div></div>` : valueUsd != null ? `<div class="sg-kv-stack"><span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span><span class="sg-kv-sub">\u2248 US$ ${valueUsd.toFixed(2)}</span></div>` : `<span class="sg-kv-value">${escapeHtml(valueEth)} ${nativeSymbol}</span>`}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_fee") || "Taxa estimada (prov\xE1vel)"}</span>${feeLikelyRow}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_gas_fee") || "Taxa m\xE1xima (pior caso)"}</span>${feeMaxRow}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("cost_total") || "Total prov\xE1vel"}</span>${totalLikelyRow}</div>
-        <div class="sg-kv"><span class="sg-kv-label">${t("tx_max_total") || "Total m\xE1ximo"}</span>${totalMaxRow}</div>
-        ${toAddr ? `<div class="sg-kv" style="margin-top:8px;"><span class="sg-kv-label">${t("tx_destination") || "Destino"}</span><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(toAddr.slice(0, 10) + "\u2026" + toAddr.slice(-8))}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(toAddr)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
-      </div>`;
-    const txDetailsLines = [];
-    txDetailsLines.push(`Tipo: ${action}`);
-    if (displayChainIdHex) txDetailsLines.push(`Rede atual: ${chainName} (${displayChainIdHex})`);
-    if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN") {
-      if (chainIdRequested) txDetailsLines.push(`Rede solicitada: ${chainIdRequested}`);
-      txDetailsLines.push("O que isso faz: apenas muda a rede da carteira. N\xE3o envia fundos.");
-      txDetailsLines.push("Custo: normalmente sem gas. A pr\xF3xima transa\xE7\xE3o pode ter taxa de rede.");
-    } else if (action === "SEND_TX" || isContractInteraction) {
-      const dec = a.decodedAction;
-      const isApproval = dec?.kind === "APPROVE_ERC20" || dec?.kind === "SET_APPROVAL_FOR_ALL";
-      if (action === "SEND_TX" || isContractInteraction || isApproval) {
-        if (toAddr) txDetailsLines.push(`Destino (to): ${toAddr}`);
-        txDetailsLines.push(`Voc\xEA envia: ${valueEth} ${nativeSymbol}${valueUsd != null ? ` (\u2248 US$ ${valueUsd.toFixed(2)})` : ""}`);
-        if (cost?.feeLikelyWei) txDetailsLines.push(`Taxa prov\xE1vel: ${feeLikely} ${nativeSymbol}${feeLikelyUsd != null ? ` (\u2248 US$ ${feeLikelyUsd.toFixed(2)})` : ""}`);
-        if (cost?.totalLikelyWei) txDetailsLines.push(`Total prov\xE1vel: ${totalLikely} ${nativeSymbol}${totalLikelyUsd != null ? ` (\u2248 US$ ${totalLikelyUsd.toFixed(2)})` : ""}`);
-      }
-    }
-    const txDetailsBodyHtml = txDetailsLines.length ? txDetailsLines.map((l) => escapeHtml(l)).join("<br/>") : "\u2014";
-    const moreExplainLines = (() => {
-      if (action === "SWITCH_CHAIN" || action === "ADD_CHAIN")
-        return [
-          "O que isso faz:",
-          "\u2022 Troca a rede da carteira para o site funcionar corretamente.",
-          "Riscos:",
-          "\u2022 Normalmente baixo risco (n\xE3o move fundos).",
-          "Pr\xF3ximos passos:",
-          "\u2022 Confirme se a rede solicitada faz sentido para este site."
-        ];
-      const dec = a.decodedAction;
-      if (action === "SEND_TX" || isContractInteraction) {
-        if (dec?.kind === "APPROVE_ERC20" || dec?.kind === "SET_APPROVAL_FOR_ALL")
-          return [
-            "O que isso faz:",
-            "\u2022 Concede permiss\xE3o para um contrato gastar seus tokens/NFTs.",
-            "Riscos:",
-            "\u2022 Pode permitir drenagem se o spender for malicioso.",
-            "Pr\xF3ximos passos:",
-            "\u2022 S\xF3 aprove se reconhecer o contrato/spender e o site for confi\xE1vel."
-          ];
-        return [
-          "O que isso faz:",
-          "\u2022 Envia uma transa\xE7\xE3o on-chain (pode mover ETH/tokens via contrato).",
-          "Riscos:",
-          "\u2022 Se o destino (to) ou valor estiverem diferentes do esperado, cancele.",
-          "Pr\xF3ximos passos:",
-          "\u2022 Confira destino (to), rede, valor e a taxa (Network fee) na carteira antes de confirmar."
-        ];
-      }
-      return summaryArr;
-    })();
-    const moreExplainHtml = escapeHtml(moreExplainLines.join("\n")).replaceAll("\n", "<br/>");
-    const html = `
-<div class="sg-backdrop">
-  <div class="sg-modal">
-    <header class="sg-header">
-      <div class="sg-brand"><span class="sg-brand-dot">\u{1F6E1}\uFE0F</span> Crypto Wallet SignGuard</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span class="sg-chip">Modo: ${escapeHtml(modeLabel)}</span>
-        <span class="sg-pill sg-pill-${pillKey}">${escapeHtml(pillText)}</span>
-        ${tokenBadgeHtml}
-        <button type="button" class="sg-close-btn" id="sg-close" aria-label="Close">\xD7</button>
+    if (!state?.app) return;
+    const analysis = state.analysis;
+    const cost = analysis?.txCostPreview;
+    const feeEstimated = cost?.feeEstimated === true;
+    const showLoading = !analysis || analysis.level === "LOADING" && !feeEstimated;
+    if (showLoading) {
+      if (state._watchdogId != null) clearTimeout(state._watchdogId);
+      state._watchdogId = setTimeout(() => {
+        state._watchdogId = null;
+        if (__sgOverlay?.requestId !== state.requestId || !state.app) return;
+        const tryAgainLabel = t("overlay_try_again") || "Tentar novamente";
+        const closeLabel = t("btn_close") || "Fechar";
+        state.app.innerHTML = `
+        <div class="sg-card" style="background:#0f172a; padding:30px; border-radius:16px; color:white; width:360px; text-align:center; font-family:sans-serif; border:1px solid #334155; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+          <h3 style="margin:0; font-size:16px;">${escapeHtml(t("overlay_analyzing") || "Analisando Transa\xE7\xE3o...")}</h3>
+          <p style="opacity:0.8; font-size:13px; margin-top:12px;">${escapeHtml(t("overlay_analysis_taking_long") || "A an\xE1lise est\xE1 demorando.")}</p>
+          <div style="display:flex; gap:12px; margin-top:20px; justify-content:center;">
+            <button id="sg-btn-retry-loading" style="flex:1; background:#f59e0b; color:black; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(tryAgainLabel)}</button>
+            <button id="sg-btn-close-loading" style="flex:1; background:#334155; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(closeLabel)}</button>
+          </div>
+        </div>
+      `;
+        state.shadow.getElementById("sg-btn-retry-loading")?.addEventListener("click", () => retryAnalyze());
+        state.shadow.getElementById("sg-btn-close-loading")?.addEventListener("click", () => decideCurrentAndAdvance(false));
+      }, 8e3);
+      state.app.innerHTML = `
+      <div class="sg-card" style="background:#0f172a; padding:30px; border-radius:16px; color:white; width:360px; text-align:center; font-family:sans-serif; border:1px solid #334155; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+        <div class="sg-spinner" style="border:3px solid rgba(255,255,255,0.3); border-top:3px solid #38bdf8; border-radius:50%; width:30px; height:30px; animation:sg-spin 1s linear infinite; margin:0 auto 15px;"></div>
+        <h3 style="margin:0; font-size:16px;">${escapeHtml(t("overlay_analyzing") || "Analisando Transa\xE7\xE3o...")}</h3>
+        <p style="opacity:0.6; font-size:12px; margin-top:5px;">${feeEstimated ? escapeHtml(t("overlay_fee_calculated") || "Taxas calculadas.") + " " + (t("overlay_finishing") || "Finalizando an\xE1lise...") : escapeHtml(t("overlay_simulating") || "O SignGuard est\xE1 a simular o resultado.")}</p>
+        <div style="display:flex; gap:12px; margin-top:20px; justify-content:center;">
+          <button id="sg-btn-block-loading" style="flex:1; background:#334155; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(t("btn_block") || "Bloquear")}</button>
+          <button id="sg-btn-allow-loading" style="flex:1; background:#f59e0b; color:black; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">${escapeHtml(t("overlay_continue_no_analysis") || "Continuar (sem an\xE1lise)")}</button>
+        </div>
+        <style>@keyframes sg-spin {0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>
       </div>
-    </header>
-    <div class="sg-body">
-      ${isCostCalculating ? `<p class="sg-summary-sub" style="margin-bottom:12px;">${escapeHtml(t("gas_calculating") || "calculando\u2026")}</p>` : ""}
-      <h2 class="sg-summary-title">${escapeHtml(actionTitleStr)}</h2>
-      <p class="sg-summary-sub">${t("site_label") || "Site"}: ${escapeHtml(host)} \u2022 Carteira: ${escapeHtml(walletName)} \u2022 ${t("network_label") || "Rede"}: ${escapeHtml(chainName)}</p>
-      ${statusLine ? `<p class="sg-summary-sub" style="color:var(--sg-success);">${statusLine}</p>` : ""}
-      ${verdictBanner}
-      ${isNftPurchase || isTokenSwap ? `<div class="sg-summary-sub" style="margin-top:8px;color:var(--sg-muted);">Se confirmar, os valores ser\xE3o transferidos e a aquisi\xE7\xE3o ser\xE1 realizada (NFT/Token).</div>` : ""}
-      ${!verdictBanner ? riskBanner : ""}
-      ${okBanner}
-      <p class="sg-summary-sub"><strong>Parecer:</strong> ${escapeHtml(verdictText)}</p>
-      ${!isLoading && covStr ? `<p class="sg-summary-sub">${t("coverage_label") || "Cobertura"}: ${escapeHtml(covStr)}${coverage?.limited ? " \u2022 " + (t("coverage_limited") || "cobertura limitada") : ""}</p>` : ""}
-      ${bannerLocal ? `<div class="sg-banner-warn">${escapeHtml(bannerLocal)}</div>` : ""}
-      ${bannerBasic ? `<div class="sg-banner-warn">${escapeHtml(bannerBasic)}</div>` : ""}
-      ${requestedChainCard}
-      ${costsCardHtml}
-      ${contractMethod ? `<div class="sg-card"><div class="sg-card-title">${t("tx_contract_method") || "Contrato/m\xE9todo"}</div><div class="sg-actions-inline"><code class="sg-mono">${escapeHtml(contractMethod)}</code><button type="button" class="sg-copy" data-sg-copy="${escapeHtml(contractMethod)}">${t("btn_copy") || "Copiar"}</button></div></div>` : ""}
-      <div class="sg-card">
-        <div class="sg-card-title">${t("risk_title") || "RISCO E POR QU\xCA"}</div>
-        <div class="sg-details-body">${riskReasons.length ? riskReasons.map((r) => `<p class="${!isVerdictSafe ? "sg-text-risk" : ""}">\u2022 ${escapeHtml(r)}</p>`).join("") : "\u2014"}${safeNotesForDisplay.length && isVerdictSafe ? safeNotesForDisplay.map((n) => `<p class="sg-text-ok">\u2022 ${escapeHtml(n)}</p>`).join("") : ""}</div>
+    `;
+      setTimeout(() => {
+        state.shadow.getElementById("sg-btn-block-loading")?.addEventListener("click", () => decideCurrentAndAdvance(false));
+        state.shadow.getElementById("sg-btn-allow-loading")?.addEventListener("click", () => {
+          if (confirm(t("overlay_confirm_allow_msg") || "Tem certeza? Isso ignora prote\xE7\xE3o.")) {
+            decideCurrentAndAdvance(true);
+          }
+        });
+      }, 0);
+      return;
+    }
+    if (state._watchdogId != null) {
+      clearTimeout(state._watchdogId);
+      state._watchdogId = null;
+    }
+    const level = analysis.level || (analysis.recommend === "ALLOW" ? "LOW" : analysis.recommend === "WARN" ? "WARN" : "HIGH");
+    const recommend = analysis.recommend ?? "WARN";
+    const score = analysis.score ?? 0;
+    const color = getRiskColor(level);
+    const method = state.meta?.method || (t("tx_unknown") || "Transa\xE7\xE3o Desconhecida");
+    const host = state.meta?.host || (t("dapp_unknown") || "DApp Desconhecido");
+    const rawReasons = analysis.reasons ?? [];
+    const sim = analysis.simulationOutcome;
+    const intent = analysis.intent ?? analysis.txContext?.kind;
+    const isNftPurchase = intent === "NFT_PURCHASE";
+    const isTokenSwap = intent === "SWAP" || intent === "TOKEN_SWAP";
+    const assetChanges = [];
+    const outgoing = sim?.outgoingAssets ?? [];
+    const incoming = sim?.incomingAssets ?? [];
+    for (const o of outgoing)
+      assetChanges.push({ type: "OUT", amount: o.amount ?? "", symbol: o.symbol ?? "?" });
+    for (const i of incoming)
+      assetChanges.push({ type: "IN", amount: i.amount ?? "", symbol: i.symbol ?? "?" });
+    const approvals = sim?.approvals ?? [];
+    const tokenConf = analysis.tokenConfidence;
+    const tokenSymbol = analysis.asset?.symbol ?? analysis.asset?.name ?? analysis.tokenSymbol ?? "?";
+    const reasons = rawReasons.length > 0 ? rawReasons : ["Sem sinais fortes, mas confirme destino, valor e rede."];
+    const showTokenLowConf = (tokenConf === "LOW" || tokenConf === "UNKNOWN") && (isTokenSwap || analysis.intent === "APPROVAL");
+    const bannerColor = recommend === "ALLOW" ? "#22c55e" : recommend === "WARN" ? "#f59e0b" : "#ef4444";
+    const bannerText = recommend === "ALLOW" ? t("overlay_safe_continue") || "Seguro para continuar" : recommend === "WARN" ? t("overlay_attention") || "Aten\xE7\xE3o" : t("overlay_danger") || "Perigoso / prov\xE1vel golpe";
+    const intentMsg = isNftPurchase ? t("overlay_nft_purchase_msg") || "Se confirmar, os valores ser\xE3o transferidos e a aquisi\xE7\xE3o do NFT ser\xE1 realizada." : isTokenSwap ? t("overlay_swap_msg") || "Voc\xEA est\xE1 prestes a trocar tokens. Confirme token recebido e liquidez." : "";
+    const feeStatusText = feeEstimated ? t("overlay_fee_calculated") || "Taxas calculadas." : t("overlay_calculating") || "Calculando...";
+    const isFallback = !!analysis._isFallback;
+    const failMode = __sgSettings?.failMode ?? "fail_open";
+    const vaultBlocked = analysis.vaultBlocked === true;
+    const hideAllow = analysis.matchedDenySpender === true || vaultBlocked;
+    const fallbackFailClosed = isFallback && failMode === "fail_closed";
+    const allowLabel = fallbackFailClosed ? t("overlay_allow_once_risky") || "Permitir 1 vez (arriscado)" : isFallback && failMode === "fail_open" ? t("overlay_allow_anyway") || "Permitir mesmo assim" : t("btn_continue") || "Continuar";
+    const action = classifyAction(method, state.meta?.params ?? []);
+    const typePanel = renderTypeSpecificPanel(action, state.meta, analysis);
+    const showSimulation = action === "SEND_TX";
+    function getSpenderFromAnalysis(a) {
+      const da = a.decodedAction;
+      if (da?.spender && /^0x[a-fA-F0-9]{40}$/.test(da.spender)) return da.spender.toLowerCase();
+      if (da?.operator && /^0x[a-fA-F0-9]{40}$/.test(da.operator)) return da.operator.toLowerCase();
+      const te = a.txExtras;
+      if (te?.spender && /^0x[a-fA-F0-9]{40}$/.test(te.spender)) return te.spender.toLowerCase();
+      if (te?.operator) return te.operator.toLowerCase();
+      if (a.typedDataExtras?.spender && /^0x[a-fA-F0-9]{40}$/.test(a.typedDataExtras.spender)) return a.typedDataExtras.spender.toLowerCase();
+      return null;
+    }
+    const overlaySpender = getSpenderFromAnalysis(analysis);
+    const quickSpenderBlock = overlaySpender ? `
+        <div style="margin-bottom:15px; background:#1e293b; padding:10px; border-radius:8px;">
+          <p style="font-size:11px; color:#64748b; margin:0 0 6px 0;">Spender: <code style="word-break:break-all;">${escapeHtml(overlaySpender.slice(0, 10))}\u2026</code></p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="sg-btn-allow-spender" style="background:#22c55e; color:black; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">Sempre permitir</button>
+            <button id="sg-btn-deny-spender" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">Sempre bloquear</button>
+          </div>
+        </div>` : "";
+    const quickDomainBlock = `
+        <div style="margin-bottom:15px; background:#1e293b; padding:10px; border-radius:8px;">
+          <p style="font-size:11px; color:#64748b; margin:0 0 6px 0;">Dom\xEDnio: ${escapeHtml(host)}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="sg-btn-trust-domain" style="background:#22c55e; color:black; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">Adicionar a Trusted</button>
+            <button id="sg-btn-block-domain" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">Adicionar a Blocked</button>
+            <button id="sg-btn-temp-allow-10" style="background:#334155; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">${escapeHtml(t("overlay_temp_allow_10min") || "Permitir por 10 min")}</button>
+          </div>
+        </div>`;
+    state.app.innerHTML = `
+    <div class="sg-card" role="dialog" aria-labelledby="sg-overlay-title" aria-describedby="sg-overlay-desc" aria-modal="true" style="background:#0f172a; color:white; width:380px; font-family:'Inter', sans-serif; border-radius:16px; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); border:1px solid ${color}; position:fixed; bottom:30px; right:30px; z-index:999999;">
+      
+      <div style="background:${bannerColor}; padding:10px 16px; text-align:center;">
+        <span style="font-weight:800; font-size:13px; text-transform:uppercase; color:${recommend === "ALLOW" ? "black" : "white"}; letter-spacing:0.5px;">${escapeHtml(bannerText)}</span>
       </div>
-      <div class="sg-card">
-        <div class="sg-card-title">${t("what_to_do_now") || "O QUE FAZER AGORA"}</div>
-        <div class="sg-details-body"><p>${escapeHtml(whatToDoNowText)}</p>${human?.nextSteps?.length ? human.nextSteps.map((s) => `<p>\u2022 ${escapeHtml(s)}</p>`).join("") : ""}</div>
+      <div style="background:${color}; padding:10px 20px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:700; font-size:13px; color:${level === "HIGH" || level === "BLOCK" ? "white" : "black"}; letter-spacing:0.5px;">\u{1F6E1}\uFE0F SignGuard</span>
+        <span style="background:rgba(0,0,0,0.2); color:white; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:bold;">SCORE ${score}/100</span>
       </div>
 
-      ${checks.length ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_coverage_title") || "Cobertura de seguran\xE7a"}</div><div class="sg-grid" style="margin-top:8px;">${checkChips}</div></div>` : ""}
-      ${sim || simRevert ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_simulation_title") || "Simula\xE7\xE3o"}</div>${simRevert ? `<div class="sg-simulation-revert-banner">${escapeHtml(t("simulation_tx_will_fail") || "ESTA TRANSA\xC7\xC3O DEVE FALHAR (REVERT)")}</div>` : ""}${sim ? `<p><strong>Status:</strong> ${escapeHtml(simStatus)}</p><p><strong>${t("cost_you_send") || "Voc\xEA envia"}:</strong> ${escapeHtml(simOutgoing)}</p><p><strong>Recebe:</strong> ${escapeHtml(simIncoming)}</p><p><strong>Gas usado:</strong> ${escapeHtml(simGas)}</p>${sim?.gasCostWei ? `<p>Gas cost: ${weiToEthString(BigInt(sim.gasCostWei))} ${nativeSymbol}</p>` : ""}${sim.isHighGas ? `<p class="sg-chip sg-chip-warn">${escapeHtml(t("cost_fee_unknown") || "Taxa alta")}</p>` : ""}${simStatus === "SKIPPED" && simMessage ? `<p class="sg-summary-sub">${escapeHtml(simMessage)}. ${t("simulation_skipped_caution") || "Sem simula\xE7\xE3o \u2014 valide com mais cautela."}</p>` : ""}` : ""}</div>` : ""}
-      ${addrIntelLines.length ? `<div class="sg-card"><div class="sg-card-title">${t("overlay_address_intel_title") || "Intel de endere\xE7os"}</div><div class="sg-list">${addrIntelLines.map((line) => `<div class="sg-summary-sub">${line}</div>`).join("")}</div></div>` : ""}
+      <div style="padding:20px;">
+        ${state.meta.gateUI ? `<div style="margin-bottom:15px; background:#1e3a5f; border:1px solid #38bdf8; padding:10px 14px; border-radius:8px; font-size:13px; color:#e0f2fe;">${escapeHtml(t("overlay_confirm_before_wallet") || "Confirme aqui antes de abrir a carteira.")}</div>` : ""}
+        <div id="sg-overlay-desc" style="margin-bottom:15px; border-bottom:1px solid #334155; padding-bottom:15px;">
+          <h2 id="sg-overlay-title" style="margin:0 0 5px 0; font-size:18px; color:#f8fafc;">${escapeHtml(host)}</h2>
+          <p style="margin:0; font-size:13px; color:#94a3b8;">${escapeHtml(method)}</p>
+        </div>
 
-      <details class="sg-details" ${openByDefault ? "open" : ""}>
-        <summary>${t("details_tx_title") || "Detalhes da transa\xE7\xE3o"}</summary>
-        <div class="sg-details-body">${txDetailsBodyHtml}</div>
-      </details>
-      <details class="sg-details" ${openByDefault ? "open" : ""}>
-        <summary>${t("details_tech_title") || "Detalhes t\xE9cnicos"}</summary>
-        <div class="sg-details-body">M\xE9todo: ${escapeHtml(state.meta.method)}${decodedStr ? `<pre id="sg-decoded-json" class="sg-code">${escapeHtml(decodedStr)}</pre><button type="button" class="sg-copy" data-sg-copy-target="sg-decoded-json">${t("btn_copy_json") || "Copiar JSON"}</button>` : ""}</div>
-      </details>
-      <details class="sg-details" ${openByDefault ? "open" : ""}>
-        <summary>${t("trusted_domain_ref_title") || "Dom\xEDnios confi\xE1veis (refer\xEAncia)"}</summary>
-        <div class="sg-details-body"><div class="sg-domain-chips">${domainChipsHtml}</div>${domainToggleHtml}</div>
-      </details>
-      <details class="sg-details" ${openByDefault ? "open" : ""}>
-        <summary>${t("details_more_title") || "Mais explica\xE7\xF5es"}</summary>
-        <div class="sg-details-body">${moreExplainHtml}</div>
-      </details>
+        ${intentMsg ? `
+        <div style="margin-bottom:15px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:10px; border-radius:8px;">
+          <p style="margin:0; font-size:12px; color:#93c5fd;">\u2139\uFE0F ${escapeHtml(intentMsg)}</p>
+        </div>
+        ` : ""}
+
+        ${(() => {
+      const sum = analysis.summaryV1 ?? analysis.summary;
+      if (!sum?.title) return "";
+      const giveList = (sum.give ?? []).map((g) => `${g.amount ?? "?"} ${g.symbol ?? ""}`.trim()).filter(Boolean);
+      const getList = (sum.get ?? []).map((g) => `${g.amount ?? "?"} ${g.symbol ?? ""}`.trim()).filter(Boolean);
+      const approvalLines = (sum.approvals ?? []).map((a) => `${a.tokenSymbol || a.tokenAddress?.slice(0, 8) || "?"} \u2192 ${a.spender?.slice(0, 10) ?? "?"}\u2026 ${a.unlimited ? "\u221E" : a.amount ?? ""}`.trim());
+      const nftLines = (sum.nfts ?? []).map((n) => `${n.collection || n.tokenAddress?.slice(0, 8) || "NFT"} ${n.tokenId ? "#" + n.tokenId : ""}`.trim()).filter(Boolean);
+      const flagPills = (sum.flags ?? []).map((f) => {
+        const label = t("reason_" + String(f).toLowerCase()) || f;
+        return `<span style="display:inline-block;background:rgba(245,158,11,0.2);color:#fcd34d;padding:2px 8px;border-radius:6px;font-size:11px;margin:2px 4px 2px 0;">${escapeHtml(label)}</span>`;
+      }).join("");
+      return `
+        <div style="margin-bottom:15px; background:#1e293b; border:1px solid #334155; padding:12px; border-radius:8px;">
+          <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">${escapeHtml(t("overlay_summary_title") || "Resumo")}</p>
+          <p style="margin:0 0 4px 0; font-size:14px; font-weight:600; color:#f8fafc;">${escapeHtml(sum.title)}</p>
+          ${sum.subtitle ? `<p style="margin:0 0 8px 0; font-size:12px; color:#94a3b8;">${escapeHtml(sum.subtitle)}</p>` : ""}
+          ${giveList.length ? `<p style="margin:4px 0; font-size:12px; color:#fca5a5;">${escapeHtml(t("cost_you_send") || "Voc\xEA envia")}: ${escapeHtml(giveList.join(", "))}</p>` : ""}
+          ${getList.length ? `<p style="margin:4px 0; font-size:12px; color:#86efac;">${escapeHtml(t("cost_you_receive") || "Voc\xEA recebe")}: ${escapeHtml(getList.join(", "))}</p>` : ""}
+          ${approvalLines.length ? `<p style="margin:4px 0; font-size:11px; color:#fcd34d;">${escapeHtml(t("overlay_approvals_detected") || "Aprova\xE7\xF5es")}: ${escapeHtml(approvalLines.join("; "))}</p>` : ""}
+          ${nftLines.length ? `<p style="margin:4px 0; font-size:11px; color:#93c5fd;">NFT: ${escapeHtml(nftLines.join(", "))}</p>` : ""}
+          ${flagPills ? `<div style="margin-top:8px;">${flagPills}</div>` : ""}
+        </div>`;
+    })()}
+
+        ${typePanel}
+        ${quickSpenderBlock}
+        ${quickDomainBlock}
+
+        ${showSimulation ? `
+        <div style="margin-bottom:20px;">
+          <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin-bottom:5px;">${escapeHtml(t("overlay_simulation_balance") || "Simula\xE7\xE3o de Balan\xE7o")}</p>
+          <div style="background:#1e293b; padding:10px; border-radius:8px; max-height:100px; overflow-y:auto;">
+            ${renderAssetChanges(assetChanges)}
+          </div>
+          ${approvals.length > 0 ? `
+          <p style="font-size:11px; text-transform:uppercase; color:#f59e0b; font-weight:bold; margin:10px 0 4px 0;">${escapeHtml(t("overlay_approvals_detected") || "Aprova\xE7\xF5es detectadas")}</p>
+          <div style="background:rgba(245,158,11,0.1); padding:8px; border-radius:6px; font-size:11px;">
+            ${approvals.map((a) => `<p style="margin:0 0 4px 0;">${a.unlimited ? "\u221E" : ""} ${escapeHtml(a.spender.slice(0, 10))}\u2026</p>`).join("")}
+          </div>
+          ` : ""}
+          ${feeEstimated ? `<p style="margin:8px 0 0 0; font-size:11px; color:#64748b;">\u2713 ${escapeHtml(feeStatusText)}</p>` : `<p style="margin:8px 0 0 0; font-size:11px; color:#94a3b8;">${escapeHtml(feeStatusText)}</p>`}
+        </div>
+        ` : ""}
+
+        <div style="margin-bottom:20px;">
+          <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin-bottom:5px;">${escapeHtml(t("overlay_risk_why") || "RISCO E POR QU\xCA")}</p>
+          ${showTokenLowConf ? `
+          <div style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); padding:10px; border-radius:8px; margin-bottom:10px;">
+            <p style="margin:0; font-size:12px; color:#fcd34d;">Token analisado: ${escapeHtml(tokenSymbol)} \u2014 Confian\xE7a: BAIXA (rec\xE9m-lan\xE7ado / pouca liquidez / sem reputa\xE7\xE3o)</p>
+          </div>
+          ` : ""}
+          <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:10px; border-radius:8px;">
+            ${reasons.map((r) => `<p style="margin:0 0 6px 0; color:#fca5a5; font-size:12px;">\u26A0\uFE0F ${escapeHtml(r)}</p>`).join("")}
+          </div>
+        </div>
+
+        ${vaultBlocked ? `
+        <div style="margin-bottom:15px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); padding:12px; border-radius:8px;">
+          <p style="margin:0 0 10px 0; font-size:12px; color:#fcd34d;">Este contrato est\xE1 bloqueado pelo Vault.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="sg-btn-vault-unlock-5" style="background:#f59e0b; color:black; border:none; padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:12px;">${escapeHtml(t("vault_unlock_5min") || "Desbloquear 5 min")}</button>
+            <button id="sg-btn-vault-unlock-30" style="background:#eab308; color:black; border:none; padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:12px;">${escapeHtml(t("vault_unlock_30min") || "Desbloquear 30 min")}</button>
+            <a id="sg-btn-vault-settings" href="${escapeHtml((typeof chrome !== "undefined" && chrome?.runtime?.getURL ? chrome.runtime.getURL("options.html") : "") + "#vault")}" target="_blank" rel="noopener" style="display:inline-block; background:#334155; color:white; padding:8px 14px; border-radius:6px; font-size:12px; text-decoration:none;">Abrir configura\xE7\xF5es</a>
+          </div>
+        </div>
+        ` : ""}
+        <div style="display:flex; gap:12px;">
+          ${vaultBlocked ? `
+          <button id="sg-btn-block" data-sg-initial-focus="1" data-sg-secondary="1" style="flex:1; background:#ef4444; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(t("btn_block") || "Manter bloqueado")}</button>
+          ` : fallbackFailClosed ? `
+          <button id="sg-btn-block" ${recommend === "BLOCK" ? 'data-sg-initial-focus="1" data-sg-secondary="1"' : 'data-sg-primary="1"'} style="flex:1; background:#ef4444; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(t("btn_block") || "Bloquear")}</button>
+          <button id="sg-btn-allow" ${recommend !== "BLOCK" ? 'data-sg-initial-focus="1" data-sg-primary="1"' : 'data-sg-secondary="1"'} style="flex:1; background:#334155; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(allowLabel)}</button>
+          ` : `
+          <button id="sg-btn-block" ${hideAllow || recommend === "BLOCK" ? 'data-sg-initial-focus="1" data-sg-secondary="1"' : 'data-sg-secondary="1"'} style="flex:1; background:#334155; color:white; border:none; padding:12px; border-radius:8px; font-weight:600; cursor:pointer;">${escapeHtml(t("btn_block") || "Bloquear")}</button>
+          ${hideAllow ? "" : `<button id="sg-btn-allow" ${!hideAllow && recommend !== "BLOCK" ? 'data-sg-initial-focus="1" data-sg-primary="1"' : 'data-sg-primary="1"'} style="flex:1; background:${color}; color:${level === "HIGH" || level === "BLOCK" ? "white" : "black"}; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">${escapeHtml(allowLabel)}</button>`}
+          `}
+        </div>
+        <div style="margin-top:12px;">
+          <button id="sg-btn-retry" style="width:100%; background:transparent; color:#64748b; border:1px solid #334155; padding:8px; border-radius:6px; font-size:12px; cursor:pointer;">${escapeHtml(t("overlay_try_again") || "Tentar novamente")}</button>
+        </div>
+
+      </div>
     </div>
-    <footer class="sg-footer">
-      <button type="button" id="sg-deny" class="sg-btn sg-btn-secondary">${t("btn_cancel") || "Cancelar"}</button>
-      <button type="button" id="sg-allow" class="sg-btn sg-btn-primary">${t("btn_continue") || "Continuar"}</button>
-    </footer>
-  </div>
-</div>
-`;
-    state.app.innerHTML = html;
-    const closeBtn = state.shadow.getElementById("sg-close");
-    if (closeBtn) closeBtn.addEventListener("click", () => decideCurrentAndAdvance(false));
-    const denyBtn = state.shadow.getElementById("sg-deny");
-    const allowBtn = state.shadow.getElementById("sg-allow");
-    if (denyBtn) denyBtn.addEventListener("click", () => decideCurrentAndAdvance(false));
-    if (allowBtn) allowBtn.addEventListener("click", () => decideCurrentAndAdvance(true));
-    state.shadow.querySelectorAll("[data-sg-copy]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const v = el.getAttribute("data-sg-copy");
-        if (v) tryCopy(v);
+  `;
+    const needsAllowFriction = fallbackFailClosed || isFallback && failMode === "fail_open";
+    setTimeout(() => {
+      state.shadow.getElementById("sg-btn-block")?.addEventListener("click", () => decideCurrentAndAdvance(false));
+      const allowBtn = state.shadow.getElementById("sg-btn-allow");
+      if (allowBtn) {
+        allowBtn.addEventListener("click", () => {
+          if (needsAllowFriction && !state.__sgAllowConfirmed) {
+            const parent = allowBtn.closest("div");
+            if (parent) {
+              const confirmDiv = document.createElement("div");
+              confirmDiv.id = "sg-confirm-allow";
+              confirmDiv.style.cssText = "margin-top:12px; padding:12px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:8px;";
+              confirmDiv.innerHTML = `<p style="margin:0 0 10px 0; font-size:12px; color:#fca5a5;">${escapeHtml(t("overlay_confirm_allow_msg") || "Tem certeza? Isso ignora prote\xE7\xE3o.")}</p>
+              <div style="display:flex; gap:8px;">
+                <button id="sg-btn-confirm-allow" style="background:#f59e0b; color:black; border:none; padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer;">${escapeHtml(t("overlay_confirm_allow") || "Confirmar permitir 1 vez")}</button>
+                <button id="sg-btn-cancel-allow" style="background:#334155; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;">${escapeHtml(t("btn_cancel") || "Cancelar")}</button>
+              </div>`;
+              parent.appendChild(confirmDiv);
+              state.__sgAllowConfirmed = true;
+              state.shadow.getElementById("sg-btn-confirm-allow")?.addEventListener("click", () => {
+                decideCurrentAndAdvance(true);
+              });
+              state.shadow.getElementById("sg-btn-cancel-allow")?.addEventListener("click", () => {
+                confirmDiv.remove();
+                state.__sgAllowConfirmed = false;
+              });
+            }
+            return;
+          }
+          decideCurrentAndAdvance(true);
+        });
+      }
+      state.shadow.getElementById("sg-btn-retry")?.addEventListener("click", () => retryAnalyze());
+      state.shadow.getElementById("sg-btn-allow-spender")?.addEventListener("click", async () => {
+        if (!overlaySpender) return;
+        try {
+          await safeSendMessage({ type: "SG_UPDATE_SPENDERS", payload: { addToAllow: overlaySpender } }, 3e3);
+          await loadSettings();
+          retryAnalyze();
+        } catch {
+        }
       });
-    });
-    state.shadow.querySelectorAll("[data-sg-copy-target]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const id = el.getAttribute("data-sg-copy-target");
-        const pre = id ? state.shadow.getElementById(id) : null;
-        if (pre?.textContent) tryCopy(pre.textContent);
+      state.shadow.getElementById("sg-btn-deny-spender")?.addEventListener("click", async () => {
+        if (!overlaySpender) return;
+        try {
+          await safeSendMessage({ type: "SG_UPDATE_SPENDERS", payload: { addToDeny: overlaySpender } }, 3e3);
+          await loadSettings();
+          retryAnalyze();
+        } catch {
+        }
       });
-    });
-    const domainsToggle = state.shadow.getElementById("sg-domains-toggle");
-    if (domainsToggle) {
-      domainsToggle.addEventListener("click", () => {
-        state.domainsExpanded = !state.domainsExpanded;
-        updateOverlay(state);
+      state.shadow.getElementById("sg-btn-trust-domain")?.addEventListener("click", async () => {
+        try {
+          await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "trusted_domain", payload: { value: host } } }, 3e3);
+          retryAnalyze();
+        } catch {
+        }
       });
-    }
+      state.shadow.getElementById("sg-btn-block-domain")?.addEventListener("click", async () => {
+        try {
+          await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "blocked_domain", payload: { value: host } } }, 3e3);
+          retryAnalyze();
+        } catch {
+        }
+      });
+      state.shadow.getElementById("sg-btn-temp-allow-10")?.addEventListener("click", async () => {
+        try {
+          await safeSendMessage({ type: "SG_ADD_TEMP_ALLOW", payload: { host, spender: overlaySpender ?? null, ttlMs: 10 * 60 * 1e3 } }, 3e3);
+          showToast(t("overlay_temp_allow_toast") || "Permitido por 10 min");
+          decideCurrentAndAdvance(true);
+        } catch {
+        }
+      });
+      const doVaultUnlock = async (ttlMs) => {
+        const contract = analysis.vaultLockedTo;
+        const chainIdHex = analysis.vaultChainIdHex ?? state.meta?.chainIdHex ?? requestQueue[0]?.chainIdHex ?? "0x0";
+        if (!contract) return;
+        try {
+          const res = await safeSendMessage({ type: "VAULT_UNLOCK", payload: { chainIdHex, contract, ttlMs } }, 3e3);
+          if (res?.ok) {
+            const mins = Math.round(ttlMs / 6e4);
+            showToast(t("vault_unlocked_toast")?.replace("{n}", String(mins)) || `Desbloqueado por ${mins} min`);
+            await loadSettings();
+            retryAnalyze();
+          }
+        } catch {
+        }
+      };
+      state.shadow.getElementById("sg-btn-vault-unlock-5")?.addEventListener("click", () => doVaultUnlock(5 * 60 * 1e3));
+      state.shadow.getElementById("sg-btn-vault-unlock-30")?.addEventListener("click", () => doVaultUnlock(30 * 60 * 1e3));
+      const initialFocusBtn = state.shadow.querySelector("[data-sg-initial-focus]");
+      if (initialFocusBtn) initialFocusBtn.focus();
+      const allowanceEl = state.shadow.getElementById("sg-allowance-block");
+      if (allowanceEl && overlaySpender) {
+        const token = analysis.tx?.to;
+        const p0 = state.meta?.params?.[0];
+        const owner = p0 && typeof p0 === "object" ? p0.from : void 0;
+        const chainIdHex = state.meta?.chainIdHex ?? requestQueue[0]?.chainIdHex;
+        const isNft = analysis.txExtras?.approvalType === "NFT_SET_APPROVAL_FOR_ALL" || analysis.decodedAction?.kind === "SET_APPROVAL_FOR_ALL";
+        if (token && owner && /^0x[a-fA-F0-9]{40}$/.test(token) && /^0x[a-fA-F0-9]{40}$/.test(owner)) {
+          fetchCurrentAllowance(chainIdHex, token, owner, overlaySpender, isNft).then((val) => {
+            if (val != null && __sgOverlay?.requestId === state.requestId) {
+              const el = state.shadow.getElementById("sg-allowance-block");
+              if (el) el.textContent = (t("overlay_allowance_current") || "Allowance atual: ") + val;
+            }
+          }).catch(() => {
+          });
+        }
+      }
+    }, 0);
   }
   function cleanupOverlay() {
     if (__sgOverlay) {
       try {
-        __sgOverlay.container.remove();
+        if (__sgOverlay._watchdogId != null) clearTimeout(__sgOverlay._watchdogId);
+      } catch {
+      }
+      try {
+        __sgOverlay._restore?.();
       } catch {
       }
       try {
         document.removeEventListener("keydown", __sgOverlay.onKey);
+      } catch {
+      }
+      try {
+        __sgOverlay.container.remove();
       } catch {
       }
       __sgOverlay = null;
@@ -1915,14 +2726,55 @@
         method: cur.method,
         params: cur.params,
         chainIdHex: cur.chainIdHex ?? null,
-        chainIdRequested: cur.chainIdRequested
+        chainIdRequested: cur.chainIdRequested,
+        gateUI: cur._uiGate ?? false
       });
     }
   }
-  function decideCurrentAndAdvance(allow) {
+  async function retryAnalyze() {
+    const cur = requestQueue[0];
+    if (!cur?.analyzePayload) return;
+    const loadingAnalysis = { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" };
+    cur.analysis = loadingAnalysis;
+    if (__sgOverlay && __sgOverlay.requestId === cur.requestId) {
+      __sgOverlay.analysis = loadingAnalysis;
+      updateOverlay(__sgOverlay);
+    }
+    try {
+      const resp = await safeSendMessage(
+        { type: "ANALYZE", payload: cur.analyzePayload },
+        { timeoutMs: 8e3, preferPort: true }
+      );
+      if (resp?.analysis) {
+        cur.analysis = resp.analysis;
+        if (__sgOverlay && __sgOverlay.requestId === cur.requestId) {
+          __sgOverlay.analysis = resp.analysis;
+          updateOverlay(__sgOverlay);
+        }
+      }
+    } catch {
+      const fallback = {
+        level: "WARN",
+        score: 0,
+        title: t("overlay_analysis_unavailable") || "An\xE1lise indispon\xEDvel",
+        reasons: [t("overlay_analysis_fallback") || "N\xE3o foi poss\xEDvel obter a an\xE1lise."],
+        recommend: "WARN"
+      };
+      cur.analysis = fallback;
+      if (__sgOverlay && __sgOverlay.requestId === cur.requestId) {
+        __sgOverlay.analysis = fallback;
+        updateOverlay(__sgOverlay);
+      }
+    }
+  }
+  function decideCurrentAndAdvance(allow, userTriggered = true) {
     const cur = requestQueue[0];
     if (!cur) return;
-    console.log(`\u{1F4E8} [SignGuard Content] User decided: ${allow ? "ALLOW" : "BLOCK"}`);
+    try {
+      safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "DECISION", requestId: cur.requestId, decision: allow ? "ALLOW" : "BLOCK", method: cur.method, host: cur.host } }, 500);
+    } catch {
+    }
+    console.log(`\u{1F4E8} [SignGuard Content] ${userTriggered ? "User decided" : "Auto"}: ${allow ? "ALLOW" : "BLOCK"}`);
     const analysis = cur.analysis;
     const chainKey = cur.chainIdHex ? String(cur.chainIdHex).toLowerCase() : "";
     const nativeInfo = chainKey ? __sgNativeUsd[chainKey] : null;
@@ -1953,29 +2805,183 @@
     };
     safeSendMessage({ type: "SG_LOG_HISTORY", payload: historyEvt }).catch(() => {
     });
-    sendDecisionToMainWorld(cur.requestId, allow);
+    const uiGate = cur._uiGate ?? false;
+    const meta = { uiConfirmed: userTriggered, uiGate, method: cur.method };
+    if (userTriggered) {
+      try {
+        safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "DECISION_SENT", requestId: cur.requestId, method: cur.method, decision: allow ? "ALLOW" : "BLOCK" } }, 500);
+      } catch {
+      }
+    }
+    const dedupeKey = cur._dedupeKey;
+    const entry = dedupeKey ? __sgDedupeMap.get(dedupeKey) : void 0;
+    const relayOrigin = cur._relayOrigin;
+    if (relayOrigin) {
+      const rids = entry ? Array.from(entry.requestIds) : [cur.requestId];
+      for (const rid of rids) {
+        try {
+          relayOrigin.postMessage(
+            {
+              source: "signguard",
+              type: "SG_RELAY_DECISION",
+              relay: { requestId: rid, ts: Date.now() },
+              decision: { allow, analysis: cur.analysis, meta }
+            },
+            "*"
+          );
+        } catch (e) {
+          console.warn("[SignGuard Content] relay decision postMessage failed", rid, e);
+        }
+      }
+      if (dedupeKey) __sgDedupeMap.delete(dedupeKey);
+    } else {
+      if (entry && dedupeKey) {
+        for (const rid of entry.requestIds) sendDecisionToMainWorld(rid, allow, meta);
+        __sgDedupeMap.delete(dedupeKey);
+      } else {
+        sendDecisionToMainWorld(cur.requestId, allow, meta);
+      }
+    }
     requestQueue.shift();
     cleanupOverlay();
     if (requestQueue.length > 0) setTimeout(showCurrentPending, 100);
   }
   window.addEventListener("message", async (ev) => {
-    if (ev.source !== window || !ev.data || ev.data.source !== "signguard") return;
-    const { requestId, payload, type } = ev.data;
-    if (type === "SG_PREVIEW") {
-      const chainIdHex2 = payload?.chainIdHex;
-      const txCostPreview = payload?.txCostPreview;
-      __sgPreflightCache.set(requestId, { chainIdHex: chainIdHex2, txCostPreview });
-      console.log("\u{1F4E8} [SignGuard Content] SG_PREVIEW received");
-      const cur = requestQueue.find((r) => r.requestId === requestId);
-      if (cur) {
-        if (chainIdHex2) cur.chainIdHex = chainIdHex2;
-        if (txCostPreview) cur.analysis.txCostPreview = txCostPreview;
-        if (requestQueue[0]?.requestId === requestId) showCurrentPending();
+    if (ev.source !== window || !ev.data) return;
+    if (ev.data.source === "signguard-mainworld") {
+      const d = ev.data;
+      if (d.type === "SG_DIAG_TIMEOUT") {
+        try {
+          safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: d.failMode === "fail_closed" ? "FAILCLOSED_TIMEOUT" : "FAILOPEN_TIMEOUT", requestId: d.requestId, method: d.method } }, 500);
+        } catch {
+        }
+      } else if (d.type === "SG_RELEASED") {
+        try {
+          safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "MAINWORLD_RELEASE", requestId: d.requestId, method: d.method } }, 500);
+        } catch {
+        }
       }
       return;
     }
-    if (type !== "SG_REQUEST") return;
-    console.log("\u{1F4E8} [SignGuard Content] Request received:", payload?.method);
+    if (ev.data.source !== "signguard") return;
+    const type = ev.data.type;
+    let requestId;
+    let payload;
+    let relayOrigin = null;
+    let relayOriginHref = "";
+    if (type === "SG_RELAY_DECISION") {
+      const relay = ev.data.relay;
+      const decision = ev.data.decision;
+      const rid = relay?.requestId;
+      const allow = decision?.allow === true;
+      const meta = decision?.meta;
+      const rec = rid != null ? relayPending.get(rid) : void 0;
+      if (rec?.timeoutId) clearTimeout(rec.timeoutId);
+      if (rid != null) relayPending.delete(rid);
+      if (rid != null) sendDecisionToMainWorld(rid, allow, meta);
+      return;
+    }
+    if (type === "SG_RELAY_REQUEST") {
+      if (!IS_TOP_FRAME) return;
+      requestId = ev.data.relay?.requestId ?? "";
+      payload = ev.data.req ?? {};
+      relayOrigin = ev.source;
+      relayOriginHref = ev.data.relay?.originHref ?? "";
+      console.log("[SignGuard Content] top received relay", { requestId, method: payload?.method, origin: relayOriginHref });
+    } else if (type === "SG_REQUEST") {
+      requestId = ev.data.requestId;
+      payload = ev.data.payload ?? {};
+    } else {
+      if (type === "SG_PREVIEW") {
+        const pid = ev.data.requestId;
+        const ppayload = ev.data.payload;
+        const chainIdHex2 = ppayload?.chainIdHex;
+        const txCostPreview = ppayload?.txCostPreview;
+        __sgPreflightCache.set(pid, { chainIdHex: chainIdHex2, txCostPreview });
+        console.log("\u{1F4E8} [SignGuard Content] SG_PREVIEW received");
+        const cur = requestQueue.find((r) => r.requestId === pid);
+        if (cur) {
+          if (chainIdHex2) cur.chainIdHex = chainIdHex2;
+          if (txCostPreview) cur.analysis.txCostPreview = txCostPreview;
+          if (requestQueue[0]?.requestId === pid) showCurrentPending();
+        }
+        return;
+      }
+      return;
+    }
+    await loadSettings();
+    const method = (payload?.method ?? "").toLowerCase();
+    const gateUI = shouldGateUI(method);
+    const failMode = gateUI ? "fail_closed" : __sgSettings?.failMode ?? "fail_open";
+    if (!relayOrigin) {
+      window.postMessage({ source: "signguard-content", type: "SG_SETTINGS", requestId, failMode }, "*");
+      try {
+        safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "MAINWORLD_HOLD_START", requestId, method: payload?.method, host: payload?.host && String(payload.host).trim() ? String(payload.host).trim() : "" } }, 500);
+      } catch {
+      }
+      console.log("\u{1F4E8} [SignGuard Content] Request received:", payload?.method, "requestId=" + requestId);
+      const hostForCheck = payload?.host && String(payload.host).trim() ? String(payload.host).trim() : (() => {
+        try {
+          return new URL(payload?.url ?? window.location.href).hostname || "";
+        } catch {
+          return "";
+        }
+      })();
+      const paused = typeof __sgSettings?.pausedUntil === "number" && Date.now() < __sgSettings.pausedUntil;
+      if (paused) {
+        console.log("[SignGuard UI] UI gate bypassed due to EXTENSION_PAUSED");
+        sendDecisionToMainWorld(requestId, true, { uiConfirmed: false, uiGate: true, reasonKeys: ["EXTENSION_PAUSED"], method });
+        return;
+      }
+      if (!gateUI) {
+        try {
+          const res = await safeSendMessage(
+            { type: "SG_CHECK_TEMP_ALLOW", payload: { host: hostForCheck, spender: null } },
+            { timeoutMs: 500 }
+          );
+          if (res?.ok && res?.allowed) {
+            sendDecisionToMainWorld(requestId, true, { uiConfirmed: false, uiGate: false, method });
+            return;
+          }
+        } catch {
+        }
+      }
+      const methodForAuto = method;
+      if (AUTO_ALLOW_METHODS.has(methodForAuto)) {
+        try {
+          safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: "REQ", requestId, method: methodForAuto, host: hostForCheck } }, 500);
+        } catch {
+        }
+        sendDecisionToMainWorld(requestId, true, { uiConfirmed: false, uiGate: false, method });
+        return;
+      }
+      if (!IS_TOP_FRAME) {
+        const meth = String(payload?.method ?? "").toLowerCase();
+        const isUiGated = shouldGateUI(meth);
+        const allowOnTimeout = !isUiGated && failMode === "fail_open";
+        console.log("[SignGuard Content] iframe request -> relaying to top", { requestId, method: payload?.method, href: location.href });
+        try {
+          window.top?.postMessage(
+            { source: "signguard", type: "SG_RELAY_REQUEST", relay: { requestId, originHref: location.href, ts: Date.now() }, req: payload },
+            "*"
+          );
+        } catch (e) {
+          console.warn("[SignGuard Content] relay postMessage failed", e);
+        }
+        const timeoutId = setTimeout(() => {
+          relayPending.delete(requestId);
+          sendDecisionToMainWorld(requestId, allowOnTimeout, {
+            uiConfirmed: false,
+            uiGate: isUiGated,
+            method: payload?.method,
+            reasonKeys: ["RELAY_TIMEOUT"]
+          });
+          console.warn("[SignGuard Content] relay timeout, applying failMode", { failMode, isUiGated });
+        }, RELAY_TIMEOUT_MS);
+        relayPending.set(requestId, { timeoutId });
+        return;
+      }
+    }
     const url = payload?.url ?? window.location.href;
     const origin = (() => {
       try {
@@ -1985,7 +2991,6 @@
       }
     })();
     const rpcMeta = payload?.meta ?? null;
-    const method = (payload?.method ?? "").toLowerCase();
     const params = Array.isArray(payload?.params) ? payload.params : [];
     const p0 = params[0] && typeof params[0] === "object" ? params[0] : null;
     let chainIdHex = payload?.chainIdHex || toChainIdHex(rpcMeta?.chainId) || toChainIdHex(payload?.chainId) || null;
@@ -2002,12 +3007,13 @@
     const mergedChainIdHex = payload?.chainIdHex || chainIdHex || cached?.chainIdHex || null;
     const mergedMeta = rpcMeta ? { ...rpcMeta, chainIdHex: mergedChainIdHex ?? void 0, chainIdRequested: rpcMeta?.chainIdRequested ?? void 0 } : mergedChainIdHex || rpcMeta?.chainIdRequested ? { chainIdHex: mergedChainIdHex ?? void 0, chainIdRequested: rpcMeta?.chainIdRequested ?? void 0 } : void 0;
     const txCostPreviewMerged = cached?.txCostPreview ?? payload?.txCostPreview;
+    const mergedMetaWithPageRisk = __sgPageRiskResult ? { ...mergedMeta, pageRisk: { score: __sgPageRiskResult.riskScore, reasons: __sgPageRiskResult.reasons } } : mergedMeta;
     const analyzePayload = {
       requestId,
       url,
       origin,
       request: { method: payload?.method ?? "", params: Array.isArray(payload?.params) ? payload.params : [] },
-      meta: mergedMeta
+      meta: mergedMetaWithPageRisk
     };
     if (txCostPreviewMerged) analyzePayload.txCostPreview = txCostPreviewMerged;
     if (cached) __sgPreflightCache.delete(requestId);
@@ -2019,29 +3025,151 @@
       params: payload?.params,
       chainIdHex: mergedChainIdHex ?? void 0,
       chainIdRequested: typeof chainIdRequested === "string" ? chainIdRequested : void 0,
-      analysis: { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" }
+      analysis: { level: "LOADING", score: 0, title: "", reasons: [], recommend: "WARN" },
+      analyzePayload
     };
+    pending._uiGate = gateUI;
     if (txCostPreviewMerged) pending.analysis.txCostPreview = txCostPreviewMerged;
-    requestQueue.push(pending);
-    if (requestQueue.length === 1) {
-      loadSettings().then(() => showCurrentPending());
+    if (relayOrigin) {
+      pending._relayOrigin = relayOrigin;
+      pending._relayRequestId = requestId;
     }
+    const originHrefForDedupe = relayOriginHref || (typeof location !== "undefined" ? location.href : "");
+    const dupKey = `${host}|${method}|${stableStringifyParams(params ?? [])}|${originHrefForDedupe}`;
+    for (const [k, ent] of __sgDedupeMap.entries()) {
+      if (Date.now() - ent.addedAt >= DEDUPE_MS) __sgDedupeMap.delete(k);
+    }
+    const existing = __sgDedupeMap.get(dupKey);
+    if (existing && Date.now() - existing.addedAt < DEDUPE_MS) {
+      existing.requestIds.add(requestId);
+      return;
+    }
+    __sgDedupeMap.set(dupKey, { primaryRequestId: requestId, requestIds: /* @__PURE__ */ new Set([requestId]), addedAt: Date.now() });
+    pending._dedupeKey = dupKey;
+    requestQueue.push(pending);
+    if (requestQueue.length === 1) showCurrentPending();
+    const ANALYSIS_TIMEOUT_MS = 9e3;
+    let watchdogFired = false;
+    const makeFallback = () => {
+      const failMode2 = __sgSettings?.failMode ?? "fail_open";
+      return {
+        level: "WARN",
+        score: 0,
+        title: t("overlay_analysis_unavailable") || "An\xE1lise indispon\xEDvel",
+        reasons: [t("overlay_analysis_fallback") || "N\xE3o foi poss\xEDvel obter a an\xE1lise agora. Voc\xEA ainda pode BLOQUEAR ou CONTINUAR."],
+        recommend: failMode2 === "fail_closed" ? "BLOCK" : "WARN",
+        reasonKeys: [REASON_KEYS.FAILMODE_FALLBACK],
+        _isFallback: true
+      };
+    };
+    const watchdog = setTimeout(() => {
+      if (watchdogFired) return;
+      watchdogFired = true;
+      const p = requestQueue.find((r) => r.requestId === requestId);
+      if (!p || p.analysis?.level !== "LOADING") return;
+      const fallbackAnalysis = makeFallback();
+      p.analysis = fallbackAnalysis;
+      if (__sgOverlay && __sgOverlay.requestId === requestId) {
+        __sgOverlay.analysis = fallbackAnalysis;
+        updateOverlay(__sgOverlay);
+      }
+    }, ANALYSIS_TIMEOUT_MS);
     try {
-      const response = await safeSendMessage({
-        type: "ANALYZE",
-        payload: analyzePayload
-      });
+      const response = await safeSendMessage(
+        { type: "ANALYZE", payload: analyzePayload },
+        { timeoutMs: 8e3, preferPort: true }
+      );
+      clearTimeout(watchdog);
       if (pending.requestId === requestId && response?.analysis) {
         pending.analysis = response.analysis;
+        const spenderFromAnalysis = (() => {
+          const a = response.analysis;
+          const da = a?.decodedAction;
+          if (da?.spender && /^0x[a-fA-F0-9]{40}$/.test(da.spender)) return da.spender.toLowerCase();
+          if (da?.operator && /^0x[a-fA-F0-9]{40}$/.test(da.operator)) return da.operator.toLowerCase();
+          const te = a?.txExtras;
+          if (te?.spender && /^0x[a-fA-F0-9]{40}$/.test(te.spender)) return te.spender.toLowerCase();
+          if (a?.typedDataExtras?.spender && /^0x[a-fA-F0-9]{40}$/.test(a.typedDataExtras.spender)) return a.typedDataExtras.spender.toLowerCase();
+          return null;
+        })();
+        if (!pending._uiGate) {
+          try {
+            const res2 = await safeSendMessage(
+              { type: "SG_CHECK_TEMP_ALLOW", payload: { host: pending.host, spender: spenderFromAnalysis } },
+              { timeoutMs: 500 }
+            );
+            if (res2?.ok && res2?.allowed) {
+              const cur = requestQueue[0];
+              if (cur && cur.requestId === requestId) {
+                decideCurrentAndAdvance(true, false);
+              }
+              return;
+            }
+          } catch {
+          }
+        }
         if (__sgOverlay && __sgOverlay.requestId === requestId) {
           __sgOverlay.analysis = response.analysis;
           updateOverlay(__sgOverlay);
         }
+      } else if (pending.requestId === requestId && !response?.analysis) {
+        const fallbackAnalysis = (() => {
+          const failMode2 = __sgSettings?.failMode ?? "fail_open";
+          return {
+            level: "WARN",
+            score: 0,
+            title: t("overlay_analysis_unavailable") || "An\xE1lise indispon\xEDvel",
+            reasons: [t("overlay_analysis_fallback") || "N\xE3o foi poss\xEDvel obter a an\xE1lise agora. Voc\xEA ainda pode BLOQUEAR ou CONTINUAR."],
+            recommend: failMode2 === "fail_closed" ? "BLOCK" : "WARN",
+            reasonKeys: [REASON_KEYS.FAILMODE_FALLBACK],
+            _isFallback: true
+          };
+        })();
+        pending.analysis = fallbackAnalysis;
+        if (__sgOverlay && __sgOverlay.requestId === requestId) {
+          __sgOverlay.analysis = fallbackAnalysis;
+          updateOverlay(__sgOverlay);
+        }
       }
     } catch (e) {
+      clearTimeout(watchdog);
       console.error("[SignGuard] handleSGRequest crash:", e);
-      console.error("[SignGuard] Background comms failed", e);
+      if (pending.requestId === requestId) {
+        const failMode2 = __sgSettings?.failMode ?? "fail_open";
+        const fallbackAnalysis = {
+          level: "WARN",
+          score: 0,
+          title: t("overlay_analysis_unavailable") || "An\xE1lise indispon\xEDvel",
+          reasons: [t("overlay_analysis_fallback") || "N\xE3o foi poss\xEDvel obter a an\xE1lise agora. Voc\xEA ainda pode BLOQUEAR ou CONTINUAR."],
+          recommend: failMode2 === "fail_closed" ? "BLOCK" : "WARN",
+          reasonKeys: [REASON_KEYS.FAILMODE_FALLBACK],
+          _isFallback: true
+        };
+        pending.analysis = fallbackAnalysis;
+        if (__sgOverlay && __sgOverlay.requestId === requestId) {
+          __sgOverlay.analysis = fallbackAnalysis;
+          updateOverlay(__sgOverlay);
+        }
+      }
     }
   });
+  function initPageRiskScan() {
+    try {
+      const doc = document;
+      const hostname = location.hostname || "";
+      __sgPageRiskResult = runPageRiskScan(doc, hostname);
+      if (__sgPageRiskResult.riskScore === "MEDIUM" || __sgPageRiskResult.riskScore === "HIGH") {
+        const msg = __sgPageRiskResult.reasons?.length > 0 ? __sgPageRiskResult.reasons.join(" ") : t("page_risk_warning") || "P\xE1gina com poss\xEDvel risco detectado.";
+        injectPageRiskBanner(msg, doc);
+      }
+    } catch (e) {
+      console.warn("[SignGuard] Page risk scan failed:", e);
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initPageRiskScan);
+  } else {
+    initPageRiskScan();
+  }
 })();
 //# sourceMappingURL=content.js.map

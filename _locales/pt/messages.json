@@ -1,4 +1,10 @@
 {
   "extName": { "message": "Crypto Wallet SignGuard" },
-  "extDescription": { "message": "Avisos de segurança que explicam conexões de carteira, assinaturas e transações em linguagem simples antes de você confirmar na sua carteira." }
+  "extShortName": { "message": "SignGuard" },
+  "extDescription": { "message": "Avisos de segurança que explicam conexões de carteira, assinaturas e transações em linguagem simples antes de você confirmar na sua carteira." },
+  "reason_snap_invoke": { "message": "Snaps podem executar código na carteira. Confirme a origem." },
+  "reason_request_snaps": { "message": "O site está a solicitar Snaps / extensões da carteira." },
+  "reason_sign_transaction": { "message": "Assinatura de transação sem envio imediato. Pode ser usada depois para broadcast." },
+  "reason_raw_tx_broadcast": { "message": "Broadcast de transação já assinada. Não há confirmação visual prévia do conteúdo." },
+  "reason_read_permissions": { "message": "O site está a ler as permissões já concedidas à carteira." }
 }

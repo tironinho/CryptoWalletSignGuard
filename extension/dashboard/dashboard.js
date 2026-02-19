@@ -1,3 +1,63 @@
+// src/lists/cryptoTrustedDomainsSeed.ts
+var CRYPTO_TRUSTED_DOMAINS_SEED = [
+  // Explorers
+  "etherscan.io",
+  "etherscan.com",
+  "arbiscan.io",
+  "polygonscan.com",
+  "bscscan.com",
+  "basescan.org",
+  "snowtrace.io",
+  "optimistic.etherscan.io",
+  // NFTs
+  "opensea.io",
+  "blur.io",
+  "looksrare.org",
+  "x2y2.io",
+  "rarible.com",
+  "magiceden.io",
+  // DEX/DeFi
+  "uniswap.org",
+  "app.uniswap.org",
+  "1inch.io",
+  "app.1inch.io",
+  "aave.com",
+  "app.aave.com",
+  "curve.fi",
+  "app.curve.fi",
+  "balancer.fi",
+  "app.balancer.fi",
+  "sushiswap.fi",
+  "matcha.xyz",
+  "paraswap.io",
+  "cowswap.exchange",
+  // Bridges/L2
+  "bridge.arbitrum.io",
+  "optimism.io",
+  "base.org",
+  "arbitrum.io",
+  "polygon.technology",
+  "hop.exchange",
+  "stargate.finance",
+  "across.to",
+  "portalbridge.com",
+  "zksync.io",
+  // Infra / Wallets
+  "chain.link",
+  "lido.fi",
+  "stake.lido.fi",
+  "ens.domains",
+  "app.ens.domains",
+  "metamask.io",
+  "metamask.com",
+  "rabby.io",
+  "walletconnect.com",
+  "walletconnect.org",
+  "safe.global",
+  "revoke.cash",
+  "app.revoke.cash"
+];
+
 // src/shared/types.ts
 var SUPPORTED_WALLETS = [
   { name: "MetaMask", kind: "EVM" },
@@ -28,40 +88,27 @@ var DEFAULT_SETTINGS = {
   strictBlockPermitLike: true,
   assetEnrichmentEnabled: true,
   addressIntelEnabled: true,
-  cloudIntelOptIn: true,
-  showUsd: true,
+  cloudIntelOptIn: false,
+  telemetryOptIn: false,
+  telemetryEnabled: false,
+  showUsd: false,
   defaultExpandDetails: true,
   planTier: "FREE",
   licenseKey: "",
-  trustedDomains: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  trustedDomains: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   supportedWalletsInfo: SUPPORTED_WALLETS,
-  allowlist: [
-    "opensea.io",
-    "blur.io",
-    "app.uniswap.org",
-    "uniswap.org",
-    "looksrare.org",
-    "x2y2.io",
-    "etherscan.io",
-    "arbitrum.io",
-    "polygon.technology"
-  ],
+  allowlist: CRYPTO_TRUSTED_DOMAINS_SEED.slice(0, 24),
   customBlockedDomains: [],
   customTrustedDomains: [],
+  allowlistSpenders: [],
+  denylistSpenders: [],
+  failMode: "fail_open",
   enableIntel: true,
   vault: {
     enabled: false,
-    lockedContracts: []
+    lockedContracts: [],
+    unlockedUntil: 0,
+    blockApprovals: false
   },
   simulation: {
     enabled: false,
@@ -74,31 +121,31 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/runtimeSafe.ts
-function canUseRuntime() {
+function hasRuntime(c) {
   try {
-    const c = (typeof globalThis !== "undefined" ? globalThis.chrome : void 0) ?? (typeof chrome !== "undefined" ? chrome : void 0);
     return !!(c?.runtime?.id && typeof c.runtime.sendMessage === "function");
   } catch {
     return false;
   }
 }
-function isRuntimeUsable() {
-  try {
-    return canUseRuntime();
-  } catch {
-    return false;
-  }
+function getChromeApi() {
+  const localChrome = typeof chrome !== "undefined" ? chrome : null;
+  if (hasRuntime(localChrome)) return localChrome;
+  const globalChrome = typeof globalThis !== "undefined" ? globalThis.chrome : null;
+  if (hasRuntime(globalChrome)) return globalChrome;
+  return null;
 }
 async function safeStorageGet(keys) {
   return new Promise((resolve) => {
     try {
-      if (!isRuntimeUsable() || !chrome?.storage?.sync) {
+      const c = getChromeApi();
+      if (!c?.storage?.sync) {
         resolve({ ok: false, error: "storage_unavailable" });
         return;
       }
-      chrome.storage.sync.get(keys, (items) => {
+      c.storage.sync.get(keys, (items) => {
         try {
-          const err = chrome.runtime.lastError;
+          const err = c.runtime?.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || String(err) });
             return;

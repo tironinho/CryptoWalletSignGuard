@@ -1,6 +1,6 @@
 /**
- * Telemetry: REST-only Supabase (no @supabase/supabase-js) to avoid Service Worker crash in MV3.
- * Tables: installations, tx_logs, threat_reports. All failures are silent.
+ * Telemetry: opt-in only. REST-only backend (no @supabase/supabase-js) to avoid Service Worker crash in MV3.
+ * Sent only when termsAccepted AND telemetryOptIn are true. No ads/marketing. All failures are silent.
  */
 
 const SUPABASE_URL = "https://cjnzidctntqzamhwmwkt.supabase.co";
@@ -31,19 +31,21 @@ async function getTermsAccepted(): Promise<boolean> {
 
 async function getOptIn(): Promise<boolean> {
   if (!(await getTermsAccepted())) return false;
-  if (!getSettingsFn) return true;
+  if (!getSettingsFn) return false;
   try {
     const s = await getSettingsFn();
-    return s?.cloudIntelOptIn !== false;
+    return s?.telemetryOptIn === true;
   } catch {
-    return true;
+    return false;
   }
 }
 
-/** Helper: POST to Supabase REST (no SDK). Fails silently. */
+/** Helper: POST to Supabase REST (no SDK). Fails silently. Only sends if telemetry origin permission granted. */
 async function sendToSupabase(table: string, data: Record<string, unknown>): Promise<void> {
   try {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const origins = ["https://cjnzidctntqzamhwmwkt.supabase.co/*"];
+    if (typeof chrome?.permissions?.contains === "function" && !(await chrome.permissions.contains({ origins }))) return;
     await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
       headers: {

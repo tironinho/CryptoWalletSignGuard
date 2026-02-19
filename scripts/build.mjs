@@ -49,6 +49,8 @@ fs.mkdirSync(DIST, { recursive: true });
 // Do NOT copy manifest.json to dist — build-extension.mjs uses src/manifest.template.json and assembles extension/
 copyFile(path.join(SRC, "options.html"), path.join(DIST, "options.html"));
 copyFile(path.join(SRC, "popup.html"), path.join(DIST, "popup.html"));
+copyFile(path.join(SRC, "privacy.html"), path.join(DIST, "privacy.html"));
+copyFile(path.join(SRC, "terms.html"), path.join(DIST, "terms.html"));
 copyFile(path.join(SRC, "onboarding.html"), path.join(DIST, "onboarding.html"));
 copyFile(path.join(SRC, "onboarding.css"), path.join(DIST, "onboarding.css"));
 copyFile(path.join(SRC, "dashboard", "dashboard.html"), path.join(DIST, "dashboard", "dashboard.html"));
