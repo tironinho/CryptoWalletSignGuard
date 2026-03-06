@@ -6,9 +6,27 @@ import { shouldGateUI } from "./shared/uiGate";
 const DEBUG_PREFIX = "🚀 [SignGuard MainWorld]";
 /** CustomEvent name for decision (synchronous → preserves user activation for MetaMask). */
 const SG_DECISION_EVENT = "__sg_decision__";
+const ORIGINAL_REQUEST = new WeakMap<any, (args: any) => Promise<any>>();
+
+function makeEip1193Reject(reason: string, method?: string) {
+  const err: any = new Error("User rejected the request.");
+  err.code = 4001;
+  err.data = { sg: true, reason, ...(method ? { method } : {}) };
+  return err;
+}
 
 function log(msg: string, ...args: any[]) {
   console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
+}
+
+function safeDefine(obj: any, prop: string, desc: PropertyDescriptor) {
+  try {
+    Object.defineProperty(obj, prop, desc);
+    return true;
+  } catch (e) {
+    console.error(DEBUG_PREFIX, `Failed to patch ${prop}`, e);
+    return false;
+  }
 }
 
 function postToContent(type: "SG_REQUEST" | "SG_PREVIEW", requestId: string, payload: any) {
@@ -208,12 +226,16 @@ async function handleSensitiveRpc(
       delete pendingFailMode[requestId];
     };
 
+    const hasUserActivation = () => {
+      try { return (navigator as any)?.userActivation?.isActive === true; } catch { return false; }
+    };
+
     const applyDecision = (allow: boolean, meta?: { uiConfirmed?: boolean; uiGate?: boolean; reasonKeys?: string[] }) => {
       if (resolved) return;
       resolved = true;
       cleanup();
       if (!allow) {
-        reject({ code: 4001, message: "SignGuard: Blocked by user" });
+        reject(makeEip1193Reject("blocked_by_user", method));
         return;
       }
       const gated = shouldGateUI(m);
@@ -222,8 +244,15 @@ async function handleSensitiveRpc(
       const extensionPaused = reasonKeys.includes("EXTENSION_PAUSED");
       if (gated && !uiConfirmed && !extensionPaused) {
         log("BLOCKED forward: uiConfirmed missing for gated method", m);
-        reject(new Error("SignGuard: UI confirmation required before forwarding to wallet"));
+        reject(makeEip1193Reject("ui_confirmation_required", method));
         return;
+      }
+      if (gated && allow && !extensionPaused) {
+        if (!hasUserActivation()) {
+          log("BLOCKED forward: missing userActivation for UI-gated allow", m);
+          reject(makeEip1193Reject("user_activation_required", method));
+          return;
+        }
       }
       window.postMessage({ source: "signguard-mainworld", type: "SG_RELEASED", requestId, method: m }, "*");
       originalRequest(args).then(resolve).catch(reject);
@@ -238,7 +267,7 @@ async function handleSensitiveRpc(
 
       if (isUiGated) {
         log("Decision timeout on UI-gated method — blocking (never fail-open):", m);
-        reject(new Error("SignGuard: aguardando confirmação no overlay (timeout)."));
+        reject(makeEip1193Reject("ui_timeout", method));
         return;
       }
 
@@ -247,7 +276,7 @@ async function handleSensitiveRpc(
         originalRequest(args).then(resolve).catch(reject);
       } else {
         log("Decision timeout: fail_closed — blocking request");
-        reject(new Error("SignGuard: request timed out; reload the page and try again."));
+        reject(makeEip1193Reject("timeout_fail_closed", method));
       }
     };
 
@@ -263,6 +292,10 @@ async function handleSensitiveRpc(
       if (d?.source === "signguard-content" && d?.type === "SG_SETTINGS" && d?.requestId === requestId) {
         const fm = d.failMode === "fail_closed" ? "fail_closed" : "fail_open";
         pendingFailMode[requestId] = isUiGated ? "fail_closed" : fm;
+        return;
+      }
+      // Never accept async SG_DECISION for UI-gated methods (breaks userActivation and is easier to spoof)
+      if (isUiGated && d?.source === "signguard-content" && d?.type === "SG_DECISION" && d?.requestId === requestId) {
         return;
       }
       if (d?.source !== "signguard-content" || d?.type !== "SG_DECISION" || d?.requestId !== requestId) return;
@@ -282,10 +315,11 @@ function patchProvider(provider: any) {
 
   const originalRequest = provider.request?.bind?.(provider);
   if (!originalRequest) return;
-  (provider as any).__sg_originalRequest = originalRequest;
+  ORIGINAL_REQUEST.set(provider, originalRequest);
+  let patchedAny = false;
 
   // (1) Intercept .request
-  Object.defineProperty(provider, "request", {
+  patchedAny = safeDefine(provider, "request", {
     value: async (args: any) => {
       const method = normalizeMethod(args?.method ?? args);
       const sensitive = isSensitive(method);
@@ -299,12 +333,12 @@ function patchProvider(provider: any) {
     },
     configurable: true,
     writable: true
-  });
+  }) || patchedAny;
 
   // (2) Intercept .send — assinaturas: send(method, params?) | send(payload, callback?)
   const origSend = provider.send?.bind?.(provider);
   if (origSend) {
-    Object.defineProperty(provider, "send", {
+    patchedAny = safeDefine(provider, "send", {
       value: function (a: any, b?: any) {
         let method: string;
         let params: any[];
@@ -315,7 +349,7 @@ function patchProvider(provider: any) {
           return new Promise((resolve, reject) => {
             if (!isSensitive(method)) {
               log(`➡️ PASS-THROUGH: ${method}`);
-              origSend(method, params).then(resolve).catch(reject);
+              originalRequest({ method, params }).then(resolve).catch(reject);
               return;
             }
             log(`🛑 HOLDING send: ${method} (reason: sensitive)`);
@@ -342,13 +376,13 @@ function patchProvider(provider: any) {
       },
       configurable: true,
       writable: true
-    });
+    }) || patchedAny;
   }
 
   // (3) Intercept .sendAsync — sendAsync(payload, callback)
   const origSendAsync = provider.sendAsync?.bind?.(provider);
   if (origSendAsync) {
-    Object.defineProperty(provider, "sendAsync", {
+    patchedAny = safeDefine(provider, "sendAsync", {
       value: function (payload: any, callback: (err: any, result?: any) => void) {
         const method = normalizeMethod(payload?.method ?? payload);
         const params = payload?.params ?? [];
@@ -363,11 +397,15 @@ function patchProvider(provider: any) {
       },
       configurable: true,
       writable: true
-    });
+    }) || patchedAny;
   }
 
-  (provider as any)._sg_patched = true;
-  log("Provider patched successfully.");
+  if (patchedAny) {
+    (provider as any)._sg_patched = true;
+    log("Provider patched successfully.");
+  } else {
+    console.error(DEBUG_PREFIX, "Could not patch provider (no hooks applied).");
+  }
 }
 
 /** Patch all providers in ethereum.providers array (multi-wallet). */
@@ -492,7 +530,9 @@ window.addEventListener("message", async (ev: MessageEvent) => {
     }
     const canonical = METHOD_CANONICAL[key] ?? requested;
     const eth = (window as any).ethereum;
-    const orig = eth?.__sg_originalRequest ?? eth?.request?.bind?.(eth);
+    const orig =
+      (eth && ORIGINAL_REQUEST.get(eth)) ||
+      eth?.request?.bind?.(eth);
     if (!orig) {
       window.postMessage({ source: "signguard-mainworld", type: "SG_RPC_CALL_RES", requestId, ok: false, error: "no_provider" }, "*");
       return;
@@ -510,7 +550,9 @@ window.addEventListener("message", async (ev: MessageEvent) => {
   const { requestId, tx } = ev.data?.payload ?? {};
   if (!requestId || !tx) return;
   const eth = (window as any).ethereum;
-  const orig = eth?.__sg_originalRequest ?? eth?.request?.bind?.(eth);
+  const orig =
+    (eth && ORIGINAL_REQUEST.get(eth)) ||
+    eth?.request?.bind?.(eth);
   if (!orig) {
     window.postMessage({ source: "signguard", type: "SG_FEE_ESTIMATE_RES", requestId, feeEstimate: { ok: false, feeEstimated: false, error: "no_provider" } }, "*");
     return;
