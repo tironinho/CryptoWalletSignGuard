@@ -1,4 +1,4 @@
-// ARQUIVO: src/mainWorld.ts
+
 import { estimateFee } from "./feeEstimate";
 import type { TxCostPreview } from "./shared/types";
 import { shouldGateUI } from "./shared/uiGate";
