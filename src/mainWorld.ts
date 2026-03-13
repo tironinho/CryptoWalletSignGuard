@@ -33,6 +33,47 @@ function postToContent(type: "SG_REQUEST" | "SG_PREVIEW", requestId: string, pay
   window.postMessage({ source: "signguard", type, requestId, payload }, "*");
 }
 
+function isTxHash(v: any): v is string {
+  return typeof v === "string" && /^0x[a-fA-F0-9]{64}$/.test(v);
+}
+
+function summarizeSensitiveResult(methodLower: string, result: any): Record<string, any> {
+  // IMPORTANTE: não retornar assinatura em métodos de sign
+  if (methodLower === "eth_sendtransaction" || methodLower === "wallet_sendtransaction") {
+    if (isTxHash(result)) return { txHash: result };
+  }
+  if (methodLower === "eth_requestaccounts") {
+    if (Array.isArray(result) && typeof result[0] === "string") return { account: result[0] };
+  }
+  return {};
+}
+
+function safeErrorMessage(err: any): string {
+  try {
+    if (!err) return "unknown_error";
+    if (typeof err === "string") return err;
+    if (typeof err?.message === "string") return err.message;
+    return JSON.stringify(err);
+  } catch {
+    return "unknown_error";
+  }
+}
+
+function postResultToContent(payload: {
+  requestId: string;
+  methodLower: string;
+  ok: boolean;
+  reason?: string;
+  error?: string;
+  txHash?: string;
+  account?: string;
+}) {
+  window.postMessage(
+    { source: "signguard-mainworld", type: "SG_RESULT", ...payload },
+    "*"
+  );
+}
+
 function toDecStringWei(v: any): string {
   try { return BigInt(v ?? "0x0").toString(10); } catch { return "0"; }
 }
@@ -235,6 +276,7 @@ async function handleSensitiveRpc(
       resolved = true;
       cleanup();
       if (!allow) {
+        postResultToContent({ requestId, methodLower: m, ok: false, reason: "blocked_by_user" });
         reject(makeEip1193Reject("blocked_by_user", method));
         return;
       }
@@ -244,6 +286,7 @@ async function handleSensitiveRpc(
       const extensionPaused = reasonKeys.includes("EXTENSION_PAUSED");
       if (gated && !uiConfirmed && !extensionPaused) {
         log("BLOCKED forward: uiConfirmed missing for gated method", m);
+        postResultToContent({ requestId, methodLower: m, ok: false, reason: "ui_confirmation_required" });
         reject(makeEip1193Reject("ui_confirmation_required", method));
         return;
       }
@@ -255,7 +298,27 @@ async function handleSensitiveRpc(
         }
       }
       window.postMessage({ source: "signguard-mainworld", type: "SG_RELEASED", requestId, method: m }, "*");
-      originalRequest(args).then(resolve).catch(reject);
+
+      originalRequest(args)
+        .then((result) => {
+          const extra = summarizeSensitiveResult(m, result);
+          postResultToContent({
+            requestId,
+            methodLower: m,
+            ok: true,
+            ...extra,
+          });
+          resolve(result);
+        })
+        .catch((err) => {
+          postResultToContent({
+            requestId,
+            methodLower: m,
+            ok: false,
+            error: safeErrorMessage(err),
+          });
+          reject(err);
+        });
     };
 
     const onTimeout = () => {
@@ -267,6 +330,7 @@ async function handleSensitiveRpc(
 
       if (isUiGated) {
         log("Decision timeout on UI-gated method — blocking (never fail-open):", m);
+        postResultToContent({ requestId, methodLower: m, ok: false, reason: "ui_timeout" });
         reject(makeEip1193Reject("ui_timeout", method));
         return;
       }
@@ -276,6 +340,7 @@ async function handleSensitiveRpc(
         originalRequest(args).then(resolve).catch(reject);
       } else {
         log("Decision timeout: fail_closed — blocking request");
+        postResultToContent({ requestId, methodLower: m, ok: false, reason: "timeout_fail_closed" });
         reject(makeEip1193Reject("timeout_fail_closed", method));
       }
     };

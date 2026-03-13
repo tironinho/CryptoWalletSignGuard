@@ -1986,11 +1986,11 @@
       return "";
     }
   }
-  function showToast(text) {
+  function showToast(text, subtitle, type) {
     try {
       const el = document.createElement("div");
-      el.className = "sg-toast";
-      el.textContent = text;
+      el.className = "sg-toast" + (type ? ` sg-toast-${type}` : "");
+      el.textContent = subtitle ? `${text} ${subtitle}` : text;
       document.documentElement.appendChild(el);
       setTimeout(() => el.remove(), 2500);
     } catch {
@@ -2848,8 +2848,47 @@ body,.sg-root{font-family:system-ui,sans-serif;color:#f8fafc;background:transpar
   }
   window.addEventListener("message", async (ev) => {
     if (ev.source !== window || !ev.data) return;
+    const d = ev.data;
+    if (d?.source === "signguard-mainworld" && d?.type === "SG_RESULT") {
+      const method2 = String(d.methodLower || d.method || "").toLowerCase();
+      const ok = !!d.ok;
+      const reason = typeof d.reason === "string" ? d.reason : "";
+      const error = typeof d.error === "string" ? d.error : "";
+      const txHash = typeof d.txHash === "string" ? d.txHash : "";
+      const account = typeof d.account === "string" ? d.account : "";
+      const short = (s) => s && s.length > 14 ? `${s.slice(0, 6)}\u2026${s.slice(-4)}` : s;
+      if (ok) {
+        if (method2 === "eth_requestaccounts") {
+          showToast("\u2705 Carteira conectada", account ? `Conta: ${short(account)}` : "Conex\xE3o conclu\xEDda.", "success");
+        } else if (method2 === "eth_sendtransaction" || method2 === "wallet_sendtransaction") {
+          showToast("\u2705 Transa\xE7\xE3o enviada", txHash ? `Hash: ${short(txHash)}` : "Aprovada no wallet.", "success");
+        } else if (method2.includes("sign")) {
+          showToast("\u2705 Assinatura conclu\xEDda", "A\xE7\xE3o confirmada no MetaMask.", "success");
+        } else {
+          showToast("\u2705 A\xE7\xE3o conclu\xEDda", method2 || "ok", "success");
+        }
+        return;
+      }
+      if (reason === "blocked_by_user") {
+        showToast("\u26D4 Bloqueado pelo SignGuard", method2 || "a\xE7\xE3o sens\xEDvel", "warning");
+        return;
+      }
+      if (reason === "ui_confirmation_required") {
+        showToast("\u26A0\uFE0F Confirma\xE7\xE3o obrigat\xF3ria", "Voc\xEA precisa confirmar no overlay do SignGuard.", "warning");
+        return;
+      }
+      if (reason === "ui_timeout") {
+        showToast("\u23F1\uFE0F Tempo esgotado", "Voc\xEA n\xE3o confirmou a tempo.", "warning");
+        return;
+      }
+      if (reason === "timeout_fail_closed") {
+        showToast("\u26D4 Bloqueado por timeout", "Fail-closed ativado.", "warning");
+        return;
+      }
+      showToast("\u26A0\uFE0F A\xE7\xE3o n\xE3o conclu\xEDda", error || reason || "Erro/recusa no wallet.", "warning");
+      return;
+    }
     if (ev.data.source === "signguard-mainworld") {
-      const d = ev.data;
       if (d.type === "SG_DIAG_TIMEOUT") {
         try {
           safeSendMessage({ type: "SG_DIAG_PUSH", payload: { kind: d.failMode === "fail_closed" ? "FAILCLOSED_TIMEOUT" : "FAILOPEN_TIMEOUT", requestId: d.requestId, method: d.method } }, 500);

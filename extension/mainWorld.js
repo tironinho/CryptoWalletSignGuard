@@ -111,11 +111,55 @@
   // src/mainWorld.ts
   var DEBUG_PREFIX = "\u{1F680} [SignGuard MainWorld]";
   var SG_DECISION_EVENT = "__sg_decision__";
+  var ORIGINAL_REQUEST = /* @__PURE__ */ new WeakMap();
+  function makeEip1193Reject(reason, method) {
+    const err = new Error("User rejected the request.");
+    err.code = 4001;
+    err.data = { sg: true, reason, ...method ? { method } : {} };
+    return err;
+  }
   function log(msg, ...args) {
     console.log(`%c${DEBUG_PREFIX} ${msg}`, "color: #00ff00; font-weight: bold;", ...args);
   }
+  function safeDefine(obj, prop, desc) {
+    try {
+      Object.defineProperty(obj, prop, desc);
+      return true;
+    } catch (e) {
+      console.error(DEBUG_PREFIX, `Failed to patch ${prop}`, e);
+      return false;
+    }
+  }
   function postToContent(type, requestId, payload) {
     window.postMessage({ source: "signguard", type, requestId, payload }, "*");
+  }
+  function isTxHash(v) {
+    return typeof v === "string" && /^0x[a-fA-F0-9]{64}$/.test(v);
+  }
+  function summarizeSensitiveResult(methodLower, result) {
+    if (methodLower === "eth_sendtransaction" || methodLower === "wallet_sendtransaction") {
+      if (isTxHash(result)) return { txHash: result };
+    }
+    if (methodLower === "eth_requestaccounts") {
+      if (Array.isArray(result) && typeof result[0] === "string") return { account: result[0] };
+    }
+    return {};
+  }
+  function safeErrorMessage(err) {
+    try {
+      if (!err) return "unknown_error";
+      if (typeof err === "string") return err;
+      if (typeof err?.message === "string") return err.message;
+      return JSON.stringify(err);
+    } catch {
+      return "unknown_error";
+    }
+  }
+  function postResultToContent(payload) {
+    window.postMessage(
+      { source: "signguard-mainworld", type: "SG_RESULT", ...payload },
+      "*"
+    );
   }
   function toDecStringWei(v) {
     try {
@@ -272,12 +316,20 @@
         window.removeEventListener("message", onMessage);
         delete pendingFailMode[requestId];
       };
+      const hasUserActivation = () => {
+        try {
+          return navigator?.userActivation?.isActive === true;
+        } catch {
+          return false;
+        }
+      };
       const applyDecision = (allow, meta) => {
         if (resolved) return;
         resolved = true;
         cleanup();
         if (!allow) {
-          reject({ code: 4001, message: "SignGuard: Blocked by user" });
+          postResultToContent({ requestId, methodLower: m, ok: false, reason: "blocked_by_user" });
+          reject(makeEip1193Reject("blocked_by_user", method));
           return;
         }
         const gated = shouldGateUI(m);
@@ -286,11 +338,36 @@
         const extensionPaused = reasonKeys.includes("EXTENSION_PAUSED");
         if (gated && !uiConfirmed && !extensionPaused) {
           log("BLOCKED forward: uiConfirmed missing for gated method", m);
-          reject(new Error("SignGuard: UI confirmation required before forwarding to wallet"));
+          postResultToContent({ requestId, methodLower: m, ok: false, reason: "ui_confirmation_required" });
+          reject(makeEip1193Reject("ui_confirmation_required", method));
           return;
         }
+        if (gated && allow && !extensionPaused) {
+          if (!hasUserActivation()) {
+            log("BLOCKED forward: missing userActivation for UI-gated allow", m);
+            reject(makeEip1193Reject("user_activation_required", method));
+            return;
+          }
+        }
         window.postMessage({ source: "signguard-mainworld", type: "SG_RELEASED", requestId, method: m }, "*");
-        originalRequest(args).then(resolve).catch(reject);
+        originalRequest(args).then((result) => {
+          const extra = summarizeSensitiveResult(m, result);
+          postResultToContent({
+            requestId,
+            methodLower: m,
+            ok: true,
+            ...extra
+          });
+          resolve(result);
+        }).catch((err) => {
+          postResultToContent({
+            requestId,
+            methodLower: m,
+            ok: false,
+            error: safeErrorMessage(err)
+          });
+          reject(err);
+        });
       };
       const onTimeout = () => {
         if (resolved) return;
@@ -300,7 +377,8 @@
         window.postMessage({ source: "signguard-mainworld", type: "SG_DIAG_TIMEOUT", requestId, failMode, method: m }, "*");
         if (isUiGated) {
           log("Decision timeout on UI-gated method \u2014 blocking (never fail-open):", m);
-          reject(new Error("SignGuard: aguardando confirma\xE7\xE3o no overlay (timeout)."));
+          postResultToContent({ requestId, methodLower: m, ok: false, reason: "ui_timeout" });
+          reject(makeEip1193Reject("ui_timeout", method));
           return;
         }
         if (failMode === "fail_open") {
@@ -308,7 +386,8 @@
           originalRequest(args).then(resolve).catch(reject);
         } else {
           log("Decision timeout: fail_closed \u2014 blocking request");
-          reject(new Error("SignGuard: request timed out; reload the page and try again."));
+          postResultToContent({ requestId, methodLower: m, ok: false, reason: "timeout_fail_closed" });
+          reject(makeEip1193Reject("timeout_fail_closed", method));
         }
       };
       const onDecision = (ev) => {
@@ -325,6 +404,9 @@
           pendingFailMode[requestId] = isUiGated ? "fail_closed" : fm;
           return;
         }
+        if (isUiGated && d?.source === "signguard-content" && d?.type === "SG_DECISION" && d?.requestId === requestId) {
+          return;
+        }
         if (d?.source !== "signguard-content" || d?.type !== "SG_DECISION" || d?.requestId !== requestId) return;
         applyDecision(!!d.allow, d.meta);
       };
@@ -338,8 +420,9 @@
     log("Patching found provider:", provider);
     const originalRequest = provider.request?.bind?.(provider);
     if (!originalRequest) return;
-    provider.__sg_originalRequest = originalRequest;
-    Object.defineProperty(provider, "request", {
+    ORIGINAL_REQUEST.set(provider, originalRequest);
+    let patchedAny = false;
+    patchedAny = safeDefine(provider, "request", {
       value: async (args) => {
         const method = normalizeMethod(args?.method ?? args);
         const sensitive = isSensitive(method);
@@ -353,10 +436,10 @@
       },
       configurable: true,
       writable: true
-    });
+    }) || patchedAny;
     const origSend = provider.send?.bind?.(provider);
     if (origSend) {
-      Object.defineProperty(provider, "send", {
+      patchedAny = safeDefine(provider, "send", {
         value: function(a, b) {
           let method;
           let params;
@@ -367,7 +450,7 @@
             return new Promise((resolve, reject) => {
               if (!isSensitive(method)) {
                 log(`\u27A1\uFE0F PASS-THROUGH: ${method}`);
-                origSend(method, params).then(resolve).catch(reject);
+                originalRequest({ method, params }).then(resolve).catch(reject);
                 return;
               }
               log(`\u{1F6D1} HOLDING send: ${method} (reason: sensitive)`);
@@ -390,11 +473,11 @@
         },
         configurable: true,
         writable: true
-      });
+      }) || patchedAny;
     }
     const origSendAsync = provider.sendAsync?.bind?.(provider);
     if (origSendAsync) {
-      Object.defineProperty(provider, "sendAsync", {
+      patchedAny = safeDefine(provider, "sendAsync", {
         value: function(payload, callback) {
           const method = normalizeMethod(payload?.method ?? payload);
           const params = payload?.params ?? [];
@@ -407,10 +490,14 @@
         },
         configurable: true,
         writable: true
-      });
+      }) || patchedAny;
     }
-    provider._sg_patched = true;
-    log("Provider patched successfully.");
+    if (patchedAny) {
+      provider._sg_patched = true;
+      log("Provider patched successfully.");
+    } else {
+      console.error(DEBUG_PREFIX, "Could not patch provider (no hooks applied).");
+    }
   }
   function patchProvidersArray(providers) {
     if (!Array.isArray(providers)) return;
@@ -516,7 +603,7 @@
       }
       const canonical = METHOD_CANONICAL[key] ?? requested;
       const eth2 = window.ethereum;
-      const orig2 = eth2?.__sg_originalRequest ?? eth2?.request?.bind?.(eth2);
+      const orig2 = eth2 && ORIGINAL_REQUEST.get(eth2) || eth2?.request?.bind?.(eth2);
       if (!orig2) {
         window.postMessage({ source: "signguard-mainworld", type: "SG_RPC_CALL_RES", requestId: requestId2, ok: false, error: "no_provider" }, "*");
         return;
@@ -533,7 +620,7 @@
     const { requestId, tx } = ev.data?.payload ?? {};
     if (!requestId || !tx) return;
     const eth = window.ethereum;
-    const orig = eth?.__sg_originalRequest ?? eth?.request?.bind?.(eth);
+    const orig = eth && ORIGINAL_REQUEST.get(eth) || eth?.request?.bind?.(eth);
     if (!orig) {
       window.postMessage({ source: "signguard", type: "SG_FEE_ESTIMATE_RES", requestId, feeEstimate: { ok: false, feeEstimated: false, error: "no_provider" } }, "*");
       return;
