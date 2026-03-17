@@ -1776,28 +1776,89 @@
   function injectPageRiskBanner(message, doc) {
     try {
       const id = "signguard-page-risk-banner";
-      if (doc.getElementById(id)) return;
-      const bar = doc.createElement("div");
-      bar.id = id;
-      bar.setAttribute("role", "alert");
-      bar.textContent = message;
-      Object.assign(bar.style, {
-        position: "fixed",
-        top: "0",
-        left: "0",
-        right: "0",
-        zIndex: "999999",
-        background: "#b91c1c",
-        color: "#fff",
-        padding: "12px 20px",
-        fontSize: "16px",
-        fontWeight: "700",
-        textAlign: "center",
-        fontFamily: "ui-sans-serif, system-ui, sans-serif",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
-      });
-      const root = doc.body ?? doc.documentElement;
-      root.insertBefore(bar, root.firstChild);
+      const TTL_MS = 8e3;
+      let bar = doc.getElementById(id);
+      const scheduleAutoRemove = (el) => {
+        const anyEl = el;
+        if (anyEl.__sg_timeoutId) {
+          clearTimeout(anyEl.__sg_timeoutId);
+        }
+        anyEl.__sg_timeoutId = window.setTimeout(() => {
+          try {
+            el.remove();
+          } catch {
+          }
+        }, TTL_MS);
+      };
+      const buildContent = (el) => {
+        el.innerHTML = "";
+        const text = doc.createElement("span");
+        text.className = "sg-banner-text";
+        text.textContent = message;
+        Object.assign(text.style, {
+          flex: "1",
+          wordBreak: "break-word"
+        });
+        const close = doc.createElement("button");
+        close.type = "button";
+        close.setAttribute("aria-label", "Fechar aviso do SignGuard");
+        close.textContent = "\xD7";
+        Object.assign(close.style, {
+          background: "transparent",
+          border: "none",
+          color: "#fff",
+          fontSize: "18px",
+          lineHeight: "1",
+          cursor: "pointer",
+          padding: "0 4px"
+        });
+        close.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            el.remove();
+          } catch {
+          }
+        });
+        el.appendChild(text);
+        el.appendChild(close);
+      };
+      if (!bar) {
+        bar = doc.createElement("div");
+        bar.id = id;
+        bar.setAttribute("role", "alert");
+        bar.setAttribute("aria-live", "polite");
+        Object.assign(bar.style, {
+          position: "fixed",
+          right: "12px",
+          bottom: "12px",
+          zIndex: "2147483647",
+          maxWidth: "420px",
+          background: "#b91c1c",
+          color: "#fff",
+          padding: "10px 12px",
+          fontSize: "13px",
+          fontWeight: "700",
+          lineHeight: "1.25",
+          borderRadius: "12px",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+          fontFamily: "ui-sans-serif, system-ui, sans-serif",
+          display: "flex",
+          gap: "10px",
+          alignItems: "center"
+        });
+        buildContent(bar);
+        const root = doc.body ?? doc.documentElement;
+        root.appendChild(bar);
+      } else {
+        const text = bar.querySelector(".sg-banner-text");
+        if (text) {
+          text.textContent = message;
+        } else {
+          buildContent(bar);
+        }
+      }
+      scheduleAutoRemove(bar);
     } catch {
     }
   }
