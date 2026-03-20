@@ -609,10 +609,10 @@ async function getLists() {
 function getDomainDecision(host, cache) {
   const h = normalizeHost(host);
   if (!h) return "UNKNOWN";
-  const inUserBlocked = cache.userBlockedDomains.some((d) => isHostMatch(h, d));
-  if (inUserBlocked) return "BLOCKED";
   const inUserTrusted = cache.userTrustedDomains.some((d) => isHostMatch(h, d));
   if (inUserTrusted) return "TRUSTED";
+  const inUserBlocked = cache.userBlockedDomains.some((d) => isHostMatch(h, d));
+  if (inUserBlocked) return "BLOCKED";
   const inBlocked = cache.blockedDomains.some((d) => isHostMatch(h, d));
   if (inBlocked) return "BLOCKED";
   const inTrusted = cache.trustedDomains.some((d) => isHostMatch(h, d));
@@ -784,10 +784,16 @@ async function upsertUserOverride(type, payload) {
   const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], userTrustedTokens: [...cache.userTrustedTokens ?? []], updatedAt: Date.now() };
   if (type === "trusted_domain") {
     const v = normalizeHost(payload.value ?? "");
-    if (v && !next.userTrustedDomains.includes(v)) next.userTrustedDomains.push(v);
+    if (v) {
+      next.userBlockedDomains = next.userBlockedDomains.filter((d) => d !== v);
+      if (!next.userTrustedDomains.includes(v)) next.userTrustedDomains.push(v);
+    }
   } else if (type === "blocked_domain") {
     const v = normalizeHost(payload.value ?? "");
-    if (v && !next.userBlockedDomains.includes(v)) next.userBlockedDomains.push(v);
+    if (v) {
+      next.userTrustedDomains = next.userTrustedDomains.filter((d) => d !== v);
+      if (!next.userBlockedDomains.includes(v)) next.userBlockedDomains.push(v);
+    }
   } else if (type === "blocked_address") {
     const v = normalizeAddress(payload.value || payload.address || "");
     if (v && !next.userBlockedAddresses.includes(v)) next.userBlockedAddresses.push(v);

@@ -731,6 +731,97 @@ function showOverlay(
   }
 }
 
+type UserDomainOverrideTarget = "trusted_domain" | "blocked_domain";
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
+function patchAnalysisDomainOverride(analysis: Analysis, target: UserDomainOverrideTarget): Analysis {
+  const trustedMsg = t("trustReasonAllowlisted") || "Domínio está em uma lista confiável (seed).";
+  const blockedMsg = t("trustReasonPhishingBlacklist") || "Domínio está em blacklist de phishing (lista de referência).";
+
+  const baseReasons = (analysis.reasons ?? []).filter((r) => r !== trustedMsg && r !== blockedMsg);
+  const baseReasonKeys = (analysis.reasonKeys ?? []).filter(
+    (k) => k !== REASON_KEYS.KNOWN_SAFE_DOMAIN && k !== REASON_KEYS.KNOWN_BAD_DOMAIN
+  );
+  const baseSignals = (analysis.domainSignals ?? []).filter((s) => s !== "SEED_MATCH" && s !== "BLACKLIST_HIT");
+
+  const next: Analysis = {
+    ...analysis,
+    reasons: [...baseReasons],
+    reasonKeys: [...baseReasonKeys],
+    domainSignals: [...baseSignals],
+    domainListDecision: target === "trusted_domain" ? "TRUSTED" : "BLOCKED",
+    safeDomain: target === "trusted_domain",
+    knownBad: target === "blocked_domain",
+    isPhishing: target === "blocked_domain",
+  };
+
+  if (target === "trusted_domain") {
+    next.reasons = [trustedMsg, ...baseReasons];
+    next.reasonKeys = uniqueStrings([...baseReasonKeys, REASON_KEYS.KNOWN_SAFE_DOMAIN]) as typeof next.reasonKeys;
+    next.domainSignals = uniqueStrings([...baseSignals, "SEED_MATCH"]);
+
+    const hadOnlyDomainBlock =
+      analysis.recommend === "BLOCK" &&
+      ((analysis.reasons ?? []).length <= 1 || baseReasons.length === 0);
+
+    if (hadOnlyDomainBlock) {
+      next.recommend = "ALLOW";
+      next.level = "LOW";
+      next.score = Math.min(analysis.score ?? 15, 15);
+      next.title = t("overlay_safe_continue") || "Seguro para continuar";
+    } else if (next.recommend === "BLOCK") {
+      next.recommend = "WARN";
+      next.level = "WARN";
+      next.score = Math.min(analysis.score ?? 55, 55);
+    }
+  } else {
+    next.reasons = [blockedMsg, ...baseReasons];
+    next.reasonKeys = uniqueStrings([...baseReasonKeys, REASON_KEYS.KNOWN_BAD_DOMAIN]) as typeof next.reasonKeys;
+    next.domainSignals = uniqueStrings([...baseSignals, "BLACKLIST_HIT"]);
+    next.recommend = "BLOCK";
+    next.level = "HIGH";
+    next.score = Math.max(analysis.score ?? 0, 95);
+    next.title = t("suspiciousWebsitePatterns") || "Padrões suspeitos no site.";
+  }
+
+  return next;
+}
+
+function applyDomainOverrideToCurrentOverlay(target: UserDomainOverrideTarget, state?: OverlayState | null) {
+  const cur = requestQueue[0];
+  if (cur?.analysis && (cur.analysis as any).level && (cur.analysis as any).level !== "LOADING") {
+    cur.analysis = patchAnalysisDomainOverride(cur.analysis as Analysis, target);
+  }
+
+  const overlay = state ?? __sgOverlay;
+  if (overlay?.analysis && (overlay.analysis as any).level && (overlay.analysis as any).level !== "LOADING") {
+    overlay.analysis = patchAnalysisDomainOverride(overlay.analysis as Analysis, target);
+    updateOverlay(overlay);
+  }
+}
+
+async function moveDomainOverride(host: string, target: UserDomainOverrideTarget) {
+  const res = await safeSendMessage<any>(
+    {
+      type: "SG_LISTS_OVERRIDE_ADD",
+      payload: {
+        type: target,
+        payload: { value: host },
+      },
+    },
+    3000
+  );
+
+  if (!res?.ok) {
+    throw new Error(res?.error || "failed_to_update_domain_override");
+  }
+
+  await loadSettings();
+}
+
 function updateOverlay(state: OverlayState) {
   if (!state?.app) return;
 
@@ -1040,15 +1131,25 @@ function updateOverlay(state: OverlayState) {
     });
     state.shadow.getElementById("sg-btn-trust-domain")?.addEventListener("click", async () => {
       try {
-        await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "trusted_domain", payload: { value: host } } }, 3000);
-        retryAnalyze();
-      } catch {}
+        await moveDomainOverride(host, "trusted_domain");
+        applyDomainOverrideToCurrentOverlay("trusted_domain", state);
+        showToast("Domínio movido para Trusted.");
+        console.log("[SignGuard] domain moved to trusted:", host);
+      } catch (err) {
+        console.error("[SignGuard] failed to move domain to trusted", err);
+        showToast("Não foi possível mover o domínio para Trusted.");
+      }
     });
     state.shadow.getElementById("sg-btn-block-domain")?.addEventListener("click", async () => {
       try {
-        await safeSendMessage({ type: "SG_LISTS_OVERRIDE_ADD", payload: { type: "blocked_domain", payload: { value: host } } }, 3000);
-        retryAnalyze();
-      } catch {}
+        await moveDomainOverride(host, "blocked_domain");
+        applyDomainOverrideToCurrentOverlay("blocked_domain", state);
+        showToast("Domínio movido para Blocked.");
+        console.log("[SignGuard] domain moved to blocked:", host);
+      } catch (err) {
+        console.error("[SignGuard] failed to move domain to blocked", err);
+        showToast("Não foi possível mover o domínio para Blocked.");
+      }
     });
     state.shadow.getElementById("sg-btn-temp-allow-10")?.addEventListener("click", async () => {
       try {
