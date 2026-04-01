@@ -304,18 +304,24 @@ export async function getLists(): Promise<ListsCacheV1> {
   return fresh;
 }
 
-/** Priority: user > seed/feeds. TRUSTED if in trusted; BLOCKED if in blocked; else UNKNOWN. */
 export function getDomainDecision(host: string, cache: ListsCacheV1): "TRUSTED" | "BLOCKED" | "UNKNOWN" {
   const h = normalizeHost(host);
   if (!h) return "UNKNOWN";
-  const inUserBlocked = cache.userBlockedDomains.some((d) => isHostMatch(h, d));
-  if (inUserBlocked) return "BLOCKED";
+
+  // Overrides do usuário têm prioridade.
+  // Se houver conflito, TRUSTED deve vencer BLOCKED para refletir a última intenção do usuário.
   const inUserTrusted = cache.userTrustedDomains.some((d) => isHostMatch(h, d));
   if (inUserTrusted) return "TRUSTED";
+
+  const inUserBlocked = cache.userBlockedDomains.some((d) => isHostMatch(h, d));
+  if (inUserBlocked) return "BLOCKED";
+
   const inBlocked = cache.blockedDomains.some((d) => isHostMatch(h, d));
   if (inBlocked) return "BLOCKED";
+
   const inTrusted = cache.trustedDomains.some((d) => isHostMatch(h, d));
   if (inTrusted) return "TRUSTED";
+
   return "UNKNOWN";
 }
 
@@ -481,10 +487,16 @@ export async function upsertUserOverride(type: OverrideType, payload: OverridePa
   const next = { ...cache, userTrustedDomains: [...cache.userTrustedDomains], userBlockedDomains: [...cache.userBlockedDomains], userBlockedAddresses: [...cache.userBlockedAddresses], userScamTokens: [...cache.userScamTokens], userTrustedTokens: [...(cache.userTrustedTokens ?? [])], updatedAt: Date.now() };
   if (type === "trusted_domain") {
     const v = normalizeHost(payload.value ?? "");
-    if (v && !next.userTrustedDomains.includes(v)) next.userTrustedDomains.push(v);
+    if (v) {
+      next.userBlockedDomains = next.userBlockedDomains.filter((d) => d !== v);
+      if (!next.userTrustedDomains.includes(v)) next.userTrustedDomains.push(v);
+    }
   } else if (type === "blocked_domain") {
     const v = normalizeHost(payload.value ?? "");
-    if (v && !next.userBlockedDomains.includes(v)) next.userBlockedDomains.push(v);
+    if (v) {
+      next.userTrustedDomains = next.userTrustedDomains.filter((d) => d !== v);
+      if (!next.userBlockedDomains.includes(v)) next.userBlockedDomains.push(v);
+    }
   } else if (type === "blocked_address") {
     const v = normalizeAddress(payload.value || payload.address || "");
     if (v && !next.userBlockedAddresses.includes(v)) next.userBlockedAddresses.push(v);
