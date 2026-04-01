@@ -25,6 +25,25 @@ const SAFE_DOMAINS: string[] = [
   "whatsapp.com",
   "trello.com",
   "notion.so",
+
+  // E-commerce / portais / web2 conhecidos
+  "mercadolivre.com.br",
+  "mercadolivre.com",
+  "amazon.com",
+  "amazon.com.br",
+  "ebay.com",
+  "aliexpress.com",
+  "shopee.com.br",
+  "uol.com.br",
+  "globo.com",
+  "gmail.com",
+  "outlook.com",
+  "hotmail.com",
+  "bing.com",
+  "wikipedia.org",
+  "reddit.com",
+  "netflix.com",
+  "spotify.com",
 ];
 
 /** Domains considered "safe" for crypto — typo-squatting against these triggers HIGH. */
@@ -103,6 +122,20 @@ function normalizeHost(host: string): string {
 function checkLookalikeDomain(hostname: string): { highRisk: boolean; matchedSafe?: string } {
   const host = normalizeHost(hostname);
   if (!host) return { highRisk: false };
+
+  const commonWeb2Domains = [
+    "mercadolivre.com.br",
+    "mercadolivre.com",
+    "amazon.com",
+    "amazon.com.br",
+    "ebay.com",
+    "aliexpress.com",
+    "shopee.com.br",
+  ];
+
+  if (commonWeb2Domains.some((d) => host === d || host.endsWith("." + d))) {
+    return { highRisk: false };
+  }
 
   const exactMatch = SAFE_DOMAINS_LIST.some((d) => host === d || host.endsWith("." + d));
   if (exactMatch) return { highRisk: false };
@@ -260,17 +293,28 @@ export function runPageRiskScan(doc: Document, hostname: string): PageRiskResult
     // same-origin only
   }
 
-  // 3) Suspicious overlay/iframe → elevate to MEDIUM or keep HIGH
-  if (detectSuspiciousOverlays(doc)) {
+  // 3) Suspicious overlay/iframe
+  const hasSuspiciousOverlay = detectSuspiciousOverlays(doc);
+
+  // 4) Invisible clickables
+  const hasInvisibleClickables = detectInvisibleClickables(doc);
+
+  // Regra nova:
+  // não transformar overlay/invisible-clickables em HIGH isoladamente.
+  // Só elevar forte quando houver combinação com outros sinais.
+  if (hasSuspiciousOverlay) {
     if (riskScore === "LOW") riskScore = "MEDIUM";
-    else if (riskScore === "MEDIUM") riskScore = "HIGH";
     reasons.push("Page has a transparent or high z-index overlay covering most of the screen (possible clickjacking).");
   }
 
-  // 4) Invisible clickables (opacity < 0.1, pointer-events auto, area > 100x100) → HIGH
-  if (detectInvisibleClickables(doc)) {
-    riskScore = "HIGH";
+  if (hasInvisibleClickables) {
+    if (riskScore === "LOW") riskScore = "MEDIUM";
     reasons.push("HIDDEN_OVERLAY_DETECTED");
+  }
+
+  // Se houver combinação de múltiplos sinais, aí sim elevar mais.
+  if ((hasSuspiciousOverlay || hasInvisibleClickables) && reasons.length >= 2) {
+    if (riskScore === "MEDIUM") riskScore = "HIGH";
   }
 
   return { riskScore, reasons };

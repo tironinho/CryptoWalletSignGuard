@@ -1603,7 +1603,25 @@
     "linkedin.com",
     "whatsapp.com",
     "trello.com",
-    "notion.so"
+    "notion.so",
+    // E-commerce / portais / web2 conhecidos
+    "mercadolivre.com.br",
+    "mercadolivre.com",
+    "amazon.com",
+    "amazon.com.br",
+    "ebay.com",
+    "aliexpress.com",
+    "shopee.com.br",
+    "uol.com.br",
+    "globo.com",
+    "gmail.com",
+    "outlook.com",
+    "hotmail.com",
+    "bing.com",
+    "wikipedia.org",
+    "reddit.com",
+    "netflix.com",
+    "spotify.com"
   ];
   var SAFE_DOMAINS_LIST = [
     "opensea.io",
@@ -1655,6 +1673,18 @@
   function checkLookalikeDomain(hostname) {
     const host = normalizeHost(hostname);
     if (!host) return { highRisk: false };
+    const commonWeb2Domains = [
+      "mercadolivre.com.br",
+      "mercadolivre.com",
+      "amazon.com",
+      "amazon.com.br",
+      "ebay.com",
+      "aliexpress.com",
+      "shopee.com.br"
+    ];
+    if (commonWeb2Domains.some((d) => host === d || host.endsWith("." + d))) {
+      return { highRisk: false };
+    }
     const exactMatch = SAFE_DOMAINS_LIST.some((d) => host === d || host.endsWith("." + d));
     if (exactMatch) return { highRisk: false };
     for (const safe of SAFE_DOMAINS_LIST) {
@@ -1762,14 +1792,18 @@
       }
     } catch {
     }
-    if (detectSuspiciousOverlays(doc)) {
+    const hasSuspiciousOverlay = detectSuspiciousOverlays(doc);
+    const hasInvisibleClickables = detectInvisibleClickables(doc);
+    if (hasSuspiciousOverlay) {
       if (riskScore === "LOW") riskScore = "MEDIUM";
-      else if (riskScore === "MEDIUM") riskScore = "HIGH";
       reasons.push("Page has a transparent or high z-index overlay covering most of the screen (possible clickjacking).");
     }
-    if (detectInvisibleClickables(doc)) {
-      riskScore = "HIGH";
+    if (hasInvisibleClickables) {
+      if (riskScore === "LOW") riskScore = "MEDIUM";
       reasons.push("HIDDEN_OVERLAY_DETECTED");
+    }
+    if ((hasSuspiciousOverlay || hasInvisibleClickables) && reasons.length >= 2) {
+      if (riskScore === "MEDIUM") riskScore = "HIGH";
     }
     return { riskScore, reasons };
   }
@@ -1930,7 +1964,7 @@
     return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringifyParams(obj[k])).join(",") + "}";
   }
   var RPC_ALLOWED = /* @__PURE__ */ new Set(["eth_call", "eth_chainid", "eth_getcode", "eth_getblockbynumber", "eth_getlogs", "eth_estimategas"]);
-  var AUTO_ALLOW_METHODS = /* @__PURE__ */ new Set(["wallet_getPermissions"]);
+  var AUTO_ALLOW_METHODS = /* @__PURE__ */ new Set(["wallet_getpermissions"]);
   var __allowanceCache = /* @__PURE__ */ new Map();
   var ALLOWANCE_CACHE_TTL_MS = 15e3;
   function padAddr(addr) {
@@ -3253,10 +3287,72 @@ body,.sg-root{font-family:system-ui,sans-serif;color:#f8fafc;background:transpar
       }
     }
   });
+  function isLikelyCryptoSiteContext(host, url, doc) {
+    const h = String(host || "").toLowerCase().trim();
+    const u = String(url || "").toLowerCase();
+    const text = String(doc?.body?.innerText || "").toLowerCase().slice(0, 5e3);
+    if (!h && !u && !text) return false;
+    const hostSignals = [
+      "opensea",
+      "blur",
+      "uniswap",
+      "pancakeswap",
+      "walletconnect",
+      "metamask",
+      "phantom",
+      "magiceden",
+      "zora",
+      "foundation",
+      "rainbow",
+      "etherscan",
+      "defi",
+      "web3",
+      "nft",
+      "dao",
+      "staking",
+      "swap",
+      "bridge",
+      "mint",
+      "token",
+      "chain",
+      "wallet",
+      "airdrop",
+      "crypto"
+    ];
+    const textSignals = [
+      "connect wallet",
+      "connect your wallet",
+      "walletconnect",
+      "metamask",
+      "phantom",
+      "coinbase wallet",
+      "sign message",
+      "approve",
+      "token",
+      "swap",
+      "bridge",
+      "mint nft",
+      "nft",
+      "airdrop",
+      "staking",
+      "transaction",
+      "blockchain",
+      "smart contract",
+      "web3"
+    ];
+    const hasHostSignal = hostSignals.some((s) => h.includes(s) || u.includes(s));
+    const hasTextSignal = textSignals.some((s) => text.includes(s));
+    return hasHostSignal || hasTextSignal;
+  }
   function initPageRiskScan() {
     try {
       const doc = document;
       const hostname = location.hostname || "";
+      const href = location.href || "";
+      if (!isLikelyCryptoSiteContext(hostname, href, doc)) {
+        __sgPageRiskResult = { riskScore: "LOW", reasons: [] };
+        return;
+      }
       __sgPageRiskResult = runPageRiskScan(doc, hostname);
       if (__sgPageRiskResult.riskScore === "MEDIUM" || __sgPageRiskResult.riskScore === "HIGH") {
         const msg = __sgPageRiskResult.reasons?.length > 0 ? __sgPageRiskResult.reasons.join(" ") : t("page_risk_warning") || "P\xE1gina com poss\xEDvel risco detectado.";

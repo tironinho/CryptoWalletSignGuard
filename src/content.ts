@@ -66,7 +66,7 @@ function stableStringifyParams(val: unknown): string {
 const RPC_ALLOWED = new Set(["eth_call", "eth_chainid", "eth_getcode", "eth_getblockbynumber", "eth_getlogs", "eth_estimategas"]);
 
 /** P1: Read-only methods → auto ALLOW without overlay; still logged to diagnosis. */
-const AUTO_ALLOW_METHODS = new Set(["wallet_getPermissions"]);
+const AUTO_ALLOW_METHODS = new Set(["wallet_getpermissions"]);
 
 /** Cache para allowance atual: key -> { value, ts }. TTL 15s. */
 const __allowanceCache = new Map<string, { value: string; ts: number }>();
@@ -1665,16 +1665,90 @@ window.addEventListener("message", async (ev) => {
 });
 
 // --- PAGE RISK: scan on init, banner when MEDIUM+
+function isLikelyCryptoSiteContext(host: string, url: string, doc?: Document): boolean {
+  const h = String(host || "").toLowerCase().trim();
+  const u = String(url || "").toLowerCase();
+  const text = String(doc?.body?.innerText || "").toLowerCase().slice(0, 5000);
+
+  if (!h && !u && !text) return false;
+
+  const hostSignals = [
+    "opensea",
+    "blur",
+    "uniswap",
+    "pancakeswap",
+    "walletconnect",
+    "metamask",
+    "phantom",
+    "magiceden",
+    "zora",
+    "foundation",
+    "rainbow",
+    "etherscan",
+    "defi",
+    "web3",
+    "nft",
+    "dao",
+    "staking",
+    "swap",
+    "bridge",
+    "mint",
+    "token",
+    "chain",
+    "wallet",
+    "airdrop",
+    "crypto",
+  ];
+
+  const textSignals = [
+    "connect wallet",
+    "connect your wallet",
+    "walletconnect",
+    "metamask",
+    "phantom",
+    "coinbase wallet",
+    "sign message",
+    "approve",
+    "token",
+    "swap",
+    "bridge",
+    "mint nft",
+    "nft",
+    "airdrop",
+    "staking",
+    "transaction",
+    "blockchain",
+    "smart contract",
+    "web3",
+  ];
+
+  const hasHostSignal = hostSignals.some((s) => h.includes(s) || u.includes(s));
+  const hasTextSignal = textSignals.some((s) => text.includes(s));
+
+  return hasHostSignal || hasTextSignal;
+}
+
 function initPageRiskScan() {
   try {
     const doc = document;
     const hostname = location.hostname || "";
+    const href = location.href || "";
+
+    // Regra nova:
+    // scanner de página só roda em contexto cripto.
+    if (!isLikelyCryptoSiteContext(hostname, href, doc)) {
+      __sgPageRiskResult = { riskScore: "LOW", reasons: [] };
+      return;
+    }
+
     __sgPageRiskResult = runPageRiskScan(doc, hostname);
+
     if (__sgPageRiskResult.riskScore === "MEDIUM" || __sgPageRiskResult.riskScore === "HIGH") {
       const msg =
         __sgPageRiskResult.reasons?.length > 0
           ? __sgPageRiskResult.reasons.join(" ")
           : (t("page_risk_warning") || "Página com possível risco detectado.");
+
       injectPageRiskBanner(msg, doc);
     }
   } catch (e) {
