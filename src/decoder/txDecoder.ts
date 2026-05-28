@@ -24,14 +24,16 @@ const PERMIT = "0xd505accf";
 const MAX_UINT256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 const HALF_MAX = MAX_UINT256 / 2n;
 
-function slotToAddress(data: string, offsetBytes: number): string {
-  const start = 2 + offsetBytes * 2;
+function wordToAddress(dataHex: string, wordIndex: number): string {
+  const data = dataHex.startsWith("0x") ? dataHex.slice(2) : dataHex;
+  const start = wordIndex * 64;
   const word = data.slice(start, start + 64);
   return "0x" + word.slice(24, 64).toLowerCase();
 }
 
-function slotToUint256(data: string, offsetBytes: number): bigint {
-  const start = 2 + offsetBytes * 2;
+function wordToUint256(dataHex: string, wordIndex: number): bigint {
+  const data = dataHex.startsWith("0x") ? dataHex.slice(2) : dataHex;
+  const start = wordIndex * 64;
   const word = data.slice(start, start + 64);
   return BigInt("0x" + word);
 }
@@ -44,8 +46,8 @@ export function decodeTxData(to: string, data: string): DecodedTx {
 
   if (sel === TRANSFER) {
     if (payload.length >= 128) {
-      const toAddr = slotToAddress(payload, 0);
-      const amount = slotToUint256(payload, 2);
+      const toAddr = wordToAddress(payload, 0);
+      const amount = wordToUint256(payload, 1);
       return {
         selector: sel,
         kind: "transfer",
@@ -60,8 +62,8 @@ export function decodeTxData(to: string, data: string): DecodedTx {
 
   if (sel === APPROVE) {
     if (payload.length >= 128) {
-      const spender = slotToAddress(payload, 0);
-      const amount = slotToUint256(payload, 2);
+      const spender = wordToAddress(payload, 0);
+      const amount = wordToUint256(payload, 1);
       return {
         selector: sel,
         kind: "approve",
@@ -76,9 +78,9 @@ export function decodeTxData(to: string, data: string): DecodedTx {
 
   if (sel === TRANSFER_FROM) {
     if (payload.length >= 192) {
-      const from = slotToAddress(payload, 0);
-      const toAddr = slotToAddress(payload, 1);
-      const amount = slotToUint256(payload, 2);
+      const from = wordToAddress(payload, 0);
+      const toAddr = wordToAddress(payload, 1);
+      const amount = wordToUint256(payload, 2);
       return {
         selector: sel,
         kind: "transferFrom",
@@ -93,7 +95,7 @@ export function decodeTxData(to: string, data: string): DecodedTx {
 
   if (sel === SET_APPROVAL_FOR_ALL) {
     if (payload.length >= 128) {
-      const operator = slotToAddress(payload, 0);
+      const operator = wordToAddress(payload, 0);
       const approvedWord = payload.slice(64, 128);
       const approved = approvedWord !== "0".repeat(64);
       return {

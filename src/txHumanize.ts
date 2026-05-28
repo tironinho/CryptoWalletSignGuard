@@ -65,7 +65,7 @@ export function decodeEvmTx(
 
   if (selector === SELECTOR_APPROVE) {
     const spender = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     const isUnlimited = amount === MAX_UINT256;
     return {
       kind: "ERC20_APPROVE",
@@ -78,7 +78,7 @@ export function decodeEvmTx(
   }
   if (selector === SELECTOR_TRANSFER) {
     const toAddress = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     return {
       kind: "ERC20_TRANSFER",
       tokenContract: to,
@@ -102,7 +102,7 @@ export function decodeEvmTx(
   }
   if (selector === SELECTOR_SET_APPROVAL_FOR_ALL) {
     const operator = readAddress(body, 0);
-    const approved = readUint256(body, 2) !== 0n;
+    const approved = readUint256(body, 1) !== 0n;
     return {
       kind: "NFT_APPROVAL_ALL",
       tokenContract: to,
@@ -139,8 +139,8 @@ export function decodeEvmTx(
   }
   if (selector === SELECTOR_SAFE_TRANSFER_FROM_1 || selector === SELECTOR_SAFE_TRANSFER_FROM_2) {
     const fromAddress = readAddress(body, 0);
-    const toAddress = readAddress(body, 2);
-    const tokenId = readUint256(body, 4);
+    const toAddress = readAddress(body, 1);
+    const tokenId = readUint256(body, 2);
     return {
       kind: "ERC721_TRANSFER",
       tokenContract: to,

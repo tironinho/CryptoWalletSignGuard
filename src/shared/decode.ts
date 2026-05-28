@@ -89,24 +89,24 @@ export function decodeTx(data: string, txTo?: string): DecodedAction | null {
 
   if (selector === SELECTOR_ERC20_APPROVE) {
     const spender = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     const amountType = amount === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
     return { kind: "APPROVE_ERC20", token, spender, amountType, amountRaw: amount.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_INCREASE_ALLOWANCE) {
     const spender = readAddress(body, 0);
-    const addedValue = readUint256(body, 2);
+    const addedValue = readUint256(body, 1);
     const amountType = addedValue === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
     return { kind: "INCREASE_ALLOWANCE", token, spender, amountType, amountRaw: addedValue.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_DECREASE_ALLOWANCE) {
     const spender = readAddress(body, 0);
-    const subtractedValue = readUint256(body, 2);
+    const subtractedValue = readUint256(body, 1);
     return { kind: "DECREASE_ALLOWANCE", token, spender, amountRaw: subtractedValue.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_TRANSFER) {
     const to = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     return { kind: "TRANSFER_ERC20", token, to, amountRaw: amount.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_TRANSFER_FROM) {
@@ -117,14 +117,14 @@ export function decodeTx(data: string, txTo?: string): DecodedAction | null {
   }
   if (selector === SELECTOR_SET_APPROVAL_FOR_ALL) {
     const operator = readAddress(body, 0);
-    const approved = readUint256(body, 2) !== 0n;
+    const approved = readUint256(body, 1) !== 0n;
     return { kind: "SET_APPROVAL_FOR_ALL", token, operator, approved, ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_SAFE_TRANSFER_FROM_1 || selector === SELECTOR_SAFE_TRANSFER_FROM_2) {
     const from = readAddress(body, 0);
-    const to = readAddress(body, 2);
-    const tokenId = readUint256(body, 4);
-    return { kind: "TRANSFER_NFT", token, to, tokenIdRaw: tokenId.toString(), standard: "ERC721", ...permit2Flag(txTo) };
+    const to = readAddress(body, 1);
+    const tokenId = readUint256(body, 2);
+    return { kind: "TRANSFER_NFT", token, from, to, tokenIdRaw: tokenId.toString(), standard: "ERC721", ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_ERC1155_SAFE_TRANSFER) {
     const from = readAddress(body, 0);
@@ -145,24 +145,24 @@ export function decodeTx(data: string, txTo?: string): DecodedAction | null {
     const valueType = value === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
     return { kind: "PERMIT_EIP2612", token, spender, valueType, valueRaw: value.toString(), deadlineRaw: deadline.toString(), ...permit2Flag(txTo) };
   }
-  // Permit2 AllowanceTransfer.permit(owner, PermitSingle, signature) — struct starts at offset 0x60 (word 3)
+  // Permit2 AllowanceTransfer.permit(owner, PermitSingle, signature) - PermitSingle is encoded inline.
   if (isPermit2Contract(txTo || "") && selector === SELECTOR_PERMIT2_ALLOWANCE) {
-    if (body.length >= 9 * 64) {
-      const tokenAddr = readAddress(body, 3);
-      const amount = readUint256(body, 4);
-      const spenderAddr = readAddress(body, 7);
-      const sigDeadline = readUint256(body, 8);
+    if (body.length >= 8 * 64) {
+      const tokenAddr = readAddress(body, 1);
+      const amount = readUint256(body, 2);
+      const spenderAddr = readAddress(body, 5);
+      const sigDeadline = readUint256(body, 6);
       const amountType = amount === MAX_UINT256 || amount >= 2n ** 160n - 1n ? "UNLIMITED" : "LIMITED";
       return { kind: "PERMIT2_ALLOWANCE", token: tokenAddr, spender: spenderAddr, amountType, amountRaw: amount.toString(), deadlineRaw: sigDeadline.toString(), ...permit2Flag(txTo) };
     }
     return { kind: "PERMIT2_ALLOWANCE", token: "", spender: "", amountType: "LIMITED" as const, amountRaw: "0", deadlineRaw: "0", ...permit2Flag(txTo) };
   }
-  // Permit2 SignatureTransfer.permitTransferFrom(permit, transferDetails, owner, signature) — token/amount in permit struct
+  // Permit2 SignatureTransfer.permitTransferFrom(permit, transferDetails, owner, signature) - token/amount in permit struct.
   if (isPermit2Contract(txTo || "") && selector === SELECTOR_PERMIT2_SIGNATURE_TRANSFER) {
     if (body.length >= 8 * 64) {
-      const tokenAddr = readAddress(body, 3);
-      const amount = readUint256(body, 4);
-      const toAddr = readAddress(body, 6);
+      const tokenAddr = readAddress(body, 0);
+      const amount = readUint256(body, 1);
+      const toAddr = readAddress(body, 4);
       const amountType = amount === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
       return { kind: "PERMIT2_TRANSFER", token: tokenAddr, to: toAddr, amountType, amountRaw: amount.toString(), ...permit2Flag(txTo) };
     }
