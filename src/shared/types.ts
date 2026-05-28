@@ -315,6 +315,37 @@ export type TxSummaryV1 = {
   flags?: string[]; // reasonKeys
 };
 
+export type CapabilityCategory =
+  | "TOKEN_PERMISSION"
+  | "NFT_PERMISSION"
+  | "SIGNATURE_PERMISSION"
+  | "DOMAIN_REPUTATION"
+  | "CONTRACT_MISMATCH"
+  | "TRANSFER"
+  | "NETWORK_CHANGE"
+  | "UNKNOWN";
+
+export type CapabilitySeverity = "INFO" | "WARN" | "HIGH" | "BLOCK";
+
+export type CapabilityFinding = {
+  category: CapabilityCategory;
+  severity: CapabilitySeverity;
+  reasonKey?: string;
+  title?: string;
+  description?: string;
+  tokenContract?: string;
+  spender?: string;
+  operator?: string;
+  from?: string;
+  to?: string;
+  amountRaw?: string;
+  tokenIdRaw?: string;
+  unlimited?: boolean;
+  metadata?: Record<string, string | number | boolean | null | undefined>;
+};
+
+export type RiskGroups = Partial<Record<CapabilityCategory, CapabilityFinding[]>>;
+
 export type Analysis = {
   level: RiskLevel;
   score: number; // 0-100
@@ -422,6 +453,8 @@ export type Analysis = {
   summary?: TxSummaryV1;
   /** P1: Alias for summary (spec name summaryV1). */
   summaryV1?: TxSummaryV1;
+  capabilities?: CapabilityFinding[];
+  riskGroups?: RiskGroups;
 }
 
 export type SupportedWalletEntry = { name: string; kind: string };
