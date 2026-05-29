@@ -1345,11 +1345,30 @@ function pushCapability(findings: CapabilityFinding[], finding: CapabilityFindin
 }
 
 function buildRiskGroups(capabilities: CapabilityFinding[]): RiskGroups {
-  const groups: RiskGroups = {};
+  const groups: {
+    permissionRisk: CapabilityFinding[];
+    domainRisk: CapabilityFinding[];
+    contractRisk: CapabilityFinding[];
+  } = {
+    permissionRisk: [],
+    domainRisk: [],
+    contractRisk: [],
+  };
   for (const capability of capabilities) {
-    (groups[capability.category] ??= []).push(capability);
+    if (
+      capability.category === "TOKEN_PERMISSION" ||
+      capability.category === "NFT_PERMISSION" ||
+      capability.category === "SIGNATURE_PERMISSION" ||
+      capability.category === "TRANSFER"
+    ) {
+      groups.permissionRisk.push(capability);
+    } else if (capability.category === "DOMAIN_REPUTATION") {
+      groups.domainRisk.push(capability);
+    } else if (capability.category === "CONTRACT_MISMATCH") {
+      groups.contractRisk.push(capability);
+    }
   }
-  return groups;
+  return groups as unknown as RiskGroups;
 }
 
 function isUnlimitedRaw(value: unknown): boolean {
