@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignGuard Capabilities Manual Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1e293b;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --ok: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+    header {
+      margin-bottom: 18px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .status {
+      margin: 16px 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .status strong { color: var(--accent); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+    }
+    .card p {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    button {
+      width: 100%;
+      appearance: none;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #03121f;
+      padding: 10px 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    button.warn { background: var(--warn); color: #111827; }
+    button.danger { background: var(--danger); color: white; }
+    button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+    code {
+      color: #bae6fd;
+      word-break: break-all;
+    }
+    pre {
+      min-height: 160px;
+      max-height: 320px;
+      overflow: auto;
+      padding: 12px;
+      background: #020617;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .row button { width: auto; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SignGuard Capabilities Manual Test</h1>
+      <p class="muted">Use this page with a browser wallet and the SignGuard extension enabled. Each button calls <code>window.ethereum.request</code> directly.</p>
+    </header>
+
+    <section class="status" id="walletStatus">
+      Checking wallet provider...
+    </section>
+
+    <section class="status">
+      <h2>Test constants</h2>
+      <p class="muted">These are dummy addresses used only to trigger decoding in the extension overlay.</p>
+      <p>ERC20 token: <code id="erc20Addr"></code></p>
+      <p>ERC721 collection: <code id="erc721Addr"></code></p>
+      <p>Spender/operator: <code id="spenderAddr"></code></p>
+      <div class="row">
+        <button class="secondary" id="connectBtn">Connect / refresh account</button>
+        <button class="secondary" id="clearLogBtn">Clear log</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>ERC20 approve limited</h2>
+        <p>Expected: overlay shows "O que isso permite" with <code>TOKEN_PERMISSION</code>, severity <code>WARN</code>, spender, token and <code>unlimited=false</code>.</p>
+        <button id="approveLimitedBtn">Send approve limited</button>
+      </article>
+
+      <article class="card">
+        <h2>ERC20 approve unlimited MAX_UINT256</h2>
+        <p>Expected: overlay shows <code>TOKEN_PERMISSION</code>, severity <code>HIGH</code>, spender, token and <code>unlimited=true</code>.</p>
+        <button class="danger" id="approveUnlimitedBtn">Send approve MAX_UINT256</button>
+      </article>
+
+      <article class="card">
+        <h2>ERC721 setApprovalForAll true</h2>
+        <p>Expected: overlay shows <code>NFT_PERMISSION</code>, severity <code>HIGH</code>, operator, token and <code>unlimited=true</code>.</p>
+        <button class="danger" id="setApprovalForAllBtn">Send setApprovalForAll true</button>
+      </article>
+
+      <article class="card">
+        <h2>personal_sign</h2>
+        <p>Expected: overlay shows <code>SIGNATURE_PERMISSION</code> for a personal message signature.</p>
+        <button class="warn" id="personalSignBtn">Request personal_sign</button>
+      </article>
+
+      <article class="card">
+        <h2>eth_sign</h2>
+        <p>Expected: overlay shows <code>SIGNATURE_PERMISSION</code> with higher concern for raw <code>eth_sign</code>.</p>
+        <button class="danger" id="ethSignBtn">Request eth_sign</button>
+      </article>
+
+      <article class="card">
+        <h2>eth_signTypedData_v4 Permit-like</h2>
+        <p>Expected: overlay shows <code>SIGNATURE_PERMISSION</code>, Permit-like spender, value, deadline and verifying contract evidence.</p>
+        <button class="warn" id="permitLikeBtn">Sign Permit-like typed data</button>
+      </article>
+
+      <article class="card">
+        <h2>Permit2 typed data</h2>
+        <p>Expected: overlay shows <code>SIGNATURE_PERMISSION</code>, <code>PERMIT2_GRANT</code>, spender, token, amount, deadline and conservative Permit2 interpretation.</p>
+        <button class="danger" id="permit2Btn">Sign Permit2 typed data</button>
+      </article>
+
+      <article class="card">
+        <h2>Typed data chainId mismatch</h2>
+        <p>Expected: overlay shows <code>CONTRACT_MISMATCH</code> in <code>contractRisk</code> because the typed-data domain chain differs from the active/requested chain.</p>
+        <button class="danger" id="chainMismatchBtn">Sign mismatched typed data</button>
+      </article>
+
+      <article class="card">
+        <h2>wallet_switchEthereumChain</h2>
+        <p>Expected: overlay shows <code>NETWORK_CHANGE</code> and the requested target chain ID.</p>
+        <button class="warn" id="switchChainBtn">Request chain switch</button>
+      </article>
+
+      <article class="card">
+        <h2>wallet_watchAsset</h2>
+        <p>Expected: overlay shows the existing watch-asset warning. This is not a spend approval, but should remain visible in the overlay.</p>
+        <button id="watchAssetBtn">Request watchAsset</button>
+      </article>
+    </section>
+
+    <section class="status">
+      <h2>Log</h2>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <script>
+    const ERC20 = "0x1111111111111111111111111111111111111111";
+    const ERC721 = "0x2222222222222222222222222222222222222222";
+    const SPENDER = "0x3333333333333333333333333333333333333333";
+    const PERMIT2 = "0x000000000022d473030f116ddee9f6b43ac78ba3";
+    const MAX_UINT256 = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+    document.getElementById("erc20Addr").textContent = ERC20;
+    document.getElementById("erc721Addr").textContent = ERC721;
+    document.getElementById("spenderAddr").textContent = SPENDER;
+
+    function log(message, data) {
+      const el = document.getElementById("log");
+      const time = new Date().toISOString();
+      const suffix = data === undefined ? "" : "\n" + JSON.stringify(data, null, 2);
+      el.textContent = `[${time}] ${message}${suffix}\n\n` + el.textContent;
+    }
+
+    function setStatus() {
+      const el = document.getElementById("walletStatus");
+      if (!window.ethereum) {
+        el.innerHTML = "<strong>No wallet detected.</strong><br><span class='muted'>Install or enable an injected EVM wallet such as MetaMask, then reload this page.</span>";
+        return;
+      }
+      el.innerHTML = "<strong>Wallet provider detected.</strong><br><span class='muted'>Click Connect first if your wallet requires an account before signing or sending test requests.</span>";
+    }
+
+    function strip0x(value) {
+      return String(value).replace(/^0x/i, "");
+    }
+
+    function wordAddress(address) {
+      return strip0x(address).toLowerCase().padStart(64, "0");
+    }
+
+    function wordUint(value) {
+      const n = typeof value === "bigint" ? value : BigInt(value);
+      return n.toString(16).padStart(64, "0");
+    }
+
+    function utf8ToHex(value) {
+      const bytes = new TextEncoder().encode(value);
+      return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function requireWallet() {
+      if (!window.ethereum || typeof window.ethereum.request !== "function") {
+        throw new Error("window.ethereum is not available. Enable a wallet and reload the page.");
+      }
+      return window.ethereum;
+    }
+
+    async function getAccount() {
+      const ethereum = requireWallet();
+      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+      const account = accounts && accounts[0];
+      if (!account) throw new Error("No account returned by wallet.");
+      return account;
+    }
+
+    async function getChainIdDecimal() {
+      const ethereum = requireWallet();
+      const chainIdHex = await ethereum.request({ method: "eth_chainId" });
+      return Number.parseInt(String(chainIdHex), 16);
+    }
+
+    async function sendTx(to, data) {
+      const ethereum = requireWallet();
+      const from = await getAccount();
+      return ethereum.request({
+        method: "eth_sendTransaction",
+        params: [{ from, to, data, value: "0x0" }],
+      });
+    }
+
+    function permitLikeTypedData(account, chainId) {
+      return {
+        types: {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "version", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
+          Permit: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" },
+          ],
+        },
+        primaryType: "Permit",
+        domain: {
+          name: "SignGuard Test Token",
+          version: "1",
+          chainId,
+          verifyingContract: ERC20,
+        },
+        message: {
+          owner: account,
+          spender: SPENDER,
+          value: "1230000000000000000",
+          nonce: "0",
+          deadline: "4102444800",
+        },
+      };
+    }
+
+    function permit2TypedData(chainId) {
+      return {
+        types: {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
+          PermitSingle: [
+            { name: "details", type: "PermitDetails" },
+            { name: "spender", type: "address" },
+            { name: "sigDeadline", type: "uint256" },
+          ],
+          PermitDetails: [
+            { name: "token", type: "address" },
+            { name: "amount", type: "uint160" },
+            { name: "expiration", type: "uint48" },
+            { name: "nonce", type: "uint48" },
+          ],
+        },
+        primaryType: "PermitSingle",
+        domain: {
+          name: "Permit2",
+          chainId,
+          verifyingContract: PERMIT2,
+        },
+        message: {
+          details: {
+            token: ERC20,
+            amount: "1461501637330902918203684832716283019655932542975",
+            expiration: "4102444800",
+            nonce: "0",
+          },
+          spender: SPENDER,
+          sigDeadline: "4102444800",
+        },
+      };
+    }
+
+    function mismatchTypedData(account, activeChainId) {
+      const mismatched = activeChainId === 1 ? 137 : 1;
+      return {
+        types: {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "version", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
+          TestMessage: [
+            { name: "owner", type: "address" },
+            { name: "note", type: "string" },
+          ],
+        },
+        primaryType: "TestMessage",
+        domain: {
+          name: "SignGuard Mismatch Test",
+          version: "1",
+          chainId: mismatched,
+          verifyingContract: "0x4444444444444444444444444444444444444444",
+        },
+        message: {
+          owner: account,
+          note: "This typed data intentionally uses a different chainId.",
+        },
+      };
+    }
+
+    async function run(label, fn) {
+      try {
+        log(`Starting: ${label}`);
+        const result = await fn();
+        log(`Success: ${label}`, result);
+      } catch (err) {
+        log(`Error: ${label}`, {
+          message: err && err.message ? err.message : String(err),
+          code: err && err.code,
+        });
+      }
+    }
+
+    document.getElementById("connectBtn").addEventListener("click", () => run("connect", async () => {
+      const account = await getAccount();
+      const chainId = await requireWallet().request({ method: "eth_chainId" });
+      return { account, chainId };
+    }));
+
+    document.getElementById("clearLogBtn").addEventListener("click", () => {
+      document.getElementById("log").textContent = "";
+    });
+
+    document.getElementById("approveLimitedBtn").addEventListener("click", () => run("ERC20 approve limited", async () => {
+      const data = "0x095ea7b3" + wordAddress(SPENDER) + wordUint(1230000000000000000n);
+      return sendTx(ERC20, data);
+    }));
+
+    document.getElementById("approveUnlimitedBtn").addEventListener("click", () => run("ERC20 approve MAX_UINT256", async () => {
+      const data = "0x095ea7b3" + wordAddress(SPENDER) + strip0x(MAX_UINT256);
+      return sendTx(ERC20, data);
+    }));
+
+    document.getElementById("setApprovalForAllBtn").addEventListener("click", () => run("ERC721 setApprovalForAll true", async () => {
+      const data = "0xa22cb465" + wordAddress(SPENDER) + wordUint(1n);
+      return sendTx(ERC721, data);
+    }));
+
+    document.getElementById("personalSignBtn").addEventListener("click", () => run("personal_sign", async () => {
+      const account = await getAccount();
+      return requireWallet().request({
+        method: "personal_sign",
+        params: [utf8ToHex("SignGuard personal_sign capabilities test"), account],
+      });
+    }));
+
+    document.getElementById("ethSignBtn").addEventListener("click", () => run("eth_sign", async () => {
+      const account = await getAccount();
+      return requireWallet().request({
+        method: "eth_sign",
+        params: [account, "0x" + "11".repeat(32)],
+      });
+    }));
+
+    document.getElementById("permitLikeBtn").addEventListener("click", () => run("eth_signTypedData_v4 Permit-like", async () => {
+      const account = await getAccount();
+      const chainId = await getChainIdDecimal();
+      return requireWallet().request({
+        method: "eth_signTypedData_v4",
+        params: [account, JSON.stringify(permitLikeTypedData(account, chainId))],
+      });
+    }));
+
+    document.getElementById("permit2Btn").addEventListener("click", () => run("Permit2 typed data", async () => {
+      const account = await getAccount();
+      const chainId = await getChainIdDecimal();
+      return requireWallet().request({
+        method: "eth_signTypedData_v4",
+        params: [account, JSON.stringify(permit2TypedData(chainId))],
+      });
+    }));
+
+    document.getElementById("chainMismatchBtn").addEventListener("click", () => run("typed data chainId mismatch", async () => {
+      const account = await getAccount();
+      const chainId = await getChainIdDecimal();
+      return requireWallet().request({
+        method: "eth_signTypedData_v4",
+        params: [account, JSON.stringify(mismatchTypedData(account, chainId))],
+      });
+    }));
+
+    document.getElementById("switchChainBtn").addEventListener("click", () => run("wallet_switchEthereumChain", async () => {
+      const current = await requireWallet().request({ method: "eth_chainId" });
+      const target = String(current).toLowerCase() === "0x1" ? "0x89" : "0x1";
+      return requireWallet().request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: target }],
+      });
+    }));
+
+    document.getElementById("watchAssetBtn").addEventListener("click", () => run("wallet_watchAsset", async () => {
+      return requireWallet().request({
+        method: "wallet_watchAsset",
+        params: {
+          type: "ERC20",
+          options: {
+            address: ERC20,
+            symbol: "SGT",
+            decimals: 18,
+          },
+        },
+      });
+    }));
+
+    setStatus();
+  </script>
+</body>
+</html>
