@@ -190,6 +190,7 @@ async function safeStorageSet(obj) {
 function detectLocale() {
   const raw = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
   if (raw.startsWith("pt")) return "pt";
+  if (raw.startsWith("es")) return "es";
   return "en";
 }
 var dict = {
@@ -214,6 +215,14 @@ var dict = {
     overlay_safe: "Parece Seguro",
     overlay_attention: "Aten\xE7\xE3o Detectada",
     overlay_action: "A\xE7\xE3o",
+    overlay_capabilities_title: "O que isso permite",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Prazo",
+    label_unlimited: "Ilimitado",
     overlay_simulation_balance: "Simula\xE7\xE3o de Balan\xE7o",
     overlay_approvals_detected: "Aprova\xE7\xF5es detectadas",
     overlay_confirm_allow_msg: "Tem certeza? Isso ignora prote\xE7\xE3o.",
@@ -770,6 +779,14 @@ var dict = {
     overlay_safe: "Looks Safe",
     overlay_attention: "Attention Detected",
     overlay_action: "Action",
+    overlay_capabilities_title: "What this allows",
+    label_spender: "Spender",
+    label_operator: "Operator",
+    label_token: "Token",
+    label_verifying_contract: "Verifying contract",
+    label_chain_id: "Chain ID",
+    label_deadline: "Deadline",
+    label_unlimited: "Unlimited",
     overlay_simulation_balance: "Balance Simulation",
     overlay_approvals_detected: "Approvals detected",
     overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
@@ -1304,6 +1321,16 @@ var dict = {
     simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
     toast_copied: "Copied",
     btn_ver_menos: "Show less"
+  },
+  es: {
+    overlay_capabilities_title: "Qu\xE9 permite esto",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Plazo",
+    label_unlimited: "Ilimitado"
   }
 };
 function format(template, params) {

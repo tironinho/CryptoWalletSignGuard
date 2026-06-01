@@ -1,8 +1,9 @@
-export type Locale = "pt" | "en";
+export type Locale = "pt" | "en" | "es";
 
 export function detectLocale(): Locale {
   const raw = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
   if (raw.startsWith("pt")) return "pt";
+  if (raw.startsWith("es")) return "es";
   return "en";
 }
 
@@ -29,6 +30,14 @@ const dict: Record<Locale, Record<string, string>> = {
     overlay_safe: "Parece Seguro",
     overlay_attention: "Atenção Detectada",
     overlay_action: "Ação",
+    overlay_capabilities_title: "O que isso permite",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Prazo",
+    label_unlimited: "Ilimitado",
     overlay_simulation_balance: "Simulação de Balanço",
     overlay_approvals_detected: "Aprovações detectadas",
     overlay_confirm_allow_msg: "Tem certeza? Isso ignora proteção.",
@@ -602,6 +611,14 @@ const dict: Record<Locale, Record<string, string>> = {
     overlay_safe: "Looks Safe",
     overlay_attention: "Attention Detected",
     overlay_action: "Action",
+    overlay_capabilities_title: "What this allows",
+    label_spender: "Spender",
+    label_operator: "Operator",
+    label_token: "Token",
+    label_verifying_contract: "Verifying contract",
+    label_chain_id: "Chain ID",
+    label_deadline: "Deadline",
+    label_unlimited: "Unlimited",
     overlay_simulation_balance: "Balance Simulation",
     overlay_approvals_detected: "Approvals detected",
     overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
@@ -1152,6 +1169,16 @@ const dict: Record<Locale, Record<string, string>> = {
     simulation_skipped_caution: "No simulation — validate with extra care.",
     toast_copied: "Copied",
     btn_ver_menos: "Show less",
+  },
+  es: {
+    overlay_capabilities_title: "Qué permite esto",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Plazo",
+    label_unlimited: "Ilimitado",
   }
 };
 

@@ -1093,24 +1093,24 @@ function decodeTx(data, txTo) {
   const token = (txTo || "").toLowerCase();
   if (selector === SELECTOR_ERC20_APPROVE) {
     const spender = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     const amountType = amount === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
     return { kind: "APPROVE_ERC20", token, spender, amountType, amountRaw: amount.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_INCREASE_ALLOWANCE) {
     const spender = readAddress(body, 0);
-    const addedValue = readUint256(body, 2);
+    const addedValue = readUint256(body, 1);
     const amountType = addedValue === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
     return { kind: "INCREASE_ALLOWANCE", token, spender, amountType, amountRaw: addedValue.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_DECREASE_ALLOWANCE) {
     const spender = readAddress(body, 0);
-    const subtractedValue = readUint256(body, 2);
+    const subtractedValue = readUint256(body, 1);
     return { kind: "DECREASE_ALLOWANCE", token, spender, amountRaw: subtractedValue.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_TRANSFER) {
     const to = readAddress(body, 0);
-    const amount = readUint256(body, 2);
+    const amount = readUint256(body, 1);
     return { kind: "TRANSFER_ERC20", token, to, amountRaw: amount.toString(), ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_TRANSFER_FROM) {
@@ -1121,14 +1121,14 @@ function decodeTx(data, txTo) {
   }
   if (selector === SELECTOR_SET_APPROVAL_FOR_ALL) {
     const operator = readAddress(body, 0);
-    const approved = readUint256(body, 2) !== 0n;
+    const approved = readUint256(body, 1) !== 0n;
     return { kind: "SET_APPROVAL_FOR_ALL", token, operator, approved, ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_SAFE_TRANSFER_FROM_1 || selector === SELECTOR_SAFE_TRANSFER_FROM_2) {
     const from = readAddress(body, 0);
-    const to = readAddress(body, 2);
-    const tokenId = readUint256(body, 4);
-    return { kind: "TRANSFER_NFT", token, to, tokenIdRaw: tokenId.toString(), standard: "ERC721", ...permit2Flag(txTo) };
+    const to = readAddress(body, 1);
+    const tokenId = readUint256(body, 2);
+    return { kind: "TRANSFER_NFT", token, from, to, tokenIdRaw: tokenId.toString(), standard: "ERC721", ...permit2Flag(txTo) };
   }
   if (selector === SELECTOR_ERC1155_SAFE_TRANSFER) {
     const from = readAddress(body, 0);
@@ -1150,11 +1150,11 @@ function decodeTx(data, txTo) {
     return { kind: "PERMIT_EIP2612", token, spender, valueType, valueRaw: value.toString(), deadlineRaw: deadline.toString(), ...permit2Flag(txTo) };
   }
   if (isPermit2Contract(txTo || "") && selector === SELECTOR_PERMIT2_ALLOWANCE) {
-    if (body.length >= 9 * 64) {
-      const tokenAddr = readAddress(body, 3);
-      const amount = readUint256(body, 4);
-      const spenderAddr = readAddress(body, 7);
-      const sigDeadline = readUint256(body, 8);
+    if (body.length >= 8 * 64) {
+      const tokenAddr = readAddress(body, 1);
+      const amount = readUint256(body, 2);
+      const spenderAddr = readAddress(body, 5);
+      const sigDeadline = readUint256(body, 6);
       const amountType = amount === MAX_UINT256 || amount >= 2n ** 160n - 1n ? "UNLIMITED" : "LIMITED";
       return { kind: "PERMIT2_ALLOWANCE", token: tokenAddr, spender: spenderAddr, amountType, amountRaw: amount.toString(), deadlineRaw: sigDeadline.toString(), ...permit2Flag(txTo) };
     }
@@ -1162,9 +1162,9 @@ function decodeTx(data, txTo) {
   }
   if (isPermit2Contract(txTo || "") && selector === SELECTOR_PERMIT2_SIGNATURE_TRANSFER) {
     if (body.length >= 8 * 64) {
-      const tokenAddr = readAddress(body, 3);
-      const amount = readUint256(body, 4);
-      const toAddr = readAddress(body, 6);
+      const tokenAddr = readAddress(body, 0);
+      const amount = readUint256(body, 1);
+      const toAddr = readAddress(body, 4);
       const amountType = amount === MAX_UINT256 ? "UNLIMITED" : "LIMITED";
       return { kind: "PERMIT2_TRANSFER", token: tokenAddr, to: toAddr, amountType, amountRaw: amount.toString(), ...permit2Flag(txTo) };
     }
@@ -1241,6 +1241,7 @@ function shortAddr(addr) {
 function detectLocale() {
   const raw = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
   if (raw.startsWith("pt")) return "pt";
+  if (raw.startsWith("es")) return "es";
   return "en";
 }
 var dict = {
@@ -1265,6 +1266,14 @@ var dict = {
     overlay_safe: "Parece Seguro",
     overlay_attention: "Aten\xE7\xE3o Detectada",
     overlay_action: "A\xE7\xE3o",
+    overlay_capabilities_title: "O que isso permite",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Prazo",
+    label_unlimited: "Ilimitado",
     overlay_simulation_balance: "Simula\xE7\xE3o de Balan\xE7o",
     overlay_approvals_detected: "Aprova\xE7\xF5es detectadas",
     overlay_confirm_allow_msg: "Tem certeza? Isso ignora prote\xE7\xE3o.",
@@ -1821,6 +1830,14 @@ var dict = {
     overlay_safe: "Looks Safe",
     overlay_attention: "Attention Detected",
     overlay_action: "Action",
+    overlay_capabilities_title: "What this allows",
+    label_spender: "Spender",
+    label_operator: "Operator",
+    label_token: "Token",
+    label_verifying_contract: "Verifying contract",
+    label_chain_id: "Chain ID",
+    label_deadline: "Deadline",
+    label_unlimited: "Unlimited",
     overlay_simulation_balance: "Balance Simulation",
     overlay_approvals_detected: "Approvals detected",
     overlay_confirm_allow_msg: "Are you sure? This bypasses protection.",
@@ -2355,6 +2372,16 @@ var dict = {
     simulation_skipped_caution: "No simulation \u2014 validate with extra care.",
     toast_copied: "Copied",
     btn_ver_menos: "Show less"
+  },
+  es: {
+    overlay_capabilities_title: "Qu\xE9 permite esto",
+    label_spender: "Spender",
+    label_operator: "Operador",
+    label_token: "Token",
+    label_verifying_contract: "Contrato verificador",
+    label_chain_id: "Chain ID",
+    label_deadline: "Plazo",
+    label_unlimited: "Ilimitado"
   }
 };
 function format(template, params) {
@@ -4812,6 +4839,9 @@ async function handleBgRequest(msg, sender) {
         if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("punycode") || String(r).toLowerCase().includes("xn--"))) signals.push("PUNYCODE");
         if ((analysis.reasons || []).some((r) => String(r).toLowerCase().includes("suspicious") || String(r).toLowerCase().includes("tld"))) signals.push("SUSPICIOUS_TLD");
         Object.assign(analysis, setVerificationFields({ host, intel, usedCacheOnly: true, isStale, matchedBad, matchedSeed, signals }));
+        const capabilities = buildCapabilityFindings(req, analysis);
+        analysis.capabilities = capabilities;
+        analysis.riskGroups = buildRiskGroups(capabilities);
         if (settings.cloudIntelOptIn && (req?.request?.method === "eth_sendtransaction" || req?.request?.method === "wallet_sendtransaction") && analysis.tx) {
           const chainId = String(req?.meta?.chainId ?? req?.chainId ?? "0x1").replace(/^0x/, "").toLowerCase();
           const to = analysis.tx?.to;
@@ -5486,6 +5516,431 @@ function extractSpenderCandidates(analysis) {
   if (analysis.typedDataExtras?.spender) add(analysis.typedDataExtras.spender);
   if (analysis.tx?.to) add(analysis.tx.to);
   return [...new Set(out)];
+}
+var CAPABILITY_SEVERITY_RANK = {
+  INFO: 0,
+  WARN: 1,
+  HIGH: 2,
+  BLOCK: 3
+};
+function normalizeCapabilityAddress(value) {
+  if (typeof value !== "string") return void 0;
+  const s = value.trim().toLowerCase();
+  return /^0x[0-9a-f]{40}$/.test(s) ? s : void 0;
+}
+function normalizeCapabilityChainId(value) {
+  if (value == null) return void 0;
+  try {
+    if (typeof value === "number" && Number.isFinite(value)) return "0x" + BigInt(Math.trunc(value)).toString(16);
+    if (typeof value === "bigint") return "0x" + value.toString(16);
+    if (typeof value !== "string") return void 0;
+    const s = value.trim().toLowerCase();
+    if (!s) return void 0;
+    if (/^0x[0-9a-f]+$/.test(s)) return "0x" + BigInt(s).toString(16);
+    if (/^[0-9]+$/.test(s)) return "0x" + BigInt(s).toString(16);
+  } catch {
+  }
+  return void 0;
+}
+function capabilityKey(f) {
+  return [
+    f.category,
+    f.reasonKey ?? "",
+    f.title ?? "",
+    f.tokenContract ?? "",
+    f.spender ?? "",
+    f.operator ?? "",
+    f.from ?? "",
+    f.to ?? "",
+    f.amountRaw ?? "",
+    f.tokenIdRaw ?? ""
+  ].join("|");
+}
+function pushCapability(findings, finding) {
+  const normalized = {
+    ...finding,
+    tokenContract: normalizeCapabilityAddress(finding.tokenContract) ?? finding.tokenContract,
+    spender: normalizeCapabilityAddress(finding.spender) ?? finding.spender,
+    operator: normalizeCapabilityAddress(finding.operator) ?? finding.operator,
+    from: normalizeCapabilityAddress(finding.from) ?? finding.from,
+    to: normalizeCapabilityAddress(finding.to) ?? finding.to
+  };
+  const key = capabilityKey(normalized);
+  const existingIndex = findings.findIndex((f) => capabilityKey(f) === key);
+  if (existingIndex < 0) {
+    findings.push(normalized);
+    return;
+  }
+  if (CAPABILITY_SEVERITY_RANK[normalized.severity] > CAPABILITY_SEVERITY_RANK[findings[existingIndex].severity]) {
+    findings[existingIndex] = normalized;
+  }
+}
+function buildRiskGroups(capabilities) {
+  const groups = {
+    permissionRisk: [],
+    domainRisk: [],
+    contractRisk: []
+  };
+  for (const capability of capabilities) {
+    if (capability.category === "TOKEN_PERMISSION" || capability.category === "NFT_PERMISSION" || capability.category === "SIGNATURE_PERMISSION" || capability.category === "TRANSFER") {
+      groups.permissionRisk.push(capability);
+    } else if (capability.category === "DOMAIN_REPUTATION") {
+      groups.domainRisk.push(capability);
+    } else if (capability.category === "CONTRACT_MISMATCH") {
+      groups.contractRisk.push(capability);
+    }
+  }
+  return groups;
+}
+function isUnlimitedRaw(value) {
+  if (value == null) return false;
+  try {
+    const raw = String(value).trim();
+    if (!raw) return false;
+    const n = BigInt(raw.startsWith("0x") ? raw : raw);
+    return n === 2n ** 256n - 1n || n >= 2n ** 255n;
+  } catch {
+    return false;
+  }
+}
+function typedDataContext(req) {
+  const method = String(req.request?.method || "").toLowerCase();
+  if (!isTypedDataMethod(method)) return {};
+  const norm = normalizeTypedDataParams(method, req.request?.params);
+  const obj = norm.typedDataObj;
+  const domain = obj && typeof obj === "object" ? obj.domain : void 0;
+  const verifyingContract = normalizeCapabilityAddress(domain?.verifyingContract);
+  return {
+    verifyingContract,
+    domainChainIdHex: normalizeCapabilityChainId(domain?.chainId),
+    primaryType: typeof obj?.primaryType === "string" ? String(obj.primaryType) : void 0,
+    domainName: typeof domain?.name === "string" ? String(domain.name) : void 0
+  };
+}
+function requestChainIdHex(req) {
+  return normalizeCapabilityChainId(req.meta?.chainIdHex) ?? normalizeCapabilityChainId(req.meta?.chainId) ?? normalizeCapabilityChainId(req.meta?.preflight?.chainIdHex);
+}
+function hasCapabilityReason(findings, reasonKey) {
+  return findings.some((f) => f.reasonKey === reasonKey);
+}
+function buildCapabilityFindings(req, analysis) {
+  const findings = [];
+  const method = String(req.request?.method || "").toLowerCase();
+  const reasonKeys = new Set((analysis.reasonKeys ?? []).map(String));
+  const decoded = analysis.decodedAction;
+  if (decoded) {
+    switch (decoded.kind) {
+      case "APPROVE_ERC20": {
+        const unlimited = decoded.amountType === "UNLIMITED";
+        pushCapability(findings, {
+          category: "TOKEN_PERMISSION",
+          severity: unlimited ? "HIGH" : "WARN",
+          reasonKey: unlimited ? REASON_KEYS.UNLIMITED_APPROVAL : void 0,
+          title: unlimited ? "Unlimited ERC20 approval" : "Limited ERC20 approval",
+          description: unlimited ? "Allows the spender to move all approved token balance." : "Allows the spender to move a limited token amount.",
+          tokenContract: decoded.token,
+          spender: decoded.spender,
+          amountRaw: decoded.amountRaw,
+          unlimited,
+          metadata: { source: "decodedAction" }
+        });
+        break;
+      }
+      case "INCREASE_ALLOWANCE": {
+        const unlimited = decoded.amountType === "UNLIMITED";
+        pushCapability(findings, {
+          category: "TOKEN_PERMISSION",
+          severity: unlimited ? "HIGH" : "WARN",
+          reasonKey: unlimited ? REASON_KEYS.UNLIMITED_APPROVAL : void 0,
+          title: unlimited ? "Increase allowance to unlimited" : "Increase token allowance",
+          description: "Raises the amount a spender can move for this token.",
+          tokenContract: decoded.token,
+          spender: decoded.spender,
+          amountRaw: decoded.amountRaw,
+          unlimited,
+          metadata: { source: "decodedAction" }
+        });
+        break;
+      }
+      case "DECREASE_ALLOWANCE":
+        pushCapability(findings, {
+          category: "TOKEN_PERMISSION",
+          severity: "INFO",
+          title: "Decrease token allowance",
+          description: "Lowers the amount a spender can move for this token.",
+          tokenContract: decoded.token,
+          spender: decoded.spender,
+          amountRaw: decoded.amountRaw,
+          unlimited: false,
+          metadata: { source: "decodedAction" }
+        });
+        break;
+      case "SET_APPROVAL_FOR_ALL":
+        pushCapability(findings, {
+          category: "NFT_PERMISSION",
+          severity: decoded.approved ? "HIGH" : "INFO",
+          reasonKey: decoded.approved ? REASON_KEYS.SET_APPROVAL_FOR_ALL : void 0,
+          title: decoded.approved ? "NFT approval for all" : "NFT approval revoked",
+          description: decoded.approved ? "Allows the operator to move all NFTs in this collection." : "Revokes collection-wide NFT operator approval.",
+          tokenContract: decoded.token,
+          operator: decoded.operator,
+          unlimited: decoded.approved,
+          metadata: { source: "decodedAction", approved: decoded.approved }
+        });
+        break;
+      case "PERMIT_EIP2612": {
+        const unlimited = decoded.valueType === "UNLIMITED";
+        pushCapability(findings, {
+          category: "SIGNATURE_PERMISSION",
+          severity: unlimited ? "HIGH" : "WARN",
+          reasonKey: REASON_KEYS.PERMIT_GRANT,
+          title: unlimited ? "Unlimited EIP-2612 permit" : "EIP-2612 permit",
+          description: "A signature grants token allowance without a separate approve transaction.",
+          tokenContract: decoded.token,
+          spender: decoded.spender,
+          amountRaw: decoded.valueRaw,
+          unlimited,
+          metadata: { source: "decodedAction", deadlineRaw: decoded.deadlineRaw }
+        });
+        break;
+      }
+      case "PERMIT2_ALLOWANCE": {
+        const unlimited = decoded.amountType === "UNLIMITED";
+        pushCapability(findings, {
+          category: "SIGNATURE_PERMISSION",
+          severity: "HIGH",
+          reasonKey: REASON_KEYS.PERMIT2_GRANT,
+          title: unlimited ? "Unlimited Permit2 allowance calldata" : "Permit2 allowance calldata",
+          description: "Permit2 allowance is treated conservatively because it can delegate token spending.",
+          tokenContract: decoded.token,
+          spender: decoded.spender,
+          amountRaw: decoded.amountRaw,
+          unlimited,
+          metadata: { source: "decodedAction", conservative: true, deadlineRaw: decoded.deadlineRaw }
+        });
+        break;
+      }
+      case "PERMIT2_TRANSFER":
+        pushCapability(findings, {
+          category: "SIGNATURE_PERMISSION",
+          severity: "HIGH",
+          reasonKey: REASON_KEYS.PERMIT2_GRANT,
+          title: "Permit2 transfer calldata",
+          description: "Permit2 transfer is treated conservatively because it can move tokens using a signed authorization.",
+          tokenContract: decoded.token,
+          to: decoded.to,
+          amountRaw: decoded.amountRaw,
+          unlimited: decoded.amountType === "UNLIMITED",
+          metadata: { source: "decodedAction", conservative: true }
+        });
+        break;
+      case "TRANSFER_ERC20":
+        pushCapability(findings, {
+          category: "TRANSFER",
+          severity: "WARN",
+          title: "ERC20 transfer",
+          description: "Moves tokens from the connected wallet.",
+          tokenContract: decoded.token,
+          to: decoded.to,
+          amountRaw: decoded.amountRaw,
+          metadata: { source: "decodedAction" }
+        });
+        break;
+      case "TRANSFERFROM_ERC20":
+        pushCapability(findings, {
+          category: "TRANSFER",
+          severity: "WARN",
+          title: "ERC20 transferFrom",
+          description: "Moves tokens from one address to another through the token contract.",
+          tokenContract: decoded.token,
+          from: decoded.from,
+          to: decoded.to,
+          amountRaw: decoded.amountRaw,
+          metadata: { source: "decodedAction" }
+        });
+        break;
+      case "TRANSFER_NFT":
+        pushCapability(findings, {
+          category: "TRANSFER",
+          severity: "WARN",
+          title: `${decoded.standard} transfer`,
+          description: "Moves an NFT or ERC1155 token.",
+          tokenContract: decoded.token,
+          from: decoded.from,
+          to: decoded.to,
+          amountRaw: decoded.amountRaw,
+          tokenIdRaw: decoded.tokenIdRaw,
+          metadata: { source: "decodedAction", batch: decoded.batch ?? false }
+        });
+        break;
+    }
+  }
+  const txExtras = analysis.txExtras;
+  if (txExtras?.approvalType === "ERC20_APPROVE" && !decoded) {
+    pushCapability(findings, {
+      category: "TOKEN_PERMISSION",
+      severity: txExtras.unlimited ? "HIGH" : "WARN",
+      reasonKey: txExtras.unlimited ? REASON_KEYS.UNLIMITED_APPROVAL : void 0,
+      title: txExtras.unlimited ? "Unlimited ERC20 approval" : "ERC20 approval",
+      tokenContract: txExtras.tokenContract,
+      spender: txExtras.spender,
+      unlimited: txExtras.unlimited,
+      metadata: { source: "txExtras" }
+    });
+  }
+  if (txExtras?.approvalType === "NFT_SET_APPROVAL_FOR_ALL" && !decoded) {
+    pushCapability(findings, {
+      category: "NFT_PERMISSION",
+      severity: txExtras.unlimited ? "HIGH" : "INFO",
+      reasonKey: txExtras.unlimited ? REASON_KEYS.SET_APPROVAL_FOR_ALL : void 0,
+      title: txExtras.unlimited ? "NFT approval for all" : "NFT approval update",
+      tokenContract: txExtras.tokenContract,
+      operator: txExtras.operator,
+      unlimited: txExtras.unlimited,
+      metadata: { source: "txExtras" }
+    });
+  }
+  if (isTypedDataMethod(method)) {
+    const ctx = typedDataContext(req);
+    const reqChainIdHex = requestChainIdHex(req);
+    pushCapability(findings, {
+      category: "SIGNATURE_PERMISSION",
+      severity: "WARN",
+      title: "Typed data signature",
+      description: "Signs structured EIP-712 data. Review domain, chain and contract before approving.",
+      tokenContract: ctx.verifyingContract,
+      metadata: { method, primaryType: ctx.primaryType, domainName: ctx.domainName }
+    });
+    if (analysis.typedDataExtras?.spender) {
+      const unlimited = isUnlimitedRaw(analysis.typedDataExtras.value);
+      pushCapability(findings, {
+        category: "SIGNATURE_PERMISSION",
+        severity: unlimited ? "HIGH" : "WARN",
+        reasonKey: REASON_KEYS.PERMIT_GRANT,
+        title: unlimited ? "Unlimited permit signature" : "Permit signature",
+        description: "Typed data contains permit-like spender and value fields.",
+        spender: analysis.typedDataExtras.spender,
+        amountRaw: analysis.typedDataExtras.value,
+        unlimited,
+        metadata: { source: "typedDataExtras", deadline: analysis.typedDataExtras.deadline }
+      });
+    }
+    if (analysis.typedDataDecoded?.permit2) {
+      const permit2 = analysis.typedDataDecoded.permit2;
+      pushCapability(findings, {
+        category: "SIGNATURE_PERMISSION",
+        severity: permit2.unlimited ? "HIGH" : "WARN",
+        reasonKey: REASON_KEYS.PERMIT2_GRANT,
+        title: permit2.unlimited ? "Unlimited Permit2 typed data" : "Permit2 typed data",
+        description: "Typed data grants or uses Permit2 token authorization.",
+        tokenContract: permit2.tokens[0],
+        spender: permit2.spender,
+        amountRaw: permit2.amounts[0],
+        unlimited: permit2.unlimited,
+        metadata: { source: "typedDataDecoded", tokenCount: permit2.tokens.length, sigDeadline: permit2.sigDeadline }
+      });
+    }
+    if (ctx.verifyingContract) {
+      const txTo = normalizeCapabilityAddress(analysis.tx?.to);
+      const mismatch = !!(txTo && txTo !== ctx.verifyingContract);
+      pushCapability(findings, {
+        category: "CONTRACT_MISMATCH",
+        severity: mismatch ? "HIGH" : "INFO",
+        title: mismatch ? "Verifying contract mismatch" : "EIP-712 verifying contract",
+        description: mismatch ? "The typed-data verifying contract differs from the transaction target." : "Typed data is bound to this verifying contract.",
+        tokenContract: ctx.verifyingContract,
+        metadata: { method, txTo, domainChainIdHex: ctx.domainChainIdHex }
+      });
+    }
+    if (ctx.domainChainIdHex && reqChainIdHex && ctx.domainChainIdHex !== reqChainIdHex) {
+      pushCapability(findings, {
+        category: "CONTRACT_MISMATCH",
+        severity: "HIGH",
+        title: "Typed data chainId mismatch",
+        description: "The EIP-712 domain chainId differs from the active/requested chain.",
+        tokenContract: ctx.verifyingContract,
+        metadata: { method, domainChainIdHex: ctx.domainChainIdHex, requestChainIdHex: reqChainIdHex }
+      });
+    }
+  }
+  if (method === "eth_sign" || method === "personal_sign") {
+    pushCapability(findings, {
+      category: "SIGNATURE_PERMISSION",
+      severity: method === "eth_sign" ? "HIGH" : "WARN",
+      title: method === "eth_sign" ? "Raw eth_sign signature" : "Personal signature",
+      description: method === "eth_sign" ? "Raw signing can be unsafe because wallet context may be limited." : "Signs an arbitrary message. Review the message and origin.",
+      metadata: { method, paramCount: Array.isArray(req.request?.params) ? req.request.params.length : 0 }
+    });
+  }
+  if (method === "wallet_switchethereumchain" || method === "wallet_addethereumchain" || analysis.intent === "SWITCH_CHAIN" || analysis.intent === "ADD_CHAIN") {
+    const targetChainId = analysis.chainTarget?.chainIdHex ?? analysis.addChainInfo?.chainId;
+    pushCapability(findings, {
+      category: "NETWORK_CHANGE",
+      severity: "WARN",
+      title: method === "wallet_addethereumchain" || analysis.intent === "ADD_CHAIN" ? "Add network" : "Switch network",
+      description: "Requests a wallet network change.",
+      metadata: { method, targetChainId: targetChainId ?? "", currentChainId: requestChainIdHex(req) ?? "" }
+    });
+  }
+  if (reasonKeys.has(REASON_KEYS.UNLIMITED_APPROVAL) && !hasCapabilityReason(findings, REASON_KEYS.UNLIMITED_APPROVAL)) {
+    pushCapability(findings, { category: "TOKEN_PERMISSION", severity: "HIGH", reasonKey: REASON_KEYS.UNLIMITED_APPROVAL, title: "Unlimited token permission", unlimited: true, metadata: { source: "reasonKeys" } });
+  }
+  if (reasonKeys.has(REASON_KEYS.SET_APPROVAL_FOR_ALL) && !hasCapabilityReason(findings, REASON_KEYS.SET_APPROVAL_FOR_ALL)) {
+    pushCapability(findings, { category: "NFT_PERMISSION", severity: "HIGH", reasonKey: REASON_KEYS.SET_APPROVAL_FOR_ALL, title: "NFT approval for all", unlimited: true, metadata: { source: "reasonKeys" } });
+  }
+  if (reasonKeys.has(REASON_KEYS.PERMIT_GRANT) && !hasCapabilityReason(findings, REASON_KEYS.PERMIT_GRANT)) {
+    pushCapability(findings, { category: "SIGNATURE_PERMISSION", severity: "HIGH", reasonKey: REASON_KEYS.PERMIT_GRANT, title: "Permit grant", metadata: { source: "reasonKeys" } });
+  }
+  if (reasonKeys.has(REASON_KEYS.PERMIT2_GRANT) && !hasCapabilityReason(findings, REASON_KEYS.PERMIT2_GRANT)) {
+    pushCapability(findings, { category: "SIGNATURE_PERMISSION", severity: "HIGH", reasonKey: REASON_KEYS.PERMIT2_GRANT, title: "Permit2 grant", metadata: { source: "reasonKeys", conservative: true } });
+  }
+  if (reasonKeys.has(REASON_KEYS.HIGH_VALUE_TRANSFER) && !hasCapabilityReason(findings, REASON_KEYS.HIGH_VALUE_TRANSFER)) {
+    pushCapability(findings, { category: "TRANSFER", severity: "HIGH", reasonKey: REASON_KEYS.HIGH_VALUE_TRANSFER, title: "High value transfer", metadata: { source: "reasonKeys" } });
+  }
+  const domainDecision = analysis.domainListDecision;
+  const hasBlockedDomain = analysis.isPhishing || analysis.knownBad || domainDecision === "BLOCKED" || reasonKeys.has(REASON_KEYS.PHISHING) || reasonKeys.has(REASON_KEYS.KNOWN_BAD_DOMAIN);
+  if (hasBlockedDomain) {
+    pushCapability(findings, {
+      category: "DOMAIN_REPUTATION",
+      severity: "BLOCK",
+      reasonKey: analysis.isPhishing ? REASON_KEYS.PHISHING : REASON_KEYS.KNOWN_BAD_DOMAIN,
+      title: "Blocked or suspicious domain",
+      description: "The requesting domain is flagged by reputation checks.",
+      metadata: { host: hostFromUrl(req.url || ""), domainListDecision: domainDecision ?? "", isPhishing: !!analysis.isPhishing, knownBad: !!analysis.knownBad }
+    });
+  } else if (analysis.safeDomain || domainDecision === "TRUSTED") {
+    pushCapability(findings, {
+      category: "DOMAIN_REPUTATION",
+      severity: "INFO",
+      reasonKey: REASON_KEYS.KNOWN_SAFE_DOMAIN,
+      title: "Trusted domain",
+      description: "The domain matched a trusted source, but request capabilities are still shown independently.",
+      metadata: { host: hostFromUrl(req.url || ""), domainListDecision: domainDecision ?? "", safeDomain: !!analysis.safeDomain }
+    });
+  }
+  const riskyPermissionOnTrustedDomain = !!analysis.safeDomain && findings.some(
+    (f) => (f.category === "TOKEN_PERMISSION" || f.category === "NFT_PERMISSION" || f.category === "SIGNATURE_PERMISSION") && CAPABILITY_SEVERITY_RANK[f.severity] >= CAPABILITY_SEVERITY_RANK.WARN
+  );
+  if (riskyPermissionOnTrustedDomain) {
+    pushCapability(findings, {
+      category: "DOMAIN_REPUTATION",
+      severity: "WARN",
+      reasonKey: REASON_KEYS.KNOWN_SAFE_DOMAIN,
+      title: "Trusted domain requested risky capability",
+      description: "Trusted reputation does not suppress token, NFT or signature permission findings.",
+      metadata: { host: hostFromUrl(req.url || ""), safeDomain: true }
+    });
+  }
+  if (findings.length === 0) {
+    pushCapability(findings, {
+      category: "UNKNOWN",
+      severity: "INFO",
+      title: "Unclassified wallet request",
+      description: "No structured capability was detected for this request.",
+      metadata: { method }
+    });
+  }
+  return findings;
 }
 function applySpenderPolicy(analysis, settings) {
   const deny = (settings.denylistSpenders ?? []).map((a) => String(a).toLowerCase()).filter(Boolean);

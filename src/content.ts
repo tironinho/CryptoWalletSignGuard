@@ -342,6 +342,89 @@ function renderAssetChanges(changes: Array<{ type: "OUT" | "IN"; amount: string;
     .join("");
 }
 
+function renderCapabilitiesHtml(analysis: Analysis): string {
+  const capabilities = Array.isArray(analysis.capabilities) ? analysis.capabilities : [];
+  if (capabilities.length === 0) return "";
+
+  const severityStyle = (severity: string) => {
+    if (severity === "BLOCK") return { bg: "rgba(239,68,68,0.22)", color: "#fecaca", border: "rgba(239,68,68,0.45)" };
+    if (severity === "HIGH") return { bg: "rgba(239,68,68,0.16)", color: "#fca5a5", border: "rgba(239,68,68,0.35)" };
+    if (severity === "WARN") return { bg: "rgba(245,158,11,0.16)", color: "#fcd34d", border: "rgba(245,158,11,0.35)" };
+    return { bg: "rgba(56,189,248,0.12)", color: "#93c5fd", border: "rgba(56,189,248,0.28)" };
+  };
+  const short = (value: unknown) => {
+    const s = String(value ?? "").trim();
+    if (!s) return "";
+    return s.length > 30 ? `${s.slice(0, 14)}...${s.slice(-8)}` : s;
+  };
+  const metadataValue = (cap: Record<string, any>, keys: string[]) => {
+    for (const key of keys) {
+      const direct = cap[key];
+      if (direct !== undefined && direct !== null && direct !== "") return direct;
+      const meta = cap.metadata && typeof cap.metadata === "object" ? cap.metadata[key] : undefined;
+      if (meta !== undefined && meta !== null && meta !== "") return meta;
+    }
+    return undefined;
+  };
+  const capabilityLabel = (cap: Record<string, any>) =>
+    String(cap.capability ?? cap.category ?? cap.reasonKey ?? "UNKNOWN");
+  const userImpact = (cap: Record<string, any>) =>
+    String(cap.userImpact ?? cap.description ?? "Revise esta capacidade antes de continuar.");
+  const evidence = (cap: Record<string, any>) => {
+    const raw = cap.evidence ?? cap.reasonKey ?? metadataValue(cap, ["source"]);
+    return raw == null || raw === "" ? "" : String(raw);
+  };
+  const field = (label: string, value: unknown, isAddress = false) => {
+    if (value === undefined || value === null || value === "") return "";
+    const text = isAddress ? short(value) : String(value);
+    return `<span style="display:inline-flex; gap:4px; align-items:center; background:rgba(15,23,42,0.75); border:1px solid rgba(148,163,184,0.18); color:#cbd5e1; padding:3px 7px; border-radius:6px; font-size:11px; max-width:100%;">
+      <b style="color:#94a3b8;">${escapeHtml(label)}:</b>
+      <code style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(text)}</code>
+    </span>`;
+  };
+
+  const rows = capabilities.slice(0, 8).map((capBase) => {
+    const cap = capBase as Record<string, any>;
+    const sev = String(cap.severity ?? "INFO").toUpperCase();
+    const style = severityStyle(sev);
+    const token = cap.token ?? cap.tokenContract;
+    const verifyingContract = cap.verifyingContract ?? (cap.category === "CONTRACT_MISMATCH" ? cap.tokenContract : metadataValue(cap, ["verifyingContract"]));
+    const chainId = metadataValue(cap, ["chainId", "domainChainIdHex", "requestChainIdHex", "targetChainId", "currentChainId"]);
+    const deadline = metadataValue(cap, ["deadline", "deadlineRaw", "sigDeadline"]);
+    const chips = [
+      field("capability", capabilityLabel(cap)),
+      field("evidence", evidence(cap)),
+      field("spender", cap.spender, true),
+      field("operator", cap.operator, true),
+      field("token", token, true),
+      field("verifyingContract", verifyingContract, true),
+      field("chainId", chainId),
+      field("deadline", deadline),
+      field("unlimited", cap.unlimited === true ? "true" : cap.unlimited === false ? "false" : ""),
+    ].filter(Boolean).join("");
+
+    return `
+      <div style="background:rgba(15,23,42,0.55); border:1px solid rgba(148,163,184,0.18); border-radius:8px; padding:10px; margin-top:8px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:6px;">
+          <p style="margin:0; font-size:13px; font-weight:700; color:#f8fafc;">${escapeHtml(String(cap.title ?? capabilityLabel(cap)))}</p>
+          <span style="flex:0 0 auto; background:${style.bg}; color:${style.color}; border:1px solid ${style.border}; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:800;">${escapeHtml(sev)}</span>
+        </div>
+        <p style="margin:0 0 8px 0; font-size:12px; color:#cbd5e1; line-height:1.35;">${escapeHtml(userImpact(cap))}</p>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">${chips}</div>
+      </div>`;
+  }).join("");
+  const more = capabilities.length > 8
+    ? `<p style="margin:8px 0 0 0; font-size:11px; color:#94a3b8;">+${capabilities.length - 8} capabilities adicionais.</p>`
+    : "";
+
+  return `
+    <div style="margin-bottom:15px; background:#1e293b; border:1px solid #334155; padding:12px; border-radius:8px;">
+      <p style="font-size:11px; text-transform:uppercase; color:#64748b; font-weight:bold; margin:0 0 6px 0;">O que isso permite</p>
+      ${rows}
+      ${more}
+    </div>`;
+}
+
 /** UX human-readable panel per request type (CONNECT, ADD_CHAIN, WATCH_ASSET, etc.). */
 function renderTypeSpecificPanel(
   action: SGAction,
@@ -1019,6 +1102,7 @@ function updateOverlay(state: OverlayState) {
         </div>`;
         })()}
 
+        ${renderCapabilitiesHtml(analysis)}
         ${typePanel}
         ${quickSpenderBlock}
         ${quickDomainBlock}
